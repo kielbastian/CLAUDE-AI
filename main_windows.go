@@ -94,7 +94,11 @@ var (
 	statusColor uintptr
 	cardBrush   uintptr
 	cardPen     uintptr
+	fontIdle    uintptr
+	fontStatus  uintptr
 )
+
+const idleText = "Przeciągnij tutaj"
 
 func rgbRef(r, g, b byte) uintptr {
 	return uintptr(r) | uintptr(g)<<8 | uintptr(b)<<16
@@ -244,15 +248,22 @@ func openInExplorer(dir string) {
 		uintptr(unsafe.Pointer(utf16Ptr(dir))), 0, 0, swShownormal)
 }
 
+// setIdle przywraca przygaszony napis „Przeciągnij tutaj” na karcie.
+func setIdle() {
+	statusColor = rgbRef(0x8F, 0xA5, 0xB0)
+	pSendMessageW.Call(hStatus, wmSetFont, fontIdle, 1)
+	pSetWindowTextW.Call(hStatus, uintptr(unsafe.Pointer(utf16Ptr(idleText))))
+	pInvalidateRect.Call(mainHwnd, 0, 1)
+}
+
 // setStatus pokazuje krótki napis na karcie („Gotowe” / „Błąd”),
-// który znika po chwili.
+// który po chwili znika i wraca „Przeciągnij tutaj”.
 func setStatus(text string, color uintptr) {
 	statusColor = color
+	pSendMessageW.Call(hStatus, wmSetFont, fontStatus, 1)
 	pSetWindowTextW.Call(hStatus, uintptr(unsafe.Pointer(utf16Ptr(text))))
 	pInvalidateRect.Call(mainHwnd, 0, 1)
-	if text != "" {
-		pSetTimer.Call(mainHwnd, statusTimerID, statusTimerMs, 0)
-	}
+	pSetTimer.Call(mainHwnd, statusTimerID, statusTimerMs, 0)
 }
 
 func handleDrop(hDrop uintptr) {
@@ -283,7 +294,7 @@ func wndProc(hwnd, msg, wParam, lParam uintptr) uintptr {
 	case wmTimer:
 		if wParam == statusTimerID {
 			pKillTimer.Call(hwnd, statusTimerID)
-			setStatus("", statusColor)
+			setIdle()
 		}
 		return 0
 	case wmEraseBkgnd:
@@ -334,7 +345,7 @@ func runWindow() {
 	y := (int(scrH) - winH) / 2
 
 	style := uintptr(wsOverlapped | wsCaption | wsSysMenu | wsMinimizeBox | wsVisible)
-	hwnd, _, _ := pCreateWindowExW.Call(0,
+	hwnd, _, _ := pCreateWindowExW.Call(0x0001, /*WS_EX_DLGMODALFRAME — bez ikonki na pasku tytułu*/
 		uintptr(unsafe.Pointer(className)),
 		uintptr(unsafe.Pointer(utf16Ptr("KREATOR FOLDERÓW NC"))),
 		style, uintptr(x), uintptr(y), winW, winH, 0, 0, hInst, 0)
@@ -354,10 +365,15 @@ func runWindow() {
 		wsChild|wsVisible|ssCenter,
 		20, uintptr((rc[3]-34)/2), uintptr(rc[2]-40), 36, hwnd, 0, hInst, 0)
 
-	font, _, _ := pCreateFontW.Call(^uintptr(25) /* -26 */, 0, 0, 0, 700, 0, 0, 0,
-		1 /*DEFAULT_CHARSET*/, 0, 0, 5 /*CLEARTYPE*/, 0,
-		uintptr(unsafe.Pointer(utf16Ptr("Segoe UI"))))
-	pSendMessageW.Call(hStatus, wmSetFont, font, 1)
+	newFont := func(height int, weight uintptr) uintptr {
+		f, _, _ := pCreateFontW.Call(^uintptr(height-1) /* -height */, 0, 0, 0, weight, 0, 0, 0,
+			1 /*DEFAULT_CHARSET*/, 0, 0, 5 /*CLEARTYPE*/, 0,
+			uintptr(unsafe.Pointer(utf16Ptr("Segoe UI"))))
+		return f
+	}
+	fontIdle = newFont(19, 400)
+	fontStatus = newFont(26, 700)
+	setIdle()
 
 	pDragAcceptFiles.Call(hwnd, 1)
 
