@@ -20,6 +20,8 @@ var (
 	kernel32 = syscall.NewLazyDLL("kernel32.dll")
 	gdi32    = syscall.NewLazyDLL("gdi32.dll")
 	shell32  = syscall.NewLazyDLL("shell32.dll")
+	msimg32  = syscall.NewLazyDLL("msimg32.dll")
+	dwmapi   = syscall.NewLazyDLL("dwmapi.dll")
 
 	pRegisterClassExW    = user32.NewProc("RegisterClassExW")
 	pCreateWindowExW     = user32.NewProc("CreateWindowExW")
@@ -39,6 +41,14 @@ var (
 	pCreateFontW         = gdi32.NewProc("CreateFontW")
 	pMultiByteToWideChar = kernel32.NewProc("MultiByteToWideChar")
 	pGetModuleHandleW    = kernel32.NewProc("GetModuleHandleW")
+	pGetClientRect       = user32.NewProc("GetClientRect")
+	pSetBkMode           = gdi32.NewProc("SetBkMode")
+	pSetTextColor        = gdi32.NewProc("SetTextColor")
+	pSetBkColor          = gdi32.NewProc("SetBkColor")
+	pCreateSolidBrush    = gdi32.NewProc("CreateSolidBrush")
+	pGetStockObject      = gdi32.NewProc("GetStockObject")
+	pGradientFill        = msimg32.NewProc("GradientFill")
+	pDwmSetWindowAttr    = dwmapi.NewProc("DwmSetWindowAttribute")
 	pDragAcceptFiles     = shell32.NewProc("DragAcceptFiles")
 	pDragQueryFileW      = shell32.NewProc("DragQueryFileW")
 	pDragFinish          = shell32.NewProc("DragFinish")
@@ -62,6 +72,9 @@ const (
 	wmDestroy         = 0x0002
 	wmSetFont         = 0x0030
 	wmDropFiles       = 0x0233
+	wmEraseBkgnd      = 0x0014
+	wmCtlColorStatic  = 0x0138
+	emSetMargins      = 0x00D3
 	emSetSel          = 0x00B1
 	emReplaceSel      = 0x00C2
 	mbOK              = 0x0000
@@ -80,8 +93,37 @@ const (
 
 var (
 	hLog        uintptr
+	hHead       uintptr
 	oldEditProc uintptr
+	logBrush    uintptr
 )
+
+func rgbRef(r, g, b byte) uintptr {
+	return uintptr(r) | uintptr(g)<<8 | uintptr(b)<<16
+}
+
+// paintGradient maluje tło okna gradientem jak w „Liczniku NC”:
+// #0f2027 -> #203a43 -> #2c5364 po przekątnej.
+func paintGradient(hwnd, hdc uintptr) {
+	var rc [4]int32
+	pGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&rc[0])))
+	type triVertex struct {
+		x, y                    int32
+		red, green, blue, alpha uint16
+	}
+	v := func(x, y int32, r, g, b byte) triVertex {
+		return triVertex{x, y, uint16(r) << 8, uint16(g) << 8, uint16(b) << 8, 0}
+	}
+	verts := [4]triVertex{
+		v(0, 0, 0x0F, 0x20, 0x27),
+		v(rc[2], 0, 0x20, 0x3A, 0x43),
+		v(0, rc[3], 0x20, 0x3A, 0x43),
+		v(rc[2], rc[3], 0x2C, 0x53, 0x64),
+	}
+	tris := [2][3]uint32{{0, 1, 2}, {1, 3, 2}}
+	pGradientFill.Call(hdc, uintptr(unsafe.Pointer(&verts[0])), 4,
+		uintptr(unsafe.Pointer(&tris[0])), 2, 2 /*GRADIENT_FILL_TRIANGLE*/)
+}
 
 func utf16Ptr(s string) *uint16 {
 	p, _ := syscall.UTF16PtrFromString(s)
@@ -227,6 +269,28 @@ func wndProc(hwnd, msg, wParam, lParam uintptr) uintptr {
 	case wmDropFiles:
 		handleDrop(wParam)
 		return 0
+	case wmEraseBkgnd:
+		paintGradient(hwnd, wParam)
+		return 1
+	case wmCtlColorStatic:
+		hdc := wParam
+		if lParam == hLog {
+			// dziennik: ciemna „szklana” karta z jasnym tekstem
+			pSetTextColor.Call(hdc, rgbRef(0xDF, 0xF1, 0xFB))
+			pSetBkColor.Call(hdc, rgbRef(0x17, 0x2A, 0x33))
+			if logBrush != 0 {
+				return logBrush
+			}
+		} else {
+			pSetBkMode.Call(hdc, 1 /*TRANSPARENT*/)
+			if lParam == hHead {
+				pSetTextColor.Call(hdc, rgbRef(0xA9, 0xC3, 0xD2)) // przygaszony nagłówek
+			} else {
+				pSetTextColor.Call(hdc, rgbRef(0xEA, 0xF6, 0xFF))
+			}
+		}
+		r, _, _ := pGetStockObject.Call(5 /*NULL_BRUSH*/)
+		return r
 	case wmDestroy:
 		pPostQuitMessage.Call(0)
 		return 0
@@ -259,14 +323,15 @@ func runWindow() {
 		iconSm                             uintptr
 	}
 	wc := wndClassEx{
-		wndProc:    syscall.NewCallback(wndProc),
-		instance:   hInst,
-		cursor:     cursor,
-		background: colorBtnFace + 1,
-		className:  className,
+		wndProc:   syscall.NewCallback(wndProc),
+		instance:  hInst,
+		cursor:    cursor,
+		className: className, // tło maluje wmEraseBkgnd (gradient)
 	}
 	wc.size = uint32(unsafe.Sizeof(wc))
 	pRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc)))
+
+	logBrush, _, _ = pCreateSolidBrush.Call(rgbRef(0x17, 0x2A, 0x33))
 
 	scrW, _, _ := pGetSystemMetrics.Call(smCxScreen)
 	scrH, _, _ := pGetSystemMetrics.Call(smCyScreen)
@@ -279,6 +344,16 @@ func runWindow() {
 		uintptr(unsafe.Pointer(utf16Ptr("Kreator Folderów — NC/TXT"))),
 		style, uintptr(x), uintptr(y), winW, winH, 0, 0, hInst, 0)
 
+	// ciemny pasek tytułu (Windows 10 1809+ / Windows 11); starsze systemy ignorują
+	dark := int32(1)
+	pDwmSetWindowAttr.Call(hwnd, 20, uintptr(unsafe.Pointer(&dark)), 4)
+	pDwmSetWindowAttr.Call(hwnd, 19, uintptr(unsafe.Pointer(&dark)), 4)
+
+	hHead, _, _ = pCreateWindowExW.Call(0,
+		uintptr(unsafe.Pointer(utf16Ptr("STATIC"))),
+		uintptr(unsafe.Pointer(utf16Ptr("KREATOR FOLDERÓW NC"))),
+		wsChild|wsVisible, 22, 14, winW-60, 20, hwnd, 0, hInst, 0)
+
 	hint := "▼  Przeciągnij tutaj plik .txt lub .nc  ▼\r\n\r\n" +
 		"Na Pulpicie powstanie folder o nazwie z nawiasu\r\n" +
 		"z pierwszej linijki pliku, a plik zostanie do niego skopiowany.\r\n\r\n" +
@@ -286,19 +361,24 @@ func runWindow() {
 	hStatic, _, _ := pCreateWindowExW.Call(0,
 		uintptr(unsafe.Pointer(utf16Ptr("STATIC"))),
 		uintptr(unsafe.Pointer(utf16Ptr(hint))),
-		wsChild|wsVisible|ssCenter, 20, 25, winW-60, 140, hwnd, 0, hInst, 0)
+		wsChild|wsVisible|ssCenter, 20, 52, winW-60, 125, hwnd, 0, hInst, 0)
 
-	hLog, _, _ = pCreateWindowExW.Call(0x200, /*WS_EX_CLIENTEDGE*/
+	hLog, _, _ = pCreateWindowExW.Call(0,
 		uintptr(unsafe.Pointer(utf16Ptr("EDIT"))),
 		uintptr(unsafe.Pointer(utf16Ptr(""))),
-		wsChild|wsVisible|wsBorder|wsVScroll|esMultiline|esAutoVScroll|esReadonly,
-		20, 180, winW-60, 220, hwnd, 0, hInst, 0)
+		wsChild|wsVisible|wsVScroll|esMultiline|esAutoVScroll|esReadonly,
+		20, 190, winW-60, 200, hwnd, 0, hInst, 0)
+	pSendMessageW.Call(hLog, emSetMargins, 3 /*EC_LEFT|EC_RIGHT*/, 10|10<<16)
 
-	font, _, _ := pCreateFontW.Call(^uintptr(17) /* -18 */, 0, 0, 0, 400, 0, 0, 0,
-		1 /*DEFAULT_CHARSET*/, 0, 0, 5 /*CLEARTYPE*/, 0,
-		uintptr(unsafe.Pointer(utf16Ptr("Segoe UI"))))
-	pSendMessageW.Call(hStatic, wmSetFont, font, 1)
-	pSendMessageW.Call(hLog, wmSetFont, font, 1)
+	newFont := func(height int, weight uintptr) uintptr {
+		f, _, _ := pCreateFontW.Call(^uintptr(height-1) /* -height */, 0, 0, 0, weight, 0, 0, 0,
+			1 /*DEFAULT_CHARSET*/, 0, 0, 5 /*CLEARTYPE*/, 0,
+			uintptr(unsafe.Pointer(utf16Ptr("Segoe UI"))))
+		return f
+	}
+	pSendMessageW.Call(hHead, wmSetFont, newFont(13, 600), 1)
+	pSendMessageW.Call(hStatic, wmSetFont, newFont(18, 400), 1)
+	pSendMessageW.Call(hLog, wmSetFont, newFont(15, 400), 1)
 
 	// Przyjmuj pliki zarówno na oknie, jak i na polu dziennika.
 	pDragAcceptFiles.Call(hwnd, 1)
