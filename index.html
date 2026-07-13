@@ -333,6 +333,24 @@
     background:rgba(34,211,238,.07);
     box-shadow:0 0 0 3px rgba(34,211,238,.28),0 0 34px rgba(34,211,238,.22);
   }
+  .pdf-box{display:flex;flex-direction:column;gap:8px}
+  .pdf-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .pdf-row .mini-btn{padding:9px 14px}
+  .pdf-note{font-size:.76rem;color:var(--mut)}
+  .pdf-have{font-size:.8rem;color:#6ee7a0}
+  .pdf-item{
+    position:relative;overflow:hidden;cursor:pointer;
+    padding:9px 13px;border-radius:10px;font-size:.83rem;color:#b9c2d8;
+    background:rgba(255,255,255,.04);border:1px solid var(--stroke);
+    transition:all .15s;word-break:break-all;
+  }
+  .pdf-item:hover{border-color:var(--stroke-hi)}
+  .pdf-item:active{transform:scale(.985);box-shadow:0 0 0 3px rgba(52,211,153,.25)}
+  .pdf-item.on{
+    border-color:rgba(52,211,153,.55);background:rgba(52,211,153,.08);color:#d1fae5;
+    box-shadow:0 0 14px rgba(52,211,153,.18);
+  }
+  .pdf-item b{color:var(--ok);font-weight:600}
 
   /* podgląd programu */
   .meta-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:18px}
@@ -445,6 +463,15 @@
       <span id="folderLabel">Połącz folder</span>
     </button>
     <button class="x-btn" id="btnFolderOff" title="Odłącz folder" style="display:none">✕</button>
+    <button class="btn" id="btnPdf" title="Połącz z folderem, w którym są rysunki PDF">
+      <span class="dot"></span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path>
+        <path d="M14 3v5h5M9 13h6M9 17h6"></path>
+      </svg>
+      <span id="pdfLabel">Folder PDF</span>
+    </button>
+    <button class="x-btn" id="btnPdfOff" title="Odłącz folder PDF" style="display:none">✕</button>
     <button class="btn btn-primary" id="btnNew">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
         <path d="M12 5v14M5 12h14"></path>
@@ -523,6 +550,10 @@
         <div class="field wide">
           <label>Notatka</label>
           <textarea id="fNote" rows="2"></textarea>
+        </div>
+        <div class="field wide">
+          <label>Rysunek PDF</label>
+          <div class="pdf-box" id="pdfBox"></div>
         </div>
         <div class="field wide" id="fChangeWrap" style="display:none">
           <label>Opis zmian — do historii wersji</label>
@@ -732,11 +763,13 @@ const onumInt = s => { const m = String(s || "").match(/\d+/); return m ? parseI
 const collapse = s => String(s || "").replace(/\s+/g, " ").trim();
 const sanitizeName = s => collapse(String(s || "").replace(/[\\/:*?"<>|]+/g, "_")).slice(0, 60) || "program";
 
-/* wyciąga z kodu: numer O, nazwę z nawiasów obok numeru, nazwę detalu z komentarza */
+/* wyciąga z kodu: numer O, nazwę z nawiasów obok numeru, nazwę detalu, numer rysunku SZ#### */
 function parseGcodeMeta(code) {
-  const meta = { onum: "", name: "", detail: "" };
+  const meta = { onum: "", name: "", detail: "", drawing: "" };
   const m = String(code || "").match(/^[ \t]*[Oo](\d{1,5})[ \t]*(?:\(([^)]*)\))?/m);
   if (m) { meta.onum = "O" + m[1]; meta.name = collapse(m[2]); }
+  const dm = String(code || "").slice(0, 800).match(/\bSZ[-\s]?(\d{2,6})\b/i);
+  if (dm) meta.drawing = "SZ" + dm[1];
   for (const line of String(code || "").split("\n").slice(0, 15)) {
     const c = line.match(/^\s*\(([^)]*)\)\s*$/);
     if (!c) continue;
@@ -767,6 +800,11 @@ function nextFreeOnum() {
 
 /* ════════════════ folder CNC Programy na dysku (File System Access API) ════════════════ */
 let fsRoot = null;
+let pdfRoot = null;         // folder z rysunkami PDF
+let pdfFiles = [];          // zeskanowana lista PDF-ów: {name, path, handle}
+let pdfCandidates = [];     // wyniki wyszukiwania rysunku w formularzu
+let selectedPdf = null;     // rysunek wybrany do skopiowania przy zapisie
+let attachedPdfs = [];      // rysunki już leżące w folderze edytowanego programu
 const FILE_RE = /\.(txt|nc|cnc|tap|eia|prg|ngc)$/i;
 
 function idb() {
@@ -834,13 +872,23 @@ async function restoreFolder() {
   if (!window.showDirectoryPicker) return;
   let h = null;
   try { h = await idbGet("root"); } catch (e) {}
-  if (!h) return;
-  fsRoot = h;
-  let st = "prompt";
-  try { st = await h.queryPermission({ mode: "readwrite" }); } catch (e) {}
-  updateFolderUI(st !== "granted");
-  if (st === "granted") await rescanFolder();
-  else toast('Kliknij "Wznów: ' + h.name + '", aby przywrócić dostęp do folderu');
+  if (h) {
+    fsRoot = h;
+    let st = "prompt";
+    try { st = await h.queryPermission({ mode: "readwrite" }); } catch (e) {}
+    updateFolderUI(st !== "granted");
+    if (st === "granted") await rescanFolder();
+    else toast('Kliknij "Wznów: ' + h.name + '", aby przywrócić dostęp do folderu');
+  }
+  let hp = null;
+  try { hp = await idbGet("pdfRoot"); } catch (e) {}
+  if (hp) {
+    pdfRoot = hp;
+    let st = "prompt";
+    try { st = await hp.queryPermission({ mode: "read" }); } catch (e) {}
+    updatePdfUI(st !== "granted");
+    if (st === "granted") await scanPdfFolder();
+  }
 }
 
 async function disconnectFolder() {
@@ -857,17 +905,22 @@ async function rescanFolder() {
   try {
     for await (const [name, h] of fsRoot.entries()) {
       if (h.kind === "directory") {
+        const progs = [], pdfs = [];
         try {
           for await (const [fn, fh] of h.entries()) {
-            if (fh.kind === "file" && FILE_RE.test(fn)) {
+            if (fh.kind !== "file") continue;
+            if (FILE_RE.test(fn)) {
               const f = await fh.getFile();
-              found.push({ dir: name, file: fn, code: await f.text(), mtime: f.lastModified });
+              progs.push({ dir: name, file: fn, code: await f.text(), mtime: f.lastModified });
+            } else if (/\.pdf$/i.test(fn)) {
+              pdfs.push(fn);
             }
           }
         } catch (e) {}
+        progs.forEach(pr => { pr.pdfs = pdfs; found.push(pr); });
       } else if (h.kind === "file" && FILE_RE.test(name)) {
         const f = await h.getFile();
-        found.push({ dir: "", file: name, code: await f.text(), mtime: f.lastModified });
+        found.push({ dir: "", file: name, code: await f.text(), mtime: f.lastModified, pdfs: [] });
       }
     }
   } catch (e) { toast("Nie udało się odczytać folderu"); return; }
@@ -884,16 +937,21 @@ async function rescanFolder() {
         id, source: "disk", dir: x.dir, file: x.file,
         name: meta.name || x.file.replace(/\.[^.]+$/, ""),
         onum: meta.onum || "", detail: meta.detail || "",
-        drawing: "", client: "", material: "", tags: [], note: "",
-        fav: false, versions: [], code: x.code, created: x.mtime, modified: x.mtime
+        drawing: meta.drawing || "", client: "", material: "", tags: [], note: "",
+        fav: false, versions: [], code: x.code, created: x.mtime, modified: x.mtime,
+        pdfs: x.pdfs || []
       });
       added++;
-    } else if (p.code !== x.code) {
-      (p.versions = p.versions || []).push({ date: p.modified, note: "Wersja sprzed zmiany pliku na dysku", code: p.code });
-      p.code = x.code;
-      p.modified = x.mtime;
-      const meta = parseGcodeMeta(x.code);
-      if (meta.onum) p.onum = meta.onum;
+    } else {
+      p.pdfs = x.pdfs || [];
+      if (p.code !== x.code) {
+        (p.versions = p.versions || []).push({ date: p.modified, note: "Wersja sprzed zmiany pliku na dysku", code: p.code });
+        p.code = x.code;
+        p.modified = x.mtime;
+        const meta = parseGcodeMeta(x.code);
+        if (meta.onum) p.onum = meta.onum;
+        if (meta.drawing && !p.drawing) p.drawing = meta.drawing;
+      }
     }
   });
   programs = programs.filter(p => p.source !== "disk" || diskIds.has(p.id));
@@ -910,6 +968,137 @@ async function writeDisk(p) {
     const w = await fh.createWritable();
     await w.write(p.code || "");
     await w.close();
+    return true;
+  } catch (e) { return false; }
+}
+
+/* ════════════════ folder z rysunkami PDF ════════════════ */
+function updatePdfUI(resume) {
+  const btn = document.getElementById("btnPdf");
+  const lbl = document.getElementById("pdfLabel");
+  const off = document.getElementById("btnPdfOff");
+  btn.classList.remove("connected", "resume");
+  if (!pdfRoot) {
+    lbl.textContent = "Folder PDF";
+    btn.title = "Połącz z folderem, w którym są rysunki PDF";
+    off.style.display = "none";
+    return;
+  }
+  off.style.display = "";
+  if (resume) {
+    btn.classList.add("resume");
+    lbl.textContent = "Wznów: " + pdfRoot.name;
+    btn.title = "Kliknij, aby przywrócić dostęp do folderu z rysunkami";
+  } else {
+    btn.classList.add("connected");
+    lbl.textContent = pdfRoot.name;
+    btn.title = "Kliknij, aby przeskanować rysunki ponownie";
+  }
+}
+
+async function connectPdfFolder() {
+  if (!window.showDirectoryPicker) {
+    toast("Ta przeglądarka nie obsługuje dostępu do folderów — użyj Chrome lub Edge");
+    return;
+  }
+  try { pdfRoot = await window.showDirectoryPicker({ mode: "read" }); }
+  catch (e) { return; }
+  try { await idbSet("pdfRoot", pdfRoot); } catch (e) {}
+  updatePdfUI(false);
+  await scanPdfFolder();
+}
+
+async function disconnectPdfFolder() {
+  pdfRoot = null;
+  pdfFiles = [];
+  try { await idbSet("pdfRoot", null); } catch (e) {}
+  updatePdfUI(false);
+  toast("Odłączono folder z rysunkami");
+}
+
+/* skanuje folder rysunków (z podfolderami) i zapamiętuje listę PDF-ów */
+async function scanPdfFolder() {
+  if (!pdfRoot) return;
+  pdfFiles = [];
+  async function walk(dir, path, depth) {
+    if (depth > 4) return;
+    try {
+      for await (const [name, h] of dir.entries()) {
+        if (h.kind === "file" && /\.pdf$/i.test(name)) {
+          pdfFiles.push({ name, path: (path ? path + "/" : "") + name, handle: h });
+        } else if (h.kind === "directory") {
+          await walk(h, (path ? path + "/" : "") + name, depth + 1);
+        }
+      }
+    } catch (e) {}
+  }
+  await walk(pdfRoot, "", 0);
+  toast("Folder rysunków „" + pdfRoot.name + "”: " + pdfFiles.length + " plików PDF");
+}
+
+/* szuka rysunku po numerze (SZ2456) i po nazwie z nawiasów obok numeru O */
+function findPdfMatches(drawing, name) {
+  const norm = s => String(s || "").toLowerCase().replace(/[\s\-_]+/g, "");
+  const dn = norm(drawing);
+  const tokens = String(name || "").toLowerCase().split(/\s+/)
+    .filter(t => t.length >= 3 && !/^\d+$/.test(t) && norm(t) !== dn);
+  const out = [];
+  for (const f of pdfFiles) {
+    const fn = norm(f.name.replace(/\.pdf$/i, ""));
+    let score = 0;
+    if (dn && fn.includes(dn)) score += 10;
+    for (const t of tokens) if (fn.includes(norm(t))) score += 1;
+    if (score > 0) out.push({ f, score });
+  }
+  return out.sort((a, b) => b.score - a.score).slice(0, 8).map(x => x.f);
+}
+
+function doPdfSearch(autoSelect) {
+  pdfCandidates = findPdfMatches(
+    document.getElementById("fDrawing").value,
+    document.getElementById("fName").value
+  );
+  if (autoSelect) selectedPdf = pdfCandidates[0] || null;
+  else if (selectedPdf && !pdfCandidates.includes(selectedPdf)) selectedPdf = null;
+  renderPdfBox();
+}
+
+function renderPdfBox() {
+  const box = document.getElementById("pdfBox");
+  if (!box) return;
+  let html = "";
+  if (attachedPdfs.length) {
+    html += '<div class="pdf-have">W folderze programu: ' + attachedPdfs.map(esc).join(", ") + "</div>";
+  }
+  if (!pdfRoot) {
+    html += '<div class="pdf-row">'
+      + '<button type="button" class="mini-btn" id="pdfConnect">Wskaż folder z rysunkami PDF</button>'
+      + '<span class="pdf-note">aplikacja sama znajdzie rysunek po numerze i nazwie detalu</span></div>';
+  } else {
+    html += '<div class="pdf-row">'
+      + '<button type="button" class="mini-btn" id="pdfSearch">Szukaj rysunku</button>'
+      + '<span class="pdf-note">' + (pdfCandidates.length
+          ? "znaleziono: " + pdfCandidates.length
+          : esc(pdfRoot.name) + " · " + pdfFiles.length + " PDF") + "</span></div>";
+    html += pdfCandidates.map((f, i) =>
+      '<div class="pdf-item' + (selectedPdf === f ? " on" : "") + '" data-pdf="' + i + '">📄 ' + esc(f.path)
+      + (selectedPdf === f ? " <b>— zostanie skopiowany do folderu programu</b>" : "")
+      + "</div>").join("");
+  }
+  box.innerHTML = html;
+}
+
+/* kopiuje wybrany rysunek PDF do podfolderu programu */
+async function copyPdfToProgram(p, entry) {
+  if (!fsRoot || !p.dir || !entry) return false;
+  try {
+    const src = await entry.handle.getFile();
+    const dh = await fsRoot.getDirectoryHandle(p.dir, { create: true });
+    const fh = await dh.getFileHandle(entry.name, { create: true });
+    const w = await fh.createWritable();
+    await w.write(await src.arrayBuffer());
+    await w.close();
+    p.pdfs = [...new Set([...(p.pdfs || []), entry.name])];
     return true;
   } catch (e) { return false; }
 }
@@ -939,7 +1128,10 @@ async function applyDroppedFile(file) {
   document.getElementById("hName").classList.remove("show");
   const det = document.getElementById("fDetail");
   if (!det.value.trim() && meta.detail) det.value = meta.detail;
+  const dr = document.getElementById("fDrawing");
+  if (!dr.value.trim() && meta.drawing) dr.value = meta.drawing;
   checkOnumDup();
+  if (pdfRoot) doPdfSearch(true);
 }
 
 /* import wielu plików naraz — od razu do biblioteki (i na dysk, gdy folder połączony) */
@@ -956,13 +1148,17 @@ async function importFile(file) {
     id: uid(), source: "local", fav: false, versions: [],
     created: Date.now(), modified: Date.now(),
     name, onum, detail: meta.detail || "",
-    drawing: "", client: "", material: "", tags: [], note: "", code
+    drawing: meta.drawing || "", client: "", material: "", tags: [], note: "", code
   };
   if (fsRoot) {
     let base = sanitizeName(name);
     if (byId("d:" + base + "/" + base + ".txt")) base = base + "_" + onum;
     p.dir = base; p.file = base + ".txt"; p.id = "d:" + base + "/" + p.file; p.source = "disk";
     await writeDisk(p);
+    if (pdfRoot) {
+      const match = findPdfMatches(p.drawing, p.name)[0];
+      if (match) await copyPdfToProgram(p, match);
+    }
   }
   programs.push(p);
 }
@@ -1049,7 +1245,7 @@ function render() {
         </div>
         ${(p.tags || []).length ? `<div class="tags">${p.tags.map(t => `<span class="tag">${esc(t)}</span>`).join("")}</div>` : ""}
         <div class="card-foot">
-          <span>${p.dir ? "📁 " + esc(p.dir) + " · " : ""}${fmtDate(p.modified)}</span>
+          <span>${p.dir ? "📁 " + esc(p.dir) + " · " : ""}${fmtDate(p.modified)}${(p.pdfs && p.pdfs.length) ? " · 📄" : ""}</span>
           <span class="ver">
             <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round">
               <path d="M12 8v4l2.5 2.5"></path><circle cx="12" cy="12" r="9"></circle>
@@ -1103,7 +1299,8 @@ function openView(id) {
   const meta = [
     ["Detal", p.detail], ["Nr rysunku", p.drawing], ["Klient", p.client],
     ["Materiał", p.material], ["Utworzono", fmtDate(p.created)], ["Zmieniono", fmtDate(p.modified)],
-    ["Plik na dysku", p.file ? (p.dir ? p.dir + "/" : "") + p.file : ""]
+    ["Plik na dysku", p.file ? (p.dir ? p.dir + "/" : "") + p.file : ""],
+    ["Rysunek PDF", (p.pdfs || []).join(", ")]
   ].filter(m => m[1]);
 
   document.getElementById("vBody").innerHTML = `
@@ -1155,6 +1352,11 @@ function openEdit(id) {
   document.getElementById("fOnum").classList.remove("bad");
   document.getElementById("hName").classList.remove("show");
   document.getElementById("hOnum").classList.remove("show");
+  selectedPdf = null;
+  pdfCandidates = [];
+  attachedPdfs = (p && p.pdfs) ? p.pdfs.slice() : [];
+  if (pdfRoot && p && (p.drawing || p.name) && !attachedPdfs.length) doPdfSearch(true);
+  else renderPdfBox();
   openModal("mEdit");
   setTimeout(() => document.getElementById("fName").focus(), 60);
 }
@@ -1209,6 +1411,10 @@ async function saveProgram() {
       const ok = await writeDisk(p);
       toast(ok ? "Zapisano na dysku — " + (p.dir ? p.dir + "/" : "") + p.file
                : "Zapisano w aplikacji — brak dostępu do folderu");
+      if (ok && selectedPdf && p.dir) {
+        const okPdf = await copyPdfToProgram(p, selectedPdf);
+        if (okPdf) toast("Skopiowano rysunek " + selectedPdf.name + " do folderu „" + p.dir + "”");
+      }
     } else {
       toast("Zapisano zmiany — " + p.name);
     }
@@ -1221,6 +1427,10 @@ async function saveProgram() {
       const ok = await writeDisk(p);
       toast(ok ? "Utworzono folder „" + p.dir + "” i zapisano " + p.file
                : "Nie udało się zapisać na dysku — program zapisany w aplikacji");
+      if (ok && selectedPdf) {
+        const okPdf = await copyPdfToProgram(p, selectedPdf);
+        if (okPdf) toast("Skopiowano rysunek " + selectedPdf.name + " do folderu „" + p.dir + "”");
+      }
     } else {
       toast("Dodano program — " + name);
     }
@@ -1299,6 +1509,38 @@ document.getElementById("btnFolder").addEventListener("click", async () => {
   await rescanFolder();
 });
 document.getElementById("btnFolderOff").addEventListener("click", disconnectFolder);
+
+document.getElementById("btnPdf").addEventListener("click", async () => {
+  if (!pdfRoot) { await connectPdfFolder(); return; }
+  let st = "prompt";
+  try { st = await pdfRoot.queryPermission({ mode: "read" }); } catch (e) {}
+  if (st !== "granted") {
+    try { st = await pdfRoot.requestPermission({ mode: "read" }); } catch (e) {}
+    if (st !== "granted") { toast("Brak zgody na dostęp do folderu z rysunkami"); return; }
+  }
+  updatePdfUI(false);
+  await scanPdfFolder();
+});
+document.getElementById("btnPdfOff").addEventListener("click", disconnectPdfFolder);
+
+/* pole „Rysunek PDF” w formularzu — łączenie, szukanie, wybór rysunku */
+document.getElementById("pdfBox").addEventListener("click", async e => {
+  if (e.target.closest("#pdfConnect")) {
+    await connectPdfFolder();
+    if (pdfRoot) doPdfSearch(true); else renderPdfBox();
+    return;
+  }
+  if (e.target.closest("#pdfSearch")) { doPdfSearch(true); return; }
+  const it = e.target.closest("[data-pdf]");
+  if (it) {
+    const f = pdfCandidates[+it.dataset.pdf];
+    selectedPdf = (selectedPdf === f) ? null : f;
+    renderPdfBox();
+  }
+});
+document.getElementById("fDrawing").addEventListener("change", () => {
+  if (pdfRoot) doPdfSearch(true);
+});
 
 document.getElementById("btnFreeOnum").addEventListener("click", () => {
   const free = nextFreeOnum();
