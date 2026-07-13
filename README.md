@@ -1,7 +1,8 @@
-# Utwórz folder z pliku NC / TXT
+# Kreator Folderów — NC/TXT
 
-Aplikacja, na którą przeciągasz plik tekstowy (`.txt`, `.nc`), a ona tworzy
-folder o nazwie znajdującej się **w nawiasie w pierwszej linijce** pliku.
+Aplikacja Windows, na którą przeciągasz plik tekstowy (`.txt`, `.nc`), a ona
+tworzy **na Pulpicie** folder o nazwie znajdującej się **w nawiasie w pierwszej
+linijce** pliku i **kopiuje do niego ten plik**.
 
 Przykład — plik zaczynający się od:
 
@@ -10,37 +11,48 @@ Przykład — plik zaczynający się od:
 O02316 (TRZPIEN UA 227113)
 ```
 
-utworzy folder **`TRZPIEN UA 227113`** (obok pliku).
+utworzy na Pulpicie folder **`TRZPIEN UA 227113`** z kopią pliku w środku.
 
-## Sposób 1 — Windows: przeciągnij plik na ikonę (zalecany)
+## Instalacja (Windows)
 
-Pliki: [`UtworzFolder.bat`](UtworzFolder.bat) + [`UtworzFolder.ps1`](UtworzFolder.ps1)
+1. Pobierz plik **[`KreatorFolderow.exe`](KreatorFolderow.exe)**.
+2. Skopiuj go na Pulpit — to cała instalacja (program niczego nie wymaga).
+3. Przy pierwszym uruchomieniu Windows może pokazać ostrzeżenie SmartScreen
+   („System Windows ochronił ten komputer”) — kliknij **„Więcej informacji”**,
+   a następnie **„Uruchom mimo to”**. Ostrzeżenie pojawia się tylko raz.
 
-1. Pobierz **oba** pliki i umieść je w tym samym miejscu (np. na Pulpicie).
-2. Przeciągnij plik `.txt` / `.nc` na ikonę **`UtworzFolder.bat`**.
-3. Folder zostanie utworzony **w tym samym miejscu, w którym jest plik**.
+## Użycie
 
-Można przeciągnąć **kilka plików naraz** — powstanie folder dla każdego z nich.
+- **Przeciągnij plik `.txt` / `.nc` na ikonę programu** — na Pulpicie powstanie
+  folder, plik zostanie do niego skopiowany, a program pokaże wynik i otworzy
+  utworzony folder. Można przeciągnąć kilka plików naraz.
+- **Dwuklik na ikonę** — otwiera się okno, na które również można przeciągać
+  pliki; poniżej widać dziennik wykonanych operacji.
 
-Wskazówka: skrót do `UtworzFolder.bat` można przypiąć na Pulpicie i przeciągać
-pliki na skrót.
+## Wersja przeglądarkowa (Chrome / Edge)
 
-## Sposób 2 — przeglądarka (Chrome / Edge)
-
-Plik: [`UtworzFolder.html`](UtworzFolder.html)
-
-1. Pobierz plik i otwórz go dwuklikiem (otworzy się w przeglądarce).
-2. Kliknij **„Wybierz folder docelowy”** i wskaż, gdzie mają powstawać foldery.
-3. Przeciągnij plik `.txt` / `.nc` na pole — folder zostanie utworzony
-   w wybranym miejscu.
+Plik: [`UtworzFolder.html`](UtworzFolder.html) — otwórz w przeglądarce,
+kliknij „Wybierz folder docelowy” (np. Pulpit), a potem przeciągaj pliki na
+pole. Folder z kopią pliku powstanie w wybranym miejscu.
 
 ## Jak działa wyszukiwanie nazwy
 
-- Program szuka **pierwszego tekstu w nawiasie `( ... )`** od początku pliku
+- Program bierze **pierwszy tekst w nawiasie `( ... )`** od początku pliku
   (puste linie i linia `%` są pomijane).
 - Znaki niedozwolone w nazwach folderów Windows (`\ / : * ? " < > |`)
-  są zamieniane na `_`.
-- Jeżeli folder już istnieje, program tylko o tym informuje — niczego nie
-  nadpisuje ani nie usuwa.
-- Jeżeli w pliku nie ma żadnego nawiasu z tekstem, program zgłasza błąd
-  i nie tworzy folderu.
+  zamieniane są na `_`.
+- Oryginalny plik zostaje na swoim miejscu — program **kopiuje**, niczego nie
+  przenosi, nie nadpisuje i nie usuwa.
+- Jeśli folder już istnieje, plik jest po prostu do niego dokopiowywany.
+
+## Kompilacja ze źródeł
+
+Wymagany [Go](https://go.dev). W katalogu projektu:
+
+```
+GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w -H=windowsgui" -o KreatorFolderow.exe .
+```
+
+Ikona jest osadzona przez plik `rsrc_windows_amd64.syso`
+(wygenerowany z `ikona.ico` narzędziem `github.com/akavel/rsrc`).
+Testy logiki: `go test ./...`.

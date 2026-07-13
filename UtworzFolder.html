@@ -58,7 +58,8 @@
 <div class="app">
   <h1>📁 Utwórz folder z pliku NC</h1>
   <p class="sub">Przeciągnij plik .txt / .nc — program utworzy folder o nazwie z nawiasu
-     w pierwszej linijce pliku, np. <b>O02316 (TRZPIEN UA 227113)</b> → folder <b>TRZPIEN UA 227113</b>.</p>
+     w pierwszej linijce pliku (np. <b>O02316 (TRZPIEN UA 227113)</b> → folder
+     <b>TRZPIEN UA 227113</b>) i skopiuje do niego ten plik.</p>
 
   <div class="card">
     <div class="step">
@@ -127,17 +128,21 @@
     }
     name = name.replace(/[\\/:*?"<>|]/g, '_').replace(/[. ]+$/, '');
     try {
-      let exists = true;
+      let existed = true;
       try { await parentDir.getDirectoryHandle(name); }
-      catch { exists = false; }
-      if (exists) {
-        addLog('warn', 'Folder „' + name + '” już istnieje.');
+      catch { existed = false; }
+      const dir = await parentDir.getDirectoryHandle(name, { create: true });
+      const fh = await dir.getFileHandle(file.name, { create: true });
+      const w = await fh.createWritable();
+      await w.write(await file.arrayBuffer());
+      await w.close();
+      if (existed) {
+        addLog('ok', 'Folder „' + name + '” już istniał — skopiowano do niego plik ' + file.name + '.');
       } else {
-        await parentDir.getDirectoryHandle(name, { create: true });
-        addLog('ok', 'Utworzono folder: ' + name + '  (z pliku ' + file.name + ')');
+        addLog('ok', 'Utworzono folder „' + name + '” i skopiowano plik ' + file.name + '.');
       }
     } catch (e) {
-      addLog('err', 'Błąd tworzenia folderu „' + name + '”: ' + e.message);
+      addLog('err', 'Błąd przy folderze „' + name + '”: ' + e.message);
     }
   }
 
