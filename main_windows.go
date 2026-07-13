@@ -1,8 +1,8 @@
 //go:build windows
 
 // Kreator Folderów — przeciągnij plik .txt/.nc na ikonę programu (lub na jego
-// okno), a na Pulpicie powstanie folder o nazwie z pierwszego nawiasu w pliku
-// i zostanie do niego skopiowany przeciągnięty plik.
+// małe okno), a na Pulpicie powstanie folder o nazwie z pierwszego nawiasu
+// w pliku i zostanie do niego skopiowany przeciągnięty plik.
 package main
 
 import (
@@ -35,20 +35,24 @@ var (
 	pShowWindow          = user32.NewProc("ShowWindow")
 	pUpdateWindow        = user32.NewProc("UpdateWindow")
 	pSendMessageW        = user32.NewProc("SendMessageW")
-	pSetWindowLongPtrW   = user32.NewProc("SetWindowLongPtrW")
-	pCallWindowProcW     = user32.NewProc("CallWindowProcW")
+	pSetWindowTextW      = user32.NewProc("SetWindowTextW")
+	pSetTimer            = user32.NewProc("SetTimer")
+	pKillTimer           = user32.NewProc("KillTimer")
+	pInvalidateRect      = user32.NewProc("InvalidateRect")
 	pGetSystemMetrics    = user32.NewProc("GetSystemMetrics")
-	pCreateFontW         = gdi32.NewProc("CreateFontW")
-	pMultiByteToWideChar = kernel32.NewProc("MultiByteToWideChar")
-	pGetModuleHandleW    = kernel32.NewProc("GetModuleHandleW")
 	pGetClientRect       = user32.NewProc("GetClientRect")
 	pSetBkMode           = gdi32.NewProc("SetBkMode")
 	pSetTextColor        = gdi32.NewProc("SetTextColor")
-	pSetBkColor          = gdi32.NewProc("SetBkColor")
 	pCreateSolidBrush    = gdi32.NewProc("CreateSolidBrush")
+	pCreatePen           = gdi32.NewProc("CreatePen")
+	pSelectObject        = gdi32.NewProc("SelectObject")
 	pGetStockObject      = gdi32.NewProc("GetStockObject")
+	pRoundRect           = gdi32.NewProc("RoundRect")
+	pCreateFontW         = gdi32.NewProc("CreateFontW")
 	pGradientFill        = msimg32.NewProc("GradientFill")
 	pDwmSetWindowAttr    = dwmapi.NewProc("DwmSetWindowAttribute")
+	pMultiByteToWideChar = kernel32.NewProc("MultiByteToWideChar")
+	pGetModuleHandleW    = kernel32.NewProc("GetModuleHandleW")
 	pDragAcceptFiles     = shell32.NewProc("DragAcceptFiles")
 	pDragQueryFileW      = shell32.NewProc("DragQueryFileW")
 	pDragFinish          = shell32.NewProc("DragFinish")
@@ -63,20 +67,13 @@ const (
 	wsMinimizeBox     = 0x00020000
 	wsVisible         = 0x10000000
 	wsChild           = 0x40000000
-	wsVScroll         = 0x00200000
-	wsBorder          = 0x00800000
-	esMultiline       = 0x0004
-	esAutoVScroll     = 0x0040
-	esReadonly        = 0x0800
 	ssCenter          = 0x0001
 	wmDestroy         = 0x0002
 	wmSetFont         = 0x0030
+	wmTimer           = 0x0113
 	wmDropFiles       = 0x0233
 	wmEraseBkgnd      = 0x0014
 	wmCtlColorStatic  = 0x0138
-	emSetMargins      = 0x00D3
-	emSetSel          = 0x00B1
-	emReplaceSel      = 0x00C2
 	mbOK              = 0x0000
 	mbIconInformation = 0x0040
 	mbIconWarning     = 0x0030
@@ -84,26 +81,27 @@ const (
 	smCxScreen        = 0
 	smCyScreen        = 1
 	idcArrow          = 32512
-	colorBtnFace      = 15
 	csidlDesktopDir   = 0x0010
-	gwlpWndProc       = -4
-	winW              = 560
-	winH              = 470
+	winW              = 310
+	winH              = 150
+	statusTimerID     = 1
+	statusTimerMs     = 1500
 )
 
 var (
-	hLog        uintptr
-	hHead       uintptr
-	oldEditProc uintptr
-	logBrush    uintptr
+	hStatus     uintptr
+	mainHwnd    uintptr
+	statusColor uintptr
+	cardBrush   uintptr
+	cardPen     uintptr
 )
 
 func rgbRef(r, g, b byte) uintptr {
 	return uintptr(r) | uintptr(g)<<8 | uintptr(b)<<16
 }
 
-// paintGradient maluje tło okna gradientem jak w „Liczniku NC”:
-// #0f2027 -> #203a43 -> #2c5364 po przekątnej.
+// paintGradient maluje tło jak w „Liczniku NC” (#0f2027 -> #2c5364 po
+// przekątnej) oraz ciemną kartę, na którą upuszcza się pliki.
 func paintGradient(hwnd, hdc uintptr) {
 	var rc [4]int32
 	pGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&rc[0])))
@@ -123,6 +121,14 @@ func paintGradient(hwnd, hdc uintptr) {
 	tris := [2][3]uint32{{0, 1, 2}, {1, 3, 2}}
 	pGradientFill.Call(hdc, uintptr(unsafe.Pointer(&verts[0])), 4,
 		uintptr(unsafe.Pointer(&tris[0])), 2, 2 /*GRADIENT_FILL_TRIANGLE*/)
+
+	if cardBrush != 0 && cardPen != 0 {
+		oldB, _, _ := pSelectObject.Call(hdc, cardBrush)
+		oldP, _, _ := pSelectObject.Call(hdc, cardPen)
+		pRoundRect.Call(hdc, 10, 10, uintptr(rc[2]-10), uintptr(rc[3]-10), 14, 14)
+		pSelectObject.Call(hdc, oldB)
+		pSelectObject.Call(hdc, oldP)
+	}
 }
 
 func utf16Ptr(s string) *uint16 {
@@ -238,14 +244,15 @@ func openInExplorer(dir string) {
 		uintptr(unsafe.Pointer(utf16Ptr(dir))), 0, 0, swShownormal)
 }
 
-func appendLog(line string) {
-	if hLog == 0 {
-		return
+// setStatus pokazuje krótki napis na karcie („Gotowe” / „Błąd”),
+// który znika po chwili.
+func setStatus(text string, color uintptr) {
+	statusColor = color
+	pSetWindowTextW.Call(hStatus, uintptr(unsafe.Pointer(utf16Ptr(text))))
+	pInvalidateRect.Call(mainHwnd, 0, 1)
+	if text != "" {
+		pSetTimer.Call(mainHwnd, statusTimerID, statusTimerMs, 0)
 	}
-	end := uintptr(0x7FFFFFFF)
-	pSendMessageW.Call(hLog, emSetSel, end, end)
-	pSendMessageW.Call(hLog, emReplaceSel, 0,
-		uintptr(unsafe.Pointer(utf16Ptr(line+"\r\n"))))
 }
 
 func handleDrop(hDrop uintptr) {
@@ -260,8 +267,12 @@ func handleDrop(hDrop uintptr) {
 	pDragFinish.Call(hDrop)
 	msgs, _ := processAll(paths)
 	for _, m := range msgs {
-		appendLog(m)
+		if strings.HasPrefix(m, "BŁĄD") {
+			setStatus("Błąd", rgbRef(0xE0, 0x45, 0x5A))
+			return
+		}
 	}
+	setStatus("Gotowe", rgbRef(0x2E, 0xC5, 0x7D))
 }
 
 func wndProc(hwnd, msg, wParam, lParam uintptr) uintptr {
@@ -269,26 +280,18 @@ func wndProc(hwnd, msg, wParam, lParam uintptr) uintptr {
 	case wmDropFiles:
 		handleDrop(wParam)
 		return 0
+	case wmTimer:
+		if wParam == statusTimerID {
+			pKillTimer.Call(hwnd, statusTimerID)
+			setStatus("", statusColor)
+		}
+		return 0
 	case wmEraseBkgnd:
 		paintGradient(hwnd, wParam)
 		return 1
 	case wmCtlColorStatic:
-		hdc := wParam
-		if lParam == hLog {
-			// dziennik: ciemna „szklana” karta z jasnym tekstem
-			pSetTextColor.Call(hdc, rgbRef(0xDF, 0xF1, 0xFB))
-			pSetBkColor.Call(hdc, rgbRef(0x17, 0x2A, 0x33))
-			if logBrush != 0 {
-				return logBrush
-			}
-		} else {
-			pSetBkMode.Call(hdc, 1 /*TRANSPARENT*/)
-			if lParam == hHead {
-				pSetTextColor.Call(hdc, rgbRef(0xA9, 0xC3, 0xD2)) // przygaszony nagłówek
-			} else {
-				pSetTextColor.Call(hdc, rgbRef(0xEA, 0xF6, 0xFF))
-			}
-		}
+		pSetBkMode.Call(wParam, 1 /*TRANSPARENT*/)
+		pSetTextColor.Call(wParam, statusColor)
 		r, _, _ := pGetStockObject.Call(5 /*NULL_BRUSH*/)
 		return r
 	case wmDestroy:
@@ -296,16 +299,6 @@ func wndProc(hwnd, msg, wParam, lParam uintptr) uintptr {
 		return 0
 	}
 	r, _, _ := pDefWindowProcW.Call(hwnd, msg, wParam, lParam)
-	return r
-}
-
-// editProc przekazuje upuszczenie plików na polu dziennika do głównej obsługi.
-func editProc(hwnd, msg, wParam, lParam uintptr) uintptr {
-	if msg == wmDropFiles {
-		handleDrop(wParam)
-		return 0
-	}
-	r, _, _ := pCallWindowProcW.Call(oldEditProc, hwnd, msg, wParam, lParam)
 	return r
 }
 
@@ -326,12 +319,14 @@ func runWindow() {
 		wndProc:   syscall.NewCallback(wndProc),
 		instance:  hInst,
 		cursor:    cursor,
-		className: className, // tło maluje wmEraseBkgnd (gradient)
+		className: className, // tło maluje wmEraseBkgnd (gradient + karta)
 	}
 	wc.size = uint32(unsafe.Sizeof(wc))
 	pRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc)))
 
-	logBrush, _, _ = pCreateSolidBrush.Call(rgbRef(0x17, 0x2A, 0x33))
+	cardBrush, _, _ = pCreateSolidBrush.Call(rgbRef(0x17, 0x2A, 0x33))
+	cardPen, _, _ = pCreatePen.Call(0 /*PS_SOLID*/, 1, rgbRef(0x3C, 0x53, 0x5F))
+	statusColor = rgbRef(0xEA, 0xF6, 0xFF)
 
 	scrW, _, _ := pGetSystemMetrics.Call(smCxScreen)
 	scrH, _, _ := pGetSystemMetrics.Call(smCyScreen)
@@ -341,52 +336,30 @@ func runWindow() {
 	style := uintptr(wsOverlapped | wsCaption | wsSysMenu | wsMinimizeBox | wsVisible)
 	hwnd, _, _ := pCreateWindowExW.Call(0,
 		uintptr(unsafe.Pointer(className)),
-		uintptr(unsafe.Pointer(utf16Ptr("Kreator Folderów — NC/TXT"))),
+		uintptr(unsafe.Pointer(utf16Ptr("KREATOR FOLDERÓW NC"))),
 		style, uintptr(x), uintptr(y), winW, winH, 0, 0, hInst, 0)
+	mainHwnd = hwnd
 
 	// ciemny pasek tytułu (Windows 10 1809+ / Windows 11); starsze systemy ignorują
 	dark := int32(1)
 	pDwmSetWindowAttr.Call(hwnd, 20, uintptr(unsafe.Pointer(&dark)), 4)
 	pDwmSetWindowAttr.Call(hwnd, 19, uintptr(unsafe.Pointer(&dark)), 4)
 
-	hHead, _, _ = pCreateWindowExW.Call(0,
+	// napis statusu na środku karty (zwykle pusty)
+	var rc [4]int32
+	pGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&rc[0])))
+	hStatus, _, _ = pCreateWindowExW.Call(0,
 		uintptr(unsafe.Pointer(utf16Ptr("STATIC"))),
-		uintptr(unsafe.Pointer(utf16Ptr("KREATOR FOLDERÓW NC"))),
-		wsChild|wsVisible, 22, 14, winW-60, 20, hwnd, 0, hInst, 0)
-
-	hint := "▼  Przeciągnij tutaj plik .txt lub .nc  ▼\r\n\r\n" +
-		"Na Pulpicie powstanie folder o nazwie z nawiasu\r\n" +
-		"z pierwszej linijki pliku, a plik zostanie do niego skopiowany.\r\n\r\n" +
-		"Możesz też przeciągać pliki wprost na ikonę programu."
-	hStatic, _, _ := pCreateWindowExW.Call(0,
-		uintptr(unsafe.Pointer(utf16Ptr("STATIC"))),
-		uintptr(unsafe.Pointer(utf16Ptr(hint))),
-		wsChild|wsVisible|ssCenter, 20, 52, winW-60, 125, hwnd, 0, hInst, 0)
-
-	hLog, _, _ = pCreateWindowExW.Call(0,
-		uintptr(unsafe.Pointer(utf16Ptr("EDIT"))),
 		uintptr(unsafe.Pointer(utf16Ptr(""))),
-		wsChild|wsVisible|wsVScroll|esMultiline|esAutoVScroll|esReadonly,
-		20, 190, winW-60, 200, hwnd, 0, hInst, 0)
-	pSendMessageW.Call(hLog, emSetMargins, 3 /*EC_LEFT|EC_RIGHT*/, 10|10<<16)
+		wsChild|wsVisible|ssCenter,
+		20, uintptr((rc[3]-34)/2), uintptr(rc[2]-40), 36, hwnd, 0, hInst, 0)
 
-	newFont := func(height int, weight uintptr) uintptr {
-		f, _, _ := pCreateFontW.Call(^uintptr(height-1) /* -height */, 0, 0, 0, weight, 0, 0, 0,
-			1 /*DEFAULT_CHARSET*/, 0, 0, 5 /*CLEARTYPE*/, 0,
-			uintptr(unsafe.Pointer(utf16Ptr("Segoe UI"))))
-		return f
-	}
-	pSendMessageW.Call(hHead, wmSetFont, newFont(13, 600), 1)
-	pSendMessageW.Call(hStatic, wmSetFont, newFont(18, 400), 1)
-	pSendMessageW.Call(hLog, wmSetFont, newFont(15, 400), 1)
+	font, _, _ := pCreateFontW.Call(^uintptr(25) /* -26 */, 0, 0, 0, 700, 0, 0, 0,
+		1 /*DEFAULT_CHARSET*/, 0, 0, 5 /*CLEARTYPE*/, 0,
+		uintptr(unsafe.Pointer(utf16Ptr("Segoe UI"))))
+	pSendMessageW.Call(hStatus, wmSetFont, font, 1)
 
-	// Przyjmuj pliki zarówno na oknie, jak i na polu dziennika.
 	pDragAcceptFiles.Call(hwnd, 1)
-	pDragAcceptFiles.Call(hLog, 1)
-	oldEditProc, _, _ = pSetWindowLongPtrW.Call(hLog, ^uintptr(3), /* GWLP_WNDPROC = -4 */
-		syscall.NewCallback(editProc))
-
-	appendLog("Gotowy. Czekam na pliki…")
 
 	pShowWindow.Call(hwnd, swShownormal)
 	pUpdateWindow.Call(hwnd)
@@ -409,17 +382,19 @@ func main() {
 		return
 	}
 	msgs, folders := processAll(args)
-	icon := uintptr(mbIconInformation)
+	var errs []string
 	for _, m := range msgs {
 		if strings.HasPrefix(m, "BŁĄD") {
-			icon = mbIconWarning
-			break
+			errs = append(errs, m)
 		}
 	}
-	pMessageBoxW.Call(0,
-		uintptr(unsafe.Pointer(utf16Ptr(strings.Join(msgs, "\n")))),
-		uintptr(unsafe.Pointer(utf16Ptr("Kreator Folderów"))),
-		mbOK|icon)
+	// sukces jest cichy — otwiera się utworzony folder; komunikat tylko przy błędzie
+	if len(errs) > 0 {
+		pMessageBoxW.Call(0,
+			uintptr(unsafe.Pointer(utf16Ptr(strings.Join(errs, "\n")))),
+			uintptr(unsafe.Pointer(utf16Ptr("Kreator Folderów"))),
+			mbOK|mbIconWarning)
+	}
 	if len(folders) == 1 {
 		for f := range folders {
 			openInExplorer(f)
