@@ -8,5 +8,6 @@ contextBridge.exposeInMainWorld("native", {
   readFile: (p) => ipcRenderer.invoke("read-file", p),
   writeProgram: (root, dir, file, content) => ipcRenderer.invoke("write-program", { root, dir, file, content }),
   copyFile: (src, destRoot, destDir, name) => ipcRenderer.invoke("copy-file", { src, destRoot, destDir, name }),
-  deleteFile: (root, dir, file) => ipcRenderer.invoke("delete-file", { root, dir, file })
+  deleteFile: (root, dir, file) => ipcRenderer.invoke("delete-file", { root, dir, file }),
+  showInFolder: (p) => ipcRenderer.invoke("show-in-folder", p)
 });

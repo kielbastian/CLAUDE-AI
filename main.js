@@ -1,4 +1,4 @@
-const { app, BrowserWindow, session, Menu, ipcMain, dialog } = require("electron");
+const { app, BrowserWindow, session, Menu, ipcMain, dialog, shell } = require("electron");
 const path = require("path");
 const fs = require("fs/promises");
 
@@ -124,6 +124,20 @@ ipcMain.handle("copy-file", async (e, { src, destRoot, destDir, name }) => {
 ipcMain.handle("delete-file", async (e, { root, dir, file }) => {
   try {
     await fs.unlink(path.join(root, dir || "", file));
+    return { ok: true };
+  } catch (err) { return { ok: false, error: String(err.message || err) }; }
+});
+
+/* otwiera folder w Eksploratorze; gdy podano plik — z zaznaczonym plikiem */
+ipcMain.handle("show-in-folder", async (e, p) => {
+  const norm = path.normalize(p);
+  try {
+    const st = await fs.stat(norm);
+    if (st.isDirectory()) {
+      const err = await shell.openPath(norm);
+      return { ok: !err, error: err };
+    }
+    shell.showItemInFolder(norm);
     return { ok: true };
   } catch (err) { return { ok: false, error: String(err.message || err) }; }
 });

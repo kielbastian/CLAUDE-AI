@@ -236,6 +236,15 @@
   .fav-btn:active{transform:scale(.8)}
   .fav-btn svg{width:17px;height:17px;fill:none;stroke:#5d6780;stroke-width:2;transition:all .2s}
   .fav-btn.on svg{fill:var(--warn);stroke:var(--warn);filter:drop-shadow(0 0 6px rgba(251,191,36,.6))}
+  .dir-btn{
+    flex:none;width:30px;height:30px;border-radius:9px;border:none;cursor:pointer;
+    background:transparent;display:grid;place-items:center;
+    transition:transform .15s,background .2s;
+  }
+  .dir-btn:hover{background:rgba(34,211,238,.12)}
+  .dir-btn:active{transform:scale(.8);box-shadow:0 0 0 3px rgba(34,211,238,.25)}
+  .dir-btn svg{width:17px;height:17px;fill:none;stroke:#5d6780;stroke-width:2;transition:stroke .2s}
+  .dir-btn:hover svg{stroke:var(--ac1)}
   .card-sub{font-size:.83rem;color:var(--mut);margin-bottom:12px;line-height:1.45}
   .card-sub b{color:#b9c2d8;font-weight:600}
   .card-mid{display:flex;gap:12px;align-items:stretch;margin-bottom:12px}
@@ -1388,6 +1397,11 @@ function render() {
         <div class="card-top">
           <h2>${esc(p.name)}</h2>
           ${p.onum ? `<span class="badge-o">${esc(p.onum)}</span>` : ""}
+          ${(window.native && p.dir && fsRoot && fsRoot.native) ? `<button class="dir-btn" data-openfolder="${p.id}" title="Otwórz folder programu w Eksploratorze">
+            <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path>
+            </svg>
+          </button>` : ""}
           <button class="fav-btn ${p.fav ? "on" : ""}" data-fav="${p.id}" title="Ulubione">
             <svg viewBox="0 0 24 24"><path d="M12 2.6l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 17.4 6.2 20.5l1.1-6.5L2.6 9.4l6.5-.9z"/></svg>
           </button>
@@ -1824,6 +1838,17 @@ document.getElementById("grid").addEventListener("click", e => {
   if (th) { openPdfModal(th.dataset.pdfthumb); return; }
   const ap = e.target.closest("[data-addpdf]");
   if (ap) { openAddPdf(ap.dataset.addpdf); return; }
+  const of = e.target.closest("[data-openfolder]");
+  if (of) {
+    const p = byId(of.dataset.openfolder);
+    if (p && fsRoot && fsRoot.native && p.dir) {
+      const target = fsRoot.path + "/" + p.dir + (p.file ? "/" + p.file : "");
+      window.native.showInFolder(target).then(r => {
+        if (r && !r.ok) toast("Nie udało się otworzyć folderu");
+      });
+    }
+    return;
+  }
   const fav = e.target.closest("[data-fav]");
   if (fav) {
     e.stopPropagation();
