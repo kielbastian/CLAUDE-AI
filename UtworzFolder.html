@@ -1,0 +1,161 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Utwórz folder z pliku NC</title>
+<style>
+  :root {
+    --bg: #f4f6f8; --card: #ffffff; --text: #1a2330; --muted: #5b6572;
+    --accent: #1f6feb; --accent-soft: #e3edfb; --ok: #1a7f37; --err: #c0392b;
+    --border: #d5dbe2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #10151c; --card: #1a212b; --text: #e8edf3; --muted: #9aa5b1;
+      --accent: #4c8dff; --accent-soft: #1d2a3f; --ok: #4ac26b; --err: #ff7b6e;
+      --border: #303a46;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+    font-family: "Segoe UI", system-ui, sans-serif; display: flex;
+    align-items: center; justify-content: center; padding: 24px;
+  }
+  .app { width: 100%; max-width: 560px; }
+  h1 { font-size: 1.35rem; margin: 0 0 4px; }
+  p.sub { color: var(--muted); margin: 0 0 20px; font-size: .92rem; }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 20px; margin-bottom: 16px;
+  }
+  .step { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .step .nr {
+    background: var(--accent); color: #fff; border-radius: 50%;
+    width: 26px; height: 26px; display: flex; align-items: center;
+    justify-content: center; font-weight: 600; flex-shrink: 0; font-size: .9rem;
+  }
+  button {
+    background: var(--accent); color: #fff; border: 0; border-radius: 8px;
+    padding: 10px 16px; font-size: .95rem; cursor: pointer; font-weight: 600;
+  }
+  button:hover { filter: brightness(1.1); }
+  #dirName { color: var(--ok); font-weight: 600; margin-left: 8px; }
+  #dropZone {
+    border: 2px dashed var(--border); border-radius: 12px; padding: 40px 16px;
+    text-align: center; color: var(--muted); transition: all .15s ease;
+    font-size: 1rem;
+  }
+  #dropZone.armed { border-color: var(--accent); color: var(--text); cursor: pointer; }
+  #dropZone.over { background: var(--accent-soft); border-color: var(--accent); }
+  #log { list-style: none; padding: 0; margin: 0; font-size: .9rem; }
+  #log li { padding: 6px 0; border-bottom: 1px solid var(--border); }
+  #log li:last-child { border-bottom: 0; }
+  .ok::before  { content: "✔ "; color: var(--ok); }
+  .err::before { content: "✖ "; color: var(--err); }
+  .warn { color: var(--muted); }
+  #unsupported { color: var(--err); font-size: .9rem; display: none; }
+</style>
+
+<div class="app">
+  <h1>📁 Utwórz folder z pliku NC</h1>
+  <p class="sub">Przeciągnij plik .txt / .nc — program utworzy folder o nazwie z nawiasu
+     w pierwszej linijce pliku, np. <b>O02316 (TRZPIEN UA 227113)</b> → folder <b>TRZPIEN UA 227113</b>.</p>
+
+  <div class="card">
+    <div class="step">
+      <span class="nr">1</span>
+      <button id="pickDir">Wybierz folder docelowy</button>
+      <span id="dirName"></span>
+    </div>
+    <div class="step" style="margin-bottom:0">
+      <span class="nr">2</span>
+      <div id="dropZone" style="flex:1">Najpierw wybierz folder docelowy…</div>
+    </div>
+    <p id="unsupported">Ta przeglądarka nie obsługuje zapisu na dysk — użyj Chrome lub Edge,
+       albo wersji <b>UtworzFolder.bat</b> (przeciągnij plik na jej ikonę).</p>
+  </div>
+
+  <div class="card">
+    <ul id="log"><li class="warn">Brak operacji.</li></ul>
+  </div>
+</div>
+
+<script>
+  const pickBtn = document.getElementById('pickDir');
+  const dirName = document.getElementById('dirName');
+  const zone = document.getElementById('dropZone');
+  const log = document.getElementById('log');
+  let parentDir = null;
+  let firstEntry = true;
+
+  if (!window.showDirectoryPicker) {
+    document.getElementById('unsupported').style.display = 'block';
+    pickBtn.disabled = true;
+  }
+
+  pickBtn.addEventListener('click', async () => {
+    try {
+      parentDir = await showDirectoryPicker({ mode: 'readwrite' });
+      dirName.textContent = '→ ' + parentDir.name;
+      zone.classList.add('armed');
+      zone.textContent = 'Przeciągnij tutaj plik .txt / .nc (lub kliknij, aby wybrać)';
+    } catch (e) { /* anulowano */ }
+  });
+
+  function addLog(cls, text) {
+    if (firstEntry) { log.innerHTML = ''; firstEntry = false; }
+    const li = document.createElement('li');
+    li.className = cls;
+    li.textContent = text;
+    log.prepend(li);
+  }
+
+  function extractName(text) {
+    for (const line of text.split(/\r?\n/)) {
+      const m = line.match(/\(([^)]+)\)/);
+      if (m && m[1].trim()) return m[1].trim();
+    }
+    return null;
+  }
+
+  async function processFile(file) {
+    if (!parentDir) { addLog('err', 'Najpierw wybierz folder docelowy.'); return; }
+    const text = await file.text();
+    let name = extractName(text);
+    if (!name) {
+      addLog('err', file.name + ' — nie znaleziono nazwy w nawiasie.');
+      return;
+    }
+    name = name.replace(/[\\/:*?"<>|]/g, '_').replace(/[. ]+$/, '');
+    try {
+      let exists = true;
+      try { await parentDir.getDirectoryHandle(name); }
+      catch { exists = false; }
+      if (exists) {
+        addLog('warn', 'Folder „' + name + '” już istnieje.');
+      } else {
+        await parentDir.getDirectoryHandle(name, { create: true });
+        addLog('ok', 'Utworzono folder: ' + name + '  (z pliku ' + file.name + ')');
+      }
+    } catch (e) {
+      addLog('err', 'Błąd tworzenia folderu „' + name + '”: ' + e.message);
+    }
+  }
+
+  zone.addEventListener('dragover', e => {
+    e.preventDefault();
+    if (parentDir) zone.classList.add('over');
+  });
+  zone.addEventListener('dragleave', () => zone.classList.remove('over'));
+  zone.addEventListener('drop', async e => {
+    e.preventDefault();
+    zone.classList.remove('over');
+    for (const f of e.dataTransfer.files) await processFile(f);
+  });
+  zone.addEventListener('click', async () => {
+    if (!parentDir || !window.showOpenFilePicker) return;
+    try {
+      const handles = await showOpenFilePicker({ multiple: true });
+      for (const h of handles) await processFile(await h.getFile());
+    } catch (e) { /* anulowano */ }
+  });
+</script>
