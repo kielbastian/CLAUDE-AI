@@ -21,6 +21,23 @@ function createWindow() {
     }
   });
   win.loadFile("index.html");
+
+  // menu pod prawym przyciskiem myszy w polach tekstowych
+  win.webContents.on("context-menu", (e, params) => {
+    const items = [];
+    if (params.isEditable) {
+      items.push(
+        { label: "Wytnij", role: "cut", enabled: params.editFlags.canCut },
+        { label: "Kopiuj", role: "copy", enabled: params.editFlags.canCopy },
+        { label: "Wklej", role: "paste", enabled: params.editFlags.canPaste },
+        { type: "separator" },
+        { label: "Zaznacz wszystko", role: "selectAll" }
+      );
+    } else if (params.selectionText) {
+      items.push({ label: "Kopiuj", role: "copy" });
+    }
+    if (items.length) Menu.buildFromTemplate(items).popup();
+  });
 }
 
 /* ── operacje na plikach — natywny zapis przez system Windows ── */

@@ -250,6 +250,16 @@
   .thumb img{width:100%;height:100%;object-fit:cover;display:block}
   .thumb:hover{border-color:var(--ac1);box-shadow:0 0 18px rgba(34,211,238,.30);transform:scale(1.05)}
   .thumb svg{width:22px;height:22px;stroke:#39415c}
+  .thumb-add{
+    border-style:dashed;cursor:pointer;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+    background:transparent;color:#5d6780;font-family:inherit;font-size:.68rem;font-weight:700;
+    letter-spacing:.08em;
+  }
+  .thumb-add svg{width:18px;height:18px;stroke:#5d6780;transition:stroke .2s}
+  .thumb-add:hover{color:var(--ac1)}
+  .thumb-add:hover svg{stroke:var(--ac1)}
+  .thumb-add:active{transform:scale(.94);box-shadow:0 0 0 3px rgba(34,211,238,.25)}
   .tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
   .tag{
     font-size:.7rem;font-weight:600;padding:3px 10px;border-radius:999px;
@@ -458,7 +468,7 @@
       </div>
       <h1>CNC Manager</h1>
     </div>
-    <span class="machine">HAAS&nbsp;ST-35Y&nbsp;·&nbsp;TOKARKA</span>
+    <span class="machine">Marek&nbsp;Kulczycki</span>
     <div class="search-wrap">
       <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round">
         <circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3"></path>
@@ -467,6 +477,12 @@
              placeholder="Szukaj: nazwa, numer O, klient, materiał, treść kodu…">
       <button class="search-clear" id="searchClear" title="Wyczyść">✕</button>
     </div>
+    <button class="btn" id="btnRefresh" title="Przeskanuj foldery ponownie">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"></path>
+      </svg>
+      Odśwież
+    </button>
     <button class="btn" id="btnFolder" title="Połącz z folderem CNC Programy na dysku">
       <span class="dot"></span>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -618,6 +634,32 @@
           <path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
         </svg>
         Edytuj
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── modal: dodanie rysunku PDF do programu ───────────────────── -->
+<div class="modal" id="mAddPdf">
+  <div class="dialog" style="max-width:640px">
+    <div class="dialog-head">
+      <h2 id="apTitle">Dodaj rysunek PDF</h2>
+      <button class="x-btn" data-close="mAddPdf">✕</button>
+    </div>
+    <div class="dialog-body">
+      <div class="field" style="margin-bottom:14px">
+        <label>Szukaj rysunku</label>
+        <input id="apSearch" type="text" autocomplete="off">
+      </div>
+      <div class="pdf-box" id="apList"></div>
+    </div>
+    <div class="dialog-foot">
+      <button class="btn" data-close="mAddPdf">Anuluj</button>
+      <button class="btn btn-primary" id="apAccept">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 6L9 17l-5-5"></path>
+        </svg>
+        Dodaj wybrany rysunek
       </button>
     </div>
   </div>
@@ -1076,7 +1118,47 @@ function renderPdfBox() {
   box.innerHTML = html;
 }
 
-/* ════════════════ miniaturki rysunków na kartach ════════════════ */
+/* ════════════════ dodawanie rysunku PDF z poziomu karty ════════════════ */
+let apProgramId = null;
+let apCandidates = [];
+let apSelected = null;
+
+function filterPdfs(q) {
+  const norm = s => String(s || "").toLowerCase().replace(/[\s\-_]+/g, "");
+  const toks = String(q || "").toLowerCase().split(/\s+/).map(norm).filter(Boolean);
+  if (!toks.length) return pdfFiles.slice(0, 20);
+  return pdfFiles.filter(f => { const fp = norm(f.path); return toks.every(t => fp.includes(t)); }).slice(0, 20);
+}
+
+function renderApList() {
+  const box = document.getElementById("apList");
+  if (!apCandidates.length) {
+    box.innerHTML = '<div class="pdf-note">Nie znaleziono pasujących rysunków — wpisz fragment nazwy pliku PDF.</div>';
+    return;
+  }
+  box.innerHTML = apCandidates.map((f, i) =>
+    '<div class="pdf-item' + (apSelected === f ? " on" : "") + '" data-ap="' + i + '">📄 ' + esc(f.path)
+    + (apSelected === f ? " <b>— zostanie skopiowany do folderu programu</b>" : "")
+    + "</div>").join("");
+}
+
+async function openAddPdf(id) {
+  const p = byId(id); if (!p) return;
+  if (!pdfRoot) {
+    toast("Najpierw wskaż folder z rysunkami PDF");
+    await connectPdfFolder();
+    if (!pdfRoot) return;
+  }
+  apProgramId = id;
+  document.getElementById("apTitle").textContent = "Dodaj rysunek — " + p.name;
+  const q = p.drawing || p.name || "";
+  document.getElementById("apSearch").value = q;
+  apCandidates = findPdfMatches(p.drawing, p.name);
+  if (!apCandidates.length) apCandidates = filterPdfs(q);
+  apSelected = apCandidates[0] || null;
+  renderApList();
+  openModal("mAddPdf");
+}
 const thumbCache = new Map();
 let thumbRun = 0;
 let pdfObjUrl = null;
@@ -1320,7 +1402,12 @@ function render() {
             <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
               <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5"></path>
             </svg>
-          </div>` : ""}
+          </div>` : (p.dir ? `<button class="thumb thumb-add" data-addpdf="${p.id}" title="Znajdź i dodaj rysunek PDF do tego programu">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round">
+              <path d="M12 5v14M5 12h14"></path>
+            </svg>
+            Dodaj PDF
+          </button>` : "")}
         </div>
         ${(p.tags || []).length ? `<div class="tags">${p.tags.map(t => `<span class="tag">${esc(t)}</span>`).join("")}</div>` : ""}
         <div class="card-foot">
@@ -1628,6 +1715,41 @@ document.getElementById("fDrawing").addEventListener("change", () => {
   if (pdfRoot) doPdfSearch(true);
 });
 
+/* przycisk Odśwież — ponowny skan obu folderów */
+document.getElementById("btnRefresh").addEventListener("click", async () => {
+  if (!fsRoot && !pdfRoot) { toast("Najpierw połącz folder z programami"); return; }
+  if (fsRoot) await rescanFolder();
+  if (pdfRoot) await scanPdfFolder();
+});
+
+/* okno „Dodaj rysunek PDF” z poziomu karty */
+document.getElementById("apSearch").addEventListener("input", e => {
+  apCandidates = filterPdfs(e.target.value);
+  if (!apCandidates.includes(apSelected)) apSelected = apCandidates[0] || null;
+  renderApList();
+});
+document.getElementById("apList").addEventListener("click", e => {
+  const it = e.target.closest("[data-ap]");
+  if (!it) return;
+  const f = apCandidates[+it.dataset.ap];
+  apSelected = (apSelected === f) ? null : f;
+  renderApList();
+});
+document.getElementById("apAccept").addEventListener("click", async () => {
+  const p = byId(apProgramId);
+  if (!p) return;
+  if (!apSelected) { toast("Najpierw kliknij rysunek na liście"); return; }
+  const ok = await copyPdfToProgram(p, apSelected);
+  if (ok) {
+    save();
+    closeModal("mAddPdf");
+    render();
+    toast("Dodano rysunek " + apSelected.name + " do „" + p.dir + "”");
+  } else {
+    toast("Nie udało się skopiować rysunku");
+  }
+});
+
 document.getElementById("btnFreeOnum").addEventListener("click", () => {
   const free = nextFreeOnum();
   document.getElementById("fOnum").value = free;
@@ -1700,6 +1822,8 @@ document.getElementById("filters").addEventListener("click", e => {
 document.getElementById("grid").addEventListener("click", e => {
   const th = e.target.closest("[data-pdfthumb]");
   if (th) { openPdfModal(th.dataset.pdfthumb); return; }
+  const ap = e.target.closest("[data-addpdf]");
+  if (ap) { openAddPdf(ap.dataset.addpdf); return; }
   const fav = e.target.closest("[data-fav]");
   if (fav) {
     e.stopPropagation();
