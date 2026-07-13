@@ -1,7 +1,7 @@
 {
   "name": "cnc-manager",
   "productName": "CNC Manager",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Menedżer programów CNC — tokarka Haas ST-35Y",
   "author": "CNC Manager",
   "license": "MIT",
@@ -19,8 +19,10 @@
     "productName": "CNC Manager",
     "files": [
       "main.js",
+      "preload.js",
       "index.html",
-      "vendor/**"
+      "vendor/**",
+      "build/icon.png"
     ],
     "win": {
       "target": ["portable"],
