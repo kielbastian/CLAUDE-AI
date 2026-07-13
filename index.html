@@ -238,6 +238,18 @@
   .fav-btn.on svg{fill:var(--warn);stroke:var(--warn);filter:drop-shadow(0 0 6px rgba(251,191,36,.6))}
   .card-sub{font-size:.83rem;color:var(--mut);margin-bottom:12px;line-height:1.45}
   .card-sub b{color:#b9c2d8;font-weight:600}
+  .card-mid{display:flex;gap:12px;align-items:stretch;margin-bottom:12px}
+  .card-mid .card-sub{flex:1;margin-bottom:0}
+  .thumb{
+    width:110px;min-height:78px;flex:none;border-radius:10px;overflow:hidden;
+    border:1px solid var(--stroke);background:rgba(255,255,255,.05);
+    display:grid;place-items:center;
+    transition:transform .15s,box-shadow .2s,border-color .2s;
+  }
+  .thumb.has{background:#fff;border-color:rgba(255,255,255,.25)}
+  .thumb img{width:100%;height:100%;object-fit:cover;display:block}
+  .thumb:hover{border-color:var(--ac1);box-shadow:0 0 18px rgba(34,211,238,.30);transform:scale(1.05)}
+  .thumb svg{width:22px;height:22px;stroke:#39415c}
   .tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
   .tag{
     font-size:.7rem;font-weight:600;padding:3px 10px;border-radius:999px;
@@ -611,10 +623,26 @@
   </div>
 </div>
 
+<!-- ── modal: podgląd rysunku PDF ───────────────────────────────── -->
+<div class="modal" id="mPdf">
+  <div class="dialog" style="max-width:1020px">
+    <div class="dialog-head">
+      <h2 id="pdfTitle"></h2>
+      <button class="x-btn" data-close="mPdf">✕</button>
+    </div>
+    <div class="dialog-body" style="padding:12px">
+      <embed id="pdfEmbed" type="application/pdf"
+             style="width:100%;height:76vh;border:0;border-radius:12px;background:#fff">
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
+<script src="vendor/pdf.min.js"></script>
 <script>
 "use strict";
+if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 /* ════════════════════ dane ════════════════════ */
 const LS_KEY = "cncPrograms_v1";
 let programs = [];
@@ -623,136 +651,14 @@ let filter = "all";      // all | fav | tag:xxx
 let editId = null;       // id edytowanego programu (null = nowy)
 let viewId = null;       // id programu w podglądzie
 
-const now = Date.now();
-const SEED = [
-  {
-    id: "p1", name: "Wałek napędowy Ø40", onum: "O00125",
-    detail: "Wałek napędowy", drawing: "RW-2041-A", client: "Stalmet",
-    material: "C45, pręt Ø45", tags: ["wałek", "toczenie"], fav: true,
-    note: "Szczęki twarde, wysunięcie z tulei 95 mm.",
-    created: now - 86400000 * 30, modified: now - 86400000 * 2,
-    code: `%
-O00125 (WALEK NAPEDOWY FI40)
-(KLIENT: STALMET / RYS. RW-2041-A)
-(MATERIAL: C45 PRET FI45)
-(UCHWYT: SZCZEKI TWARDE)
-G21 G18 G40 G80 G99
-T101 (NOZ ZDZIERAK WNMG 080408)
-G50 S2500
-G96 S220 M03
-G00 G54 X47. Z2. M08
-G71 U2. R1.
-G71 P10 Q20 U0.4 W0.1 F0.3
-N10 G00 X38.
-G01 Z0. F0.15
-X40. Z-1.
-Z-85.
-N20 X47.
-G00 X100. Z100. M09
-M01
-T303 (NOZ WYKANCZAK DNMG 110404)
-G50 S3000
-G96 S260 M03
-G00 G54 X47. Z2. M08
-G70 P10 Q20
-G00 X100. Z100. M09
-M30
-%`,
-    versions: [{
-      date: now - 86400000 * 12,
-      note: "Zwiększony naddatek na wykańczanie z U0.3 na U0.4",
-      code: `%
-O00125 (WALEK NAPEDOWY FI40)
-(KLIENT: STALMET / RYS. RW-2041-A)
-G21 G18 G40 G80 G99
-T101 (NOZ ZDZIERAK WNMG 080408)
-G50 S2500
-G96 S220 M03
-G00 G54 X47. Z2. M08
-G71 U2. R1.
-G71 P10 Q20 U0.3 W0.1 F0.3
-N10 G00 X38.
-G01 Z0. F0.15
-X40. Z-1.
-Z-85.
-N20 X47.
-G00 X100. Z100. M09
-M30
-%`
-    }]
-  },
-  {
-    id: "p2", name: "Tuleja dystansowa M30×1.5", onum: "O00210",
-    detail: "Tuleja dystansowa", drawing: "TD-118", client: "Agromex",
-    material: "1.4301, pręt Ø50", tags: ["tuleja", "gwint", "nierdzewka"], fav: false,
-    note: "Gwint zewnętrzny M30×1.5, sprawdzian pierścieniowy na stole.",
-    created: now - 86400000 * 14, modified: now - 86400000 * 5,
-    code: `%
-O00210 (TULEJA DYSTANSOWA M30X1.5)
-(KLIENT: AGROMEX / RYS. TD-118)
-(MATERIAL: 1.4301 PRET FI50)
-G21 G18 G40 G80 G99
-T101 (NOZ ZDZIERAK CNMG 120408)
-G50 S2200
-G96 S180 M03
-G00 G54 X52. Z2. M08
-G71 U1.5 R1.
-G71 P10 Q20 U0.4 W0.1 F0.25
-N10 G00 X27.8
-G01 Z0. F0.12
-X29.8 Z-1.
-Z-28.
-X36.
-X48. Z-40.
-N20 X52.
-G00 X100. Z100.
-M01
-T505 (NOZ DO GWINTU ZEWN. 60ST)
-G97 S800 M03
-G00 X32. Z5. M08
-G76 P020060 Q100 R50
-G76 X28.16 Z-25. P920 Q250 F1.5
-G00 X100. Z100. M09
-M30
-%`,
-    versions: []
-  },
-  {
-    id: "p3", name: "Korpus zaworu DN25 — oś Y", onum: "O00305",
-    detail: "Korpus zaworu", drawing: "KZ-25-03", client: "Hydropress",
-    material: "Mosiądz MO58, Ø60", tags: ["frezowanie", "oś Y", "narzędzia napędzane"], fav: false,
-    note: "Frezowanie spłaszczenia w osi Y, narzędzie napędzane T808.",
-    created: now - 86400000 * 7, modified: now - 86400000 * 1,
-    code: `%
-O00305 (KORPUS ZAWORU DN25 - OS Y)
-(KLIENT: HYDROPRESS / RYS. KZ-25-03)
-(MATERIAL: MOSIADZ MO58 FI60)
-(OPERACJA: FREZOWANIE SPLASZCZENIA)
-G21 G18 G40 G80
-T808 (FREZ PALCOWY FI8 NAPEDZANY)
-M154 (ZALACZENIE OSI C)
-G98 (POSUW MM/MIN)
-P2000 M133 (OBROTY NARZEDZIA)
-G00 G54 X66. Z-15. C0.
-G01 Y-12. F600.
-X54. F250.
-Y12. F180.
-X66. F600.
-Y0.
-M135
-M155
-G00 X100. Z100. M09
-M30
-%`,
-    versions: []
-  }
-];
-
 function load() {
-  let raw = null;
-  try { raw = localStorage.getItem(LS_KEY); } catch (e) {}
-  try { programs = raw ? JSON.parse(raw) : SEED; } catch (e) { programs = SEED; }
-  if (!raw) save();
+  try { programs = JSON.parse(localStorage.getItem(LS_KEY) || "[]"); }
+  catch (e) { programs = []; }
+  // usunięcie przykładowych programów zapisanych przez wcześniejsze wersje aplikacji
+  const demo = { p1: "O00125", p2: "O00210", p3: "O00305" };
+  const before = programs.length;
+  programs = programs.filter(p => demo[p.id] !== p.onum);
+  if (programs.length !== before) save();
 }
 function save() { localStorage.setItem(LS_KEY, JSON.stringify(programs)); }
 const byId = id => programs.find(p => p.id === id);
@@ -809,25 +715,29 @@ const FILE_RE = /\.(txt|nc|cnc|tap|eia|prg|ngc)$/i;
 
 function idb() {
   return new Promise((res, rej) => {
-    const r = indexedDB.open("cncFS", 1);
-    r.onupgradeneeded = () => r.result.createObjectStore("kv");
+    const r = indexedDB.open("cncFS", 2);
+    r.onupgradeneeded = () => {
+      const db = r.result;
+      if (!db.objectStoreNames.contains("kv")) db.createObjectStore("kv");
+      if (!db.objectStoreNames.contains("thumbs")) db.createObjectStore("thumbs");
+    };
     r.onsuccess = () => res(r.result);
     r.onerror = () => rej(r.error);
   });
 }
-async function idbSet(k, v) {
+async function idbSet(k, v, store = "kv") {
   const db = await idb();
   return new Promise((res, rej) => {
-    const t = db.transaction("kv", "readwrite");
-    t.objectStore("kv").put(v, k);
+    const t = db.transaction(store, "readwrite");
+    t.objectStore(store).put(v, k);
     t.oncomplete = () => res();
     t.onerror = () => rej(t.error);
   });
 }
-async function idbGet(k) {
+async function idbGet(k, store = "kv") {
   const db = await idb();
   return new Promise((res, rej) => {
-    const g = db.transaction("kv", "readonly").objectStore("kv").get(k);
+    const g = db.transaction(store, "readonly").objectStore(store).get(k);
     g.onsuccess = () => res(g.result);
     g.onerror = () => rej(g.error);
   });
@@ -1088,6 +998,75 @@ function renderPdfBox() {
   box.innerHTML = html;
 }
 
+/* ════════════════ miniaturki rysunków na kartach ════════════════ */
+const thumbCache = new Map();
+let thumbRun = 0;
+let pdfObjUrl = null;
+
+/* renderuje pierwszą stronę PDF do małego obrazka */
+async function makeThumb(file) {
+  const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+  const page = await pdf.getPage(1);
+  const v0 = page.getViewport({ scale: 1 });
+  const scale = Math.max(240 / v0.width, 170 / v0.height);
+  const vp = page.getViewport({ scale });
+  const c = document.createElement("canvas");
+  c.width = Math.ceil(vp.width);
+  c.height = Math.ceil(vp.height);
+  const ctx = c.getContext("2d");
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, c.width, c.height);
+  await page.render({ canvasContext: ctx, viewport: vp }).promise;
+  const url = c.toDataURL("image/jpeg", 0.82);
+  pdf.destroy();
+  return url;
+}
+
+async function pdfFileOf(p) {
+  if (!fsRoot || !p.dir || !(p.pdfs && p.pdfs.length)) return null;
+  try {
+    const dh = await fsRoot.getDirectoryHandle(p.dir);
+    const fh = await dh.getFileHandle(p.pdfs[0]);
+    return await fh.getFile();
+  } catch (e) { return null; }
+}
+
+/* uzupełnia miniaturki na widocznych kartach (z pamięcią podręczną w IndexedDB) */
+async function loadThumbs() {
+  if (!window.pdfjsLib || !fsRoot) return;
+  const run = ++thumbRun;
+  for (const el of [...document.querySelectorAll("[data-pdfthumb]")]) {
+    if (run !== thumbRun) return;
+    const p = byId(el.dataset.pdfthumb);
+    if (!p) continue;
+    const f = await pdfFileOf(p);
+    if (!f) continue;
+    const key = p.dir + "/" + p.pdfs[0] + ":" + f.lastModified;
+    let url = thumbCache.get(key);
+    if (!url) { try { url = await idbGet(key, "thumbs"); } catch (e) {} }
+    if (!url) {
+      try { url = await makeThumb(f); } catch (e) { continue; }
+      idbSet(key, url, "thumbs").catch(() => {});
+    }
+    thumbCache.set(key, url);
+    if (run !== thumbRun) return;
+    el.innerHTML = '<img src="' + url + '" alt="">';
+    el.classList.add("has");
+  }
+}
+
+/* powiększenie rysunku po kliknięciu miniaturki */
+async function openPdfModal(id) {
+  const p = byId(id);
+  const f = p ? await pdfFileOf(p) : null;
+  if (!f) { toast("Nie udało się otworzyć rysunku"); return; }
+  if (pdfObjUrl) URL.revokeObjectURL(pdfObjUrl);
+  pdfObjUrl = URL.createObjectURL(f);
+  document.getElementById("pdfTitle").textContent = p.pdfs[0];
+  document.getElementById("pdfEmbed").src = pdfObjUrl;
+  openModal("mPdf");
+}
+
 /* kopiuje wybrany rysunek PDF do podfolderu programu */
 async function copyPdfToProgram(p, entry) {
   if (!fsRoot || !p.dir || !entry) return false;
@@ -1227,7 +1206,7 @@ function render() {
       <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3M8 11h6"></path>
       </svg>
-      <p>${programs.length ? "Brak programów pasujących do wyszukiwania." : "Biblioteka jest pusta — dodaj pierwszy program."}</p>
+      <p>${programs.length ? "Brak programów pasujących do wyszukiwania." : "Biblioteka jest pusta — połącz folder z programami albo przeciągnij tu pliki .txt / .nc."}</p>
     </div>`;
   } else {
     grid.innerHTML = list.map((p, i) => `
@@ -1239,9 +1218,17 @@ function render() {
             <svg viewBox="0 0 24 24"><path d="M12 2.6l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 17.4 6.2 20.5l1.1-6.5L2.6 9.4l6.5-.9z"/></svg>
           </button>
         </div>
-        <div class="card-sub">
-          ${p.client ? `<b>${esc(p.client)}</b>` : ""}${p.client && p.material ? " · " : ""}${esc(p.material || "")}
-          ${p.drawing ? `<br>rys. ${esc(p.drawing)}` : ""}
+        <div class="card-mid">
+          <div class="card-sub">
+            ${p.client ? `<b>${esc(p.client)}</b>` : ""}${p.client && p.material ? " · " : ""}${esc(p.material || "")}
+            ${p.drawing ? `<br>rys. ${esc(p.drawing)}` : ""}
+            ${p.detail ? `<br>${esc(p.detail)}` : ""}
+          </div>
+          ${(p.pdfs && p.pdfs.length) ? `<div class="thumb" data-pdfthumb="${p.id}" title="${esc(p.pdfs[0])} — kliknij, aby powiększyć">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5"></path>
+            </svg>
+          </div>` : ""}
         </div>
         ${(p.tags || []).length ? `<div class="tags">${p.tags.map(t => `<span class="tag">${esc(t)}</span>`).join("")}</div>` : ""}
         <div class="card-foot">
@@ -1257,6 +1244,7 @@ function render() {
   }
 
   renderSidebar();
+  setTimeout(loadThumbs, 30);
 }
 
 function renderSidebar() {
@@ -1612,6 +1600,8 @@ document.getElementById("filters").addEventListener("click", e => {
 });
 
 document.getElementById("grid").addEventListener("click", e => {
+  const th = e.target.closest("[data-pdfthumb]");
+  if (th) { openPdfModal(th.dataset.pdfthumb); return; }
   const fav = e.target.closest("[data-fav]");
   if (fav) {
     e.stopPropagation();

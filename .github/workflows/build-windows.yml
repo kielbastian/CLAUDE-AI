@@ -1,0 +1,49 @@
+name: Budowa aplikacji Windows (exe)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master, 'claude/**' ]
+    paths:
+      - index.html
+      - main.js
+      - package.json
+      - vendor/**
+      - build/**
+      - .github/workflows/build-windows.yml
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Instalacja zależności
+        run: npm install
+
+      - name: Budowa przenośnego exe
+        run: npx electron-builder --win portable --publish never
+
+      - name: Artefakt kompilacji
+        uses: actions/upload-artifact@v4
+        with:
+          name: CNC-Manager-windows
+          path: dist/CNC-Manager.exe
+
+      - name: Publikacja w Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: windows-exe
+          name: CNC Manager — Windows (exe)
+          body: |
+            Przenośna aplikacja Windows — pobierz **CNC-Manager.exe**, zapisz gdziekolwiek i uruchom podwójnym kliknięciem. Instalacja nie jest potrzebna.
+
+            Plik jest nadpisywany najnowszą wersją przy każdej zmianie w aplikacji.
+          files: dist/CNC-Manager.exe

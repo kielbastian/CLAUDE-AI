@@ -1,0 +1,33 @@
+{
+  "name": "cnc-manager",
+  "productName": "CNC Manager",
+  "version": "1.0.0",
+  "description": "Menedżer programów CNC — tokarka Haas ST-35Y",
+  "author": "CNC Manager",
+  "license": "MIT",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:win": "electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "pl.cncmanager.app",
+    "productName": "CNC Manager",
+    "files": [
+      "main.js",
+      "index.html",
+      "vendor/**"
+    ],
+    "win": {
+      "target": ["portable"],
+      "icon": "build/icon.ico"
+    },
+    "portable": {
+      "artifactName": "CNC-Manager.exe"
+    }
+  }
+}
