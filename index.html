@@ -130,6 +130,11 @@
   .btn-danger:hover{border-color:rgba(248,113,113,.5);background:rgba(248,113,113,.10)}
   .btn-danger:active{box-shadow:0 0 0 3px rgba(248,113,113,.25)}
   .btn-sm{padding:8px 14px;font-size:.82rem;border-radius:10px}
+  .btn .dot{width:8px;height:8px;border-radius:50%;flex:none;display:none}
+  .btn.connected{border-color:rgba(52,211,153,.45)}
+  .btn.connected .dot{display:block;background:var(--ok);box-shadow:0 0 8px var(--ok)}
+  .btn.resume{border-color:rgba(251,191,36,.45)}
+  .btn.resume .dot{display:block;background:var(--warn);box-shadow:0 0 8px var(--warn)}
 
   /* efekt fali po naciśnięciu */
   .ripple{
@@ -312,6 +317,22 @@
   .field input.bad{border-color:var(--err);box-shadow:0 0 0 3px rgba(248,113,113,.15)}
   .field .hint{font-size:.73rem;color:var(--err);display:none}
   .field .hint.show{display:block}
+  .field-row{display:flex;gap:8px}
+  .field-row input{flex:1;min-width:0}
+  .mini-btn{
+    position:relative;overflow:hidden;flex:none;
+    padding:0 13px;border-radius:11px;border:1px solid var(--stroke);
+    background:rgba(255,255,255,.05);color:var(--mut);
+    font-size:.76rem;font-weight:700;font-family:inherit;cursor:pointer;
+    transition:all .15s;white-space:nowrap;
+  }
+  .mini-btn:hover{color:var(--txt);border-color:var(--stroke-hi)}
+  .mini-btn:active{transform:scale(.94);box-shadow:0 0 0 3px rgba(34,211,238,.25)}
+  .field textarea.code-in.hot{
+    border-color:var(--ac1);
+    background:rgba(34,211,238,.07);
+    box-shadow:0 0 0 3px rgba(34,211,238,.28),0 0 34px rgba(34,211,238,.22);
+  }
 
   /* podgląd programu */
   .meta-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:18px}
@@ -416,6 +437,14 @@
              placeholder="Szukaj: nazwa, numer O, klient, materiał, treść kodu…">
       <button class="search-clear" id="searchClear" title="Wyczyść">✕</button>
     </div>
+    <button class="btn" id="btnFolder" title="Połącz z folderem CNC Programy na dysku">
+      <span class="dot"></span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path>
+      </svg>
+      <span id="folderLabel">Połącz folder</span>
+    </button>
+    <button class="x-btn" id="btnFolderOff" title="Odłącz folder" style="display:none">✕</button>
     <button class="btn btn-primary" id="btnNew">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
         <path d="M12 5v14M5 12h14"></path>
@@ -465,7 +494,10 @@
         </div>
         <div class="field">
           <label>Numer O</label>
-          <input id="fOnum" type="text" placeholder="O00125">
+          <div class="field-row">
+            <input id="fOnum" type="text" placeholder="O00125">
+            <button class="mini-btn" id="btnFreeOnum" title="Znajdź pierwszy wolny numer O w bibliotece">Wolny numer</button>
+          </div>
           <span class="hint" id="hOnum">Ten numer O jest już zajęty przez inny program</span>
         </div>
         <div class="field">
@@ -695,6 +727,246 @@ function save() { localStorage.setItem(LS_KEY, JSON.stringify(programs)); }
 const byId = id => programs.find(p => p.id === id);
 const uid = () => "p" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
+/* ════════════════════ analiza G-kodu ════════════════════ */
+const onumInt = s => { const m = String(s || "").match(/\d+/); return m ? parseInt(m[0], 10) : NaN; };
+const collapse = s => String(s || "").replace(/\s+/g, " ").trim();
+const sanitizeName = s => collapse(String(s || "").replace(/[\\/:*?"<>|]+/g, "_")).slice(0, 60) || "program";
+
+/* wyciąga z kodu: numer O, nazwę z nawiasów obok numeru, nazwę detalu z komentarza */
+function parseGcodeMeta(code) {
+  const meta = { onum: "", name: "", detail: "" };
+  const m = String(code || "").match(/^[ \t]*[Oo](\d{1,5})[ \t]*(?:\(([^)]*)\))?/m);
+  if (m) { meta.onum = "O" + m[1]; meta.name = collapse(m[2]); }
+  for (const line of String(code || "").split("\n").slice(0, 15)) {
+    const c = line.match(/^\s*\(([^)]*)\)\s*$/);
+    if (!c) continue;
+    const t = collapse(c[1]);
+    if (!t || /^[*\-=_. ]+$/.test(t) || t.startsWith("---")) continue;
+    if (/\d{1,2}[.\/-]\d{1,2}[.\/-]\d{2,4}/.test(t)) continue;
+    if (meta.name && t.toLowerCase() === meta.name.toLowerCase()) continue;
+    meta.detail = t;
+    break;
+  }
+  return meta;
+}
+
+function replaceOnumInCode(code, onum) {
+  if (!onum) return code;
+  const num = String(onum).replace(/^[Oo]/, "");
+  if (/^[ \t]*[Oo]\d+/m.test(code)) return code.replace(/^([ \t]*)[Oo]\d+/m, "$1O" + num);
+  return code;
+}
+
+/* pierwszy wolny numer O — najmniejszy, którego nie ma w bibliotece */
+function nextFreeOnum() {
+  const used = new Set(programs.map(p => onumInt(p.onum)).filter(n => !isNaN(n) && n > 0));
+  let n = 1;
+  while (used.has(n)) n++;
+  return "O" + String(n).padStart(4, "0");
+}
+
+/* ════════════════ folder CNC Programy na dysku (File System Access API) ════════════════ */
+let fsRoot = null;
+const FILE_RE = /\.(txt|nc|cnc|tap|eia|prg|ngc)$/i;
+
+function idb() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open("cncFS", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("kv");
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+async function idbSet(k, v) {
+  const db = await idb();
+  return new Promise((res, rej) => {
+    const t = db.transaction("kv", "readwrite");
+    t.objectStore("kv").put(v, k);
+    t.oncomplete = () => res();
+    t.onerror = () => rej(t.error);
+  });
+}
+async function idbGet(k) {
+  const db = await idb();
+  return new Promise((res, rej) => {
+    const g = db.transaction("kv", "readonly").objectStore("kv").get(k);
+    g.onsuccess = () => res(g.result);
+    g.onerror = () => rej(g.error);
+  });
+}
+
+function updateFolderUI(resume) {
+  const btn = document.getElementById("btnFolder");
+  const lbl = document.getElementById("folderLabel");
+  const off = document.getElementById("btnFolderOff");
+  btn.classList.remove("connected", "resume");
+  if (!fsRoot) {
+    lbl.textContent = "Połącz folder";
+    btn.title = "Połącz z folderem CNC Programy na dysku";
+    off.style.display = "none";
+    return;
+  }
+  off.style.display = "";
+  if (resume) {
+    btn.classList.add("resume");
+    lbl.textContent = "Wznów: " + fsRoot.name;
+    btn.title = "Kliknij, aby przywrócić dostęp do folderu";
+  } else {
+    btn.classList.add("connected");
+    lbl.textContent = fsRoot.name;
+    btn.title = "Kliknij, aby przeskanować folder ponownie";
+  }
+}
+
+async function connectFolder() {
+  if (!window.showDirectoryPicker) {
+    toast("Ta przeglądarka nie obsługuje dostępu do folderów — użyj Chrome lub Edge");
+    return;
+  }
+  try { fsRoot = await window.showDirectoryPicker({ mode: "readwrite" }); }
+  catch (e) { return; }
+  try { await idbSet("root", fsRoot); } catch (e) {}
+  updateFolderUI(false);
+  await rescanFolder();
+}
+
+async function restoreFolder() {
+  if (!window.showDirectoryPicker) return;
+  let h = null;
+  try { h = await idbGet("root"); } catch (e) {}
+  if (!h) return;
+  fsRoot = h;
+  let st = "prompt";
+  try { st = await h.queryPermission({ mode: "readwrite" }); } catch (e) {}
+  updateFolderUI(st !== "granted");
+  if (st === "granted") await rescanFolder();
+  else toast('Kliknij "Wznów: ' + h.name + '", aby przywrócić dostęp do folderu');
+}
+
+async function disconnectFolder() {
+  fsRoot = null;
+  try { await idbSet("root", null); } catch (e) {}
+  updateFolderUI(false);
+  toast("Odłączono folder — programy pozostają w bibliotece");
+}
+
+/* skanuje folder główny: podfoldery z plikami programów + pliki luzem */
+async function rescanFolder() {
+  if (!fsRoot) return;
+  const found = [];
+  try {
+    for await (const [name, h] of fsRoot.entries()) {
+      if (h.kind === "directory") {
+        try {
+          for await (const [fn, fh] of h.entries()) {
+            if (fh.kind === "file" && FILE_RE.test(fn)) {
+              const f = await fh.getFile();
+              found.push({ dir: name, file: fn, code: await f.text(), mtime: f.lastModified });
+            }
+          }
+        } catch (e) {}
+      } else if (h.kind === "file" && FILE_RE.test(name)) {
+        const f = await h.getFile();
+        found.push({ dir: "", file: name, code: await f.text(), mtime: f.lastModified });
+      }
+    }
+  } catch (e) { toast("Nie udało się odczytać folderu"); return; }
+
+  const diskIds = new Set();
+  let added = 0;
+  found.forEach(x => {
+    const id = "d:" + (x.dir ? x.dir + "/" : "") + x.file;
+    diskIds.add(id);
+    const p = byId(id);
+    if (!p) {
+      const meta = parseGcodeMeta(x.code);
+      programs.push({
+        id, source: "disk", dir: x.dir, file: x.file,
+        name: meta.name || x.file.replace(/\.[^.]+$/, ""),
+        onum: meta.onum || "", detail: meta.detail || "",
+        drawing: "", client: "", material: "", tags: [], note: "",
+        fav: false, versions: [], code: x.code, created: x.mtime, modified: x.mtime
+      });
+      added++;
+    } else if (p.code !== x.code) {
+      (p.versions = p.versions || []).push({ date: p.modified, note: "Wersja sprzed zmiany pliku na dysku", code: p.code });
+      p.code = x.code;
+      p.modified = x.mtime;
+      const meta = parseGcodeMeta(x.code);
+      if (meta.onum) p.onum = meta.onum;
+    }
+  });
+  programs = programs.filter(p => p.source !== "disk" || diskIds.has(p.id));
+  save();
+  render();
+  toast("Folder „" + fsRoot.name + "”: " + found.length + " plików" + (added ? ", nowych: " + added : ""));
+}
+
+async function writeDisk(p) {
+  if (!fsRoot || !p.file) return false;
+  try {
+    const dh = p.dir ? await fsRoot.getDirectoryHandle(p.dir, { create: true }) : fsRoot;
+    const fh = await dh.getFileHandle(p.file, { create: true });
+    const w = await fh.createWritable();
+    await w.write(p.code || "");
+    await w.close();
+    return true;
+  } catch (e) { return false; }
+}
+
+/* ════════════════ wczytywanie plików przez przeciągnięcie ════════════════ */
+async function applyDroppedFile(file) {
+  let text = "";
+  try { text = await file.text(); } catch (e) { toast("Nie udało się odczytać pliku"); return; }
+  const meta = parseGcodeMeta(text);
+  let onum = meta.onum, code = text;
+  const n = onumInt(onum);
+  const taken = !isNaN(n) && programs.some(p => p.id !== editId && onumInt(p.onum) === n);
+  if (!onum || taken) {
+    const free = nextFreeOnum();
+    toast(taken ? "Numer " + onum + " jest już zajęty — przydzielono wolny " + free
+                : "Przydzielono wolny numer " + free);
+    onum = free;
+    code = replaceOnumInCode(code, onum);
+  } else {
+    toast("Wczytano " + file.name);
+  }
+  document.getElementById("fCode").value = code;
+  document.getElementById("fOnum").value = onum;
+  const nameEl = document.getElementById("fName");
+  if (!nameEl.value.trim()) nameEl.value = meta.name || file.name.replace(/\.[^.]+$/, "");
+  nameEl.classList.remove("bad");
+  document.getElementById("hName").classList.remove("show");
+  const det = document.getElementById("fDetail");
+  if (!det.value.trim() && meta.detail) det.value = meta.detail;
+  checkOnumDup();
+}
+
+/* import wielu plików naraz — od razu do biblioteki (i na dysk, gdy folder połączony) */
+async function importFile(file) {
+  let text = "";
+  try { text = await file.text(); } catch (e) { return; }
+  const meta = parseGcodeMeta(text);
+  let onum = meta.onum;
+  const n = onumInt(onum);
+  if (!onum || programs.some(p => onumInt(p.onum) === n)) onum = nextFreeOnum();
+  const code = replaceOnumInCode(text, onum);
+  const name = meta.name || file.name.replace(/\.[^.]+$/, "");
+  const p = {
+    id: uid(), source: "local", fav: false, versions: [],
+    created: Date.now(), modified: Date.now(),
+    name, onum, detail: meta.detail || "",
+    drawing: "", client: "", material: "", tags: [], note: "", code
+  };
+  if (fsRoot) {
+    let base = sanitizeName(name);
+    if (byId("d:" + base + "/" + base + ".txt")) base = base + "_" + onum;
+    p.dir = base; p.file = base + ".txt"; p.id = "d:" + base + "/" + p.file; p.source = "disk";
+    await writeDisk(p);
+  }
+  programs.push(p);
+}
+
 /* ════════════════════ narzędzia ════════════════════ */
 const esc = s => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const fmtDate = t => new Date(t).toLocaleDateString("pl-PL", { day: "2-digit", month: "2-digit", year: "numeric" }) +
@@ -777,7 +1049,7 @@ function render() {
         </div>
         ${(p.tags || []).length ? `<div class="tags">${p.tags.map(t => `<span class="tag">${esc(t)}</span>`).join("")}</div>` : ""}
         <div class="card-foot">
-          <span>${fmtDate(p.modified)}</span>
+          <span>${p.dir ? "📁 " + esc(p.dir) + " · " : ""}${fmtDate(p.modified)}</span>
           <span class="ver">
             <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round">
               <path d="M12 8v4l2.5 2.5"></path><circle cx="12" cy="12" r="9"></circle>
@@ -830,7 +1102,8 @@ function openView(id) {
   const offsets = extractOffsets(p.code);
   const meta = [
     ["Detal", p.detail], ["Nr rysunku", p.drawing], ["Klient", p.client],
-    ["Materiał", p.material], ["Utworzono", fmtDate(p.created)], ["Zmieniono", fmtDate(p.modified)]
+    ["Materiał", p.material], ["Utworzono", fmtDate(p.created)], ["Zmieniono", fmtDate(p.modified)],
+    ["Plik na dysku", p.file ? (p.dir ? p.dir + "/" : "") + p.file : ""]
   ].filter(m => m[1]);
 
   document.getElementById("vBody").innerHTML = `
@@ -887,14 +1160,14 @@ function openEdit(id) {
 }
 
 function checkOnumDup() {
-  const val = document.getElementById("fOnum").value.trim().toUpperCase();
-  const dup = val && programs.some(p => p.id !== editId && (p.onum || "").toUpperCase() === val);
+  const n = onumInt(document.getElementById("fOnum").value);
+  const dup = !isNaN(n) && programs.some(p => p.id !== editId && onumInt(p.onum) === n);
   document.getElementById("fOnum").classList.toggle("bad", dup);
   document.getElementById("hOnum").classList.toggle("show", dup);
   return dup;
 }
 
-function saveProgram() {
+async function saveProgram() {
   const name = document.getElementById("fName").value.trim();
   if (!name) {
     document.getElementById("fName").classList.add("bad");
@@ -903,11 +1176,12 @@ function saveProgram() {
     return;
   }
   let onum = document.getElementById("fOnum").value.trim().toUpperCase();
-  const code = document.getElementById("fCode").value;
+  let code = document.getElementById("fCode").value;
   if (!onum) {
-    const m = code.match(/^\s*O(\d{3,5})/m);
-    if (m) onum = "O" + m[1];
+    const m = parseGcodeMeta(code);
+    if (m.onum) onum = m.onum;
   }
+  if (onum) code = replaceOnumInCode(code, onum);
   const data = {
     name,
     onum,
@@ -931,10 +1205,26 @@ function saveProgram() {
       });
     }
     Object.assign(p, data, { modified: Date.now() });
-    toast("Zapisano zmiany — " + p.name);
+    if (p.source === "disk") {
+      const ok = await writeDisk(p);
+      toast(ok ? "Zapisano na dysku — " + (p.dir ? p.dir + "/" : "") + p.file
+               : "Zapisano w aplikacji — brak dostępu do folderu");
+    } else {
+      toast("Zapisano zmiany — " + p.name);
+    }
   } else {
-    programs.push(Object.assign({ id: uid(), fav: false, versions: [], created: Date.now(), modified: Date.now() }, data));
-    toast("Dodano program — " + name);
+    const p = Object.assign({ id: uid(), source: "local", fav: false, versions: [], created: Date.now(), modified: Date.now() }, data);
+    if (fsRoot) {
+      let base = sanitizeName(p.name);
+      if (byId("d:" + base + "/" + base + ".txt")) base = base + "_" + (p.onum || Date.now());
+      p.dir = base; p.file = base + ".txt"; p.id = "d:" + base + "/" + p.file; p.source = "disk";
+      const ok = await writeDisk(p);
+      toast(ok ? "Utworzono folder „" + p.dir + "” i zapisano " + p.file
+               : "Nie udało się zapisać na dysku — program zapisany w aplikacji");
+    } else {
+      toast("Dodano program — " + name);
+    }
+    programs.push(p);
   }
   save();
   closeModal("mEdit");
@@ -956,9 +1246,18 @@ function download(p) {
   toast("Pobrano " + fname);
 }
 
-function removeProgram(id) {
+async function removeProgram(id) {
   const p = byId(id); if (!p) return;
-  if (!confirm('Usunąć program "' + p.name + '" wraz z historią wersji?')) return;
+  const extra = (p.source === "disk" && p.file)
+    ? "\n\nPlik zostanie usunięty także z folderu: " + (p.dir ? p.dir + "/" : "") + p.file
+    : "";
+  if (!confirm('Usunąć program "' + p.name + '" wraz z historią wersji?' + extra)) return;
+  if (p.source === "disk" && fsRoot && p.file) {
+    try {
+      const dh = p.dir ? await fsRoot.getDirectoryHandle(p.dir) : fsRoot;
+      await dh.removeEntry(p.file);
+    } catch (e) {}
+  }
   programs = programs.filter(x => x.id !== id);
   save();
   closeModal("mView");
@@ -972,6 +1271,7 @@ function restoreVersion(idx) {
   p.versions.push({ date: p.modified, note: "Stan przed przywróceniem wersji", code: p.code });
   p.code = v.code;
   p.modified = Date.now();
+  if (p.source === "disk") writeDisk(p);
   save();
   render();
   openView(p.id);
@@ -986,6 +1286,65 @@ function closeModal(id) { document.getElementById(id).classList.remove("open"); 
 document.getElementById("btnNew").addEventListener("click", () => openEdit(null));
 document.getElementById("btnSave").addEventListener("click", saveProgram);
 document.getElementById("fOnum").addEventListener("input", checkOnumDup);
+
+document.getElementById("btnFolder").addEventListener("click", async () => {
+  if (!fsRoot) { await connectFolder(); return; }
+  let st = "prompt";
+  try { st = await fsRoot.queryPermission({ mode: "readwrite" }); } catch (e) {}
+  if (st !== "granted") {
+    try { st = await fsRoot.requestPermission({ mode: "readwrite" }); } catch (e) {}
+    if (st !== "granted") { toast("Brak zgody na dostęp do folderu"); return; }
+  }
+  updateFolderUI(false);
+  await rescanFolder();
+});
+document.getElementById("btnFolderOff").addEventListener("click", disconnectFolder);
+
+document.getElementById("btnFreeOnum").addEventListener("click", () => {
+  const free = nextFreeOnum();
+  document.getElementById("fOnum").value = free;
+  const ta = document.getElementById("fCode");
+  if (ta.value.trim()) ta.value = replaceOnumInCode(ta.value, free);
+  checkOnumDup();
+  toast("Przydzielono wolny numer " + free);
+});
+
+/* przeciąganie pliku na pole kodu — wczytanie i wypełnienie rubryk */
+const codeTa = document.getElementById("fCode");
+["dragenter", "dragover"].forEach(ev => codeTa.addEventListener(ev, e => {
+  e.preventDefault(); e.stopPropagation();
+  codeTa.classList.add("hot");
+}));
+codeTa.addEventListener("dragleave", () => codeTa.classList.remove("hot"));
+codeTa.addEventListener("drop", async e => {
+  e.preventDefault(); e.stopPropagation();
+  codeTa.classList.remove("hot");
+  const f = e.dataTransfer && e.dataTransfer.files[0];
+  if (f) await applyDroppedFile(f);
+});
+
+/* przeciągnięcie plików gdziekolwiek na stronę */
+window.addEventListener("dragover", e => e.preventDefault());
+window.addEventListener("drop", async e => {
+  e.preventDefault();
+  if (e.target === codeTa) return;
+  const files = [...((e.dataTransfer && e.dataTransfer.files) || [])]
+    .filter(f => FILE_RE.test(f.name) || (f.type && f.type.startsWith("text")));
+  if (!files.length) return;
+  if (document.getElementById("mEdit").classList.contains("open")) {
+    await applyDroppedFile(files[0]);
+    return;
+  }
+  closeModal("mView");
+  if (files.length === 1) {
+    openEdit(null);
+    await applyDroppedFile(files[0]);
+  } else {
+    for (const f of files) await importFile(f);
+    save(); render();
+    toast("Zaimportowano " + files.length + " programów");
+  }
+});
 document.getElementById("fName").addEventListener("input", e => {
   e.target.classList.remove("bad");
   document.getElementById("hName").classList.remove("show");
@@ -1057,6 +1416,7 @@ document.addEventListener("pointerdown", e => {
 /* ════════════════════ start ════════════════════ */
 load();
 render();
+restoreFolder();
 </script>
 </body>
 </html>
