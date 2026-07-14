@@ -130,6 +130,7 @@
   .btn-danger:hover{border-color:rgba(248,113,113,.5);background:rgba(248,113,113,.10)}
   .btn-danger:active{box-shadow:0 0 0 3px rgba(248,113,113,.25)}
   .btn-sm{padding:8px 14px;font-size:.82rem;border-radius:10px}
+  .btn:disabled{opacity:.5;pointer-events:none}
   .btn .dot{width:8px;height:8px;border-radius:50%;flex:none;display:none}
   .btn.connected{border-color:rgba(52,211,153,.45)}
   .btn.connected .dot{display:block;background:var(--ok);box-shadow:0 0 8px var(--ok)}
@@ -619,6 +620,19 @@
       <h3>Zajęte numery O</h3>
       <div class="onums" id="onums"></div>
     </div>
+    <div class="panel">
+      <h3>Rysunki PDF</h3>
+      <button class="btn" id="btnMatchAll" style="width:100%;justify-content:center">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5"></path>
+          <circle cx="11" cy="14" r="2.6"></circle><path d="M13 16l2.4 2.4"></path>
+        </svg>
+        Dopasuj rysunki
+      </button>
+      <div style="font-size:.72rem;color:var(--mut);margin-top:9px;line-height:1.55">
+        Wyszukuje po numerze SZ i kopiuje rysunki do wszystkich programów, które ich jeszcze nie mają.
+      </div>
+    </div>
   </aside>
 
   <section class="grid" id="grid"></section>
@@ -726,6 +740,27 @@
           <path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
         </svg>
         Edytuj
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── modal: potwierdzenie usunięcia ───────────────────────────── -->
+<div class="modal" id="mConfirm">
+  <div class="dialog" style="max-width:480px">
+    <div class="dialog-head">
+      <h2>Potwierdź</h2>
+    </div>
+    <div class="dialog-body">
+      <div id="cfText" style="font-size:.93rem;line-height:1.65;white-space:pre-line"></div>
+    </div>
+    <div class="dialog-foot">
+      <button class="btn" id="cfNo">Anuluj</button>
+      <button class="btn btn-danger" id="cfYes">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+          <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"></path>
+        </svg>
+        Usuń
       </button>
     </div>
   </div>
@@ -1767,7 +1802,7 @@ async function removeProgram(id) {
   const extra = (p.source === "disk" && p.file)
     ? "\n\nPlik zostanie usunięty także z folderu: " + (p.dir ? p.dir + "/" : "") + p.file
     : "";
-  if (!confirm('Usunąć program "' + p.name + '" wraz z historią wersji?' + extra)) return;
+  if (!await askConfirm('Usunąć program "' + p.name + '" wraz z historią wersji?' + extra)) return;
   if (p.source === "disk" && fsRoot && p.file) {
     if (fsRoot.native) {
       try { await window.native.deleteFile(fsRoot.path, p.dir || "", p.file); } catch (e) {}
@@ -1800,7 +1835,26 @@ function restoreVersion(idx) {
 
 /* ════════════════════ modale ════════════════════ */
 function openModal(id) { document.getElementById(id).classList.add("open"); }
-function closeModal(id) { document.getElementById(id).classList.remove("open"); }
+function closeModal(id) {
+  document.getElementById(id).classList.remove("open");
+  if (id === "mConfirm" && cfResolve) { const r = cfResolve; cfResolve = null; r(false); }
+}
+
+/* własne okno potwierdzenia — systemowe confirm() psuje fokus okna w Electronie */
+let cfResolve = null;
+function askConfirm(text) {
+  return new Promise(res => {
+    cfResolve = res;
+    document.getElementById("cfText").textContent = text;
+    openModal("mConfirm");
+  });
+}
+document.getElementById("cfYes").addEventListener("click", () => {
+  const r = cfResolve; cfResolve = null;
+  closeModal("mConfirm");
+  if (r) r(true);
+});
+document.getElementById("cfNo").addEventListener("click", () => closeModal("mConfirm"));
 
 /* ════════════════════ zdarzenia ════════════════════ */
 document.getElementById("btnNew").addEventListener("click", () => openEdit(null));
@@ -1861,6 +1915,38 @@ document.getElementById("btnTheme").addEventListener("click", () => {
   localStorage.setItem("cncTheme", light ? "light" : "dark");
 });
 if (localStorage.getItem("cncTheme") === "light") document.body.classList.add("light");
+
+/* masowe dopasowanie rysunków: dla każdego programu bez rysunku szuka
+   PDF-a po numerze SZ i kopiuje go do folderu programu */
+async function matchAllPdfs() {
+  if (!fsRoot) { toast("Najpierw połącz folder z programami"); return; }
+  if (!pdfRoot) {
+    toast("Wskaż folder z rysunkami PDF");
+    await connectPdfFolder();
+    if (!pdfRoot) return;
+  }
+  const btn = document.getElementById("btnMatchAll");
+  btn.disabled = true;
+  const norm = s => fold(s).replace(/[\s\-_]+/g, "");
+  let added = 0, noMatch = 0, noDrawing = 0;
+  for (const p of programs) {
+    if (!p.dir || (p.pdfs && p.pdfs.length)) continue;
+    const dn = norm(p.drawing);
+    if (!dn) { noDrawing++; continue; }
+    const match = findPdfMatches(p.drawing, p.name).find(f => norm(f.name).includes(dn));
+    if (!match) { noMatch++; continue; }
+    if (await copyPdfToProgram(p, match)) added++;
+    else noMatch++;
+  }
+  btn.disabled = false;
+  save();
+  render();
+  let msg = "Skopiowano rysunki do " + added + " programów";
+  if (noMatch) msg += " · nie znaleziono: " + noMatch;
+  if (noDrawing) msg += " · bez numeru rysunku: " + noDrawing;
+  toast(msg);
+}
+document.getElementById("btnMatchAll").addEventListener("click", matchAllPdfs);
 
 /* przycisk Odśwież — ponowny skan obu folderów */
 document.getElementById("btnRefresh").addEventListener("click", async () => {
@@ -2006,8 +2092,10 @@ document.getElementById("grid").addEventListener("click", e => {
   const dp = e.target.closest("[data-delpdf]");
   if (dp) {
     const p = byId(dp.dataset.delpdf);
-    if (p && p.pdfs && p.pdfs.length && confirm('Usunąć rysunek "' + p.pdfs[0] + '" z folderu programu „' + p.dir + '”?')) {
-      removePdfFromProgram(p, p.pdfs[0]).then(ok => {
+    if (p && p.pdfs && p.pdfs.length) {
+      askConfirm('Usunąć rysunek "' + p.pdfs[0] + '" z folderu programu „' + p.dir + '”?').then(async yes => {
+        if (!yes) return;
+        const ok = await removePdfFromProgram(p, p.pdfs[0]);
         if (ok) { save(); render(); toast("Usunięto rysunek z folderu programu"); }
         else toast("Nie udało się usunąć rysunku");
       });
