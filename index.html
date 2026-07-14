@@ -271,6 +271,21 @@
   .thumb-add:hover{color:var(--ac1)}
   .thumb-add:hover svg{stroke:var(--ac1)}
   .thumb-add:active{transform:scale(.94);box-shadow:0 0 0 3px rgba(34,211,238,.25)}
+  .thumb-wrap{position:relative;flex:none}
+  .thumb-del{
+    position:absolute;top:-8px;right:-8px;width:22px;height:22px;border-radius:50%;
+    border:1px solid rgba(248,113,113,.6);background:#2a0f14;color:#fca5a5;
+    font-size:.7rem;line-height:1;cursor:pointer;display:grid;place-items:center;
+    opacity:0;transition:opacity .15s,transform .15s;z-index:2;
+  }
+  .card:hover .thumb-del{opacity:1}
+  .thumb-del:hover{background:#7f1d1d;color:#fff}
+  .thumb-del:active{transform:scale(.82)}
+  body.light .thumb-del{background:#fee2e2;color:#b91c1c}
+  .card.drop-hot{
+    border-color:rgba(52,211,153,.65);
+    box-shadow:0 0 0 3px rgba(52,211,153,.25),0 0 26px rgba(52,211,153,.28);
+  }
   .tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
   .tag{
     font-size:.7rem;font-weight:600;padding:3px 10px;border-radius:999px;
@@ -786,6 +801,9 @@ const uid = () => "p" + Date.now().toString(36) + Math.random().toString(36).sli
 /* ════════════════════ analiza G-kodu ════════════════════ */
 const onumInt = s => { const m = String(s || "").match(/\d+/); return m ? parseInt(m[0], 10) : NaN; };
 const collapse = s => String(s || "").replace(/\s+/g, " ").trim();
+/* zamiana polskich znaków na łacińskie — „tłok” znajdzie „tlok” i odwrotnie */
+const PLCH = { "ą": "a", "ć": "c", "ę": "e", "ł": "l", "ń": "n", "ó": "o", "ś": "s", "ź": "z", "ż": "z" };
+const fold = s => String(s || "").toLowerCase().replace(/[ąćęłńóśźż]/g, ch => PLCH[ch]);
 function sanitizeName(s) {
   let base = collapse(String(s || "").replace(/[\\/:*?"<>|]+/g, "_")).slice(0, 60).replace(/[. ]+$/, "");
   if (!base || /^(CON|PRN|AUX|NUL|COM\d|LPT\d)$/i.test(base)) base = "program_" + base;
@@ -1145,9 +1163,9 @@ async function scanPdfFolder() {
 
 /* szuka rysunku po numerze (SZ2456) i po nazwie z nawiasów obok numeru O */
 function findPdfMatches(drawing, name) {
-  const norm = s => String(s || "").toLowerCase().replace(/[\s\-_]+/g, "");
+  const norm = s => fold(s).replace(/[\s\-_]+/g, "");
   const dn = norm(drawing);
-  const tokens = String(name || "").toLowerCase().split(/\s+/)
+  const tokens = fold(name).split(/\s+/)
     .filter(t => t.length >= 3 && !/^\d+$/.test(t) && norm(t) !== dn);
   const out = [];
   for (const f of pdfFiles) {
@@ -1201,8 +1219,8 @@ let apCandidates = [];
 let apSelected = null;
 
 function filterPdfs(q) {
-  const norm = s => String(s || "").toLowerCase().replace(/[\s\-_]+/g, "");
-  const toks = String(q || "").toLowerCase().split(/\s+/).map(norm).filter(Boolean);
+  const norm = s => fold(s).replace(/[\s\-_]+/g, "");
+  const toks = fold(q).split(/\s+/).map(norm).filter(Boolean);
   if (!toks.length) return pdfFiles.slice(0, 20);
   return pdfFiles.filter(f => { const fp = norm(f.path); return toks.every(t => fp.includes(t)); }).slice(0, 20);
 }
@@ -1236,6 +1254,42 @@ async function openAddPdf(id) {
   renderApList();
   openModal("mAddPdf");
 }
+/* zapisuje upuszczony plik PDF do podfolderu programu */
+async function savePdfFileToProgram(p, file) {
+  if (!fsRoot || !p.dir) return false;
+  try {
+    const buf = await file.arrayBuffer();
+    if (fsRoot.native) {
+      const r = await window.native.writeBinary(fsRoot.path, p.dir, file.name, new Uint8Array(buf));
+      if (!(r && r.ok)) return false;
+    } else {
+      const dh = await fsRoot.getDirectoryHandle(p.dir, { create: true });
+      const fh = await dh.getFileHandle(file.name, { create: true });
+      const w = await fh.createWritable();
+      await w.write(buf);
+      await w.close();
+    }
+    p.pdfs = [...new Set([...(p.pdfs || []), file.name])];
+    return true;
+  } catch (e) { return false; }
+}
+
+/* usuwa rysunek PDF z podfolderu programu */
+async function removePdfFromProgram(p, name) {
+  if (!fsRoot || !p.dir || !name) return false;
+  try {
+    if (fsRoot.native) {
+      const r = await window.native.deleteFile(fsRoot.path, p.dir, name);
+      if (!(r && r.ok)) return false;
+    } else {
+      const dh = await fsRoot.getDirectoryHandle(p.dir);
+      await dh.removeEntry(name);
+    }
+    p.pdfs = (p.pdfs || []).filter(x => x !== name);
+    return true;
+  } catch (e) { return false; }
+}
+
 const thumbCache = new Map();
 let thumbRun = 0;
 let pdfObjUrl = null;
@@ -1443,9 +1497,9 @@ function matches(p) {
   if (filter === "fav" && !p.fav) return false;
   if (filter.startsWith("tag:") && !(p.tags || []).includes(filter.slice(4))) return false;
   if (!query) return true;
-  const hay = [p.name, p.onum, p.detail, p.drawing, p.client, p.material,
-               (p.tags || []).join(" "), p.note, p.code].join(" ").toLowerCase();
-  return query.toLowerCase().split(/\s+/).every(w => hay.includes(w));
+  const hay = fold([p.name, p.onum, p.detail, p.drawing, p.client, p.material,
+                    (p.tags || []).join(" "), p.note, p.code].join(" "));
+  return fold(query).split(/\s+/).every(w => hay.includes(w));
 }
 
 function render() {
@@ -1480,10 +1534,13 @@ function render() {
             ${p.drawing ? `<br>rys. ${esc(p.drawing)}` : ""}
             ${p.detail ? `<br>${esc(p.detail)}` : ""}
           </div>
-          ${(p.pdfs && p.pdfs.length) ? `<div class="thumb" data-pdfthumb="${p.id}" title="${esc(p.pdfs[0])} — kliknij, aby powiększyć">
-            <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5"></path>
-            </svg>
+          ${(p.pdfs && p.pdfs.length) ? `<div class="thumb-wrap">
+            <div class="thumb" data-pdfthumb="${p.id}" title="${esc(p.pdfs[0])} — kliknij, aby powiększyć">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5"></path>
+              </svg>
+            </div>
+            <button class="thumb-del" data-delpdf="${p.id}" title="Usuń rysunek ${esc(p.pdfs[0])} z folderu programu">✕</button>
           </div>` : (p.dir ? `<button class="thumb thumb-add" data-addpdf="${p.id}" title="Znajdź i dodaj rysunek PDF do tego programu">
             <svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round">
               <path d="M12 5v14M5 12h14"></path>
@@ -1863,26 +1920,58 @@ codeTa.addEventListener("drop", async e => {
   if (f) await applyDroppedFile(f);
 });
 
-/* przeciągnięcie plików gdziekolwiek na stronę */
-window.addEventListener("dragover", e => e.preventDefault());
+/* przeciągnięcie plików gdziekolwiek na stronę; karta podświetla się,
+   gdy nad nią wisisz z plikiem */
+let dragCard = null;
+window.addEventListener("dragover", e => {
+  e.preventDefault();
+  const c = e.target && e.target.closest ? e.target.closest(".card") : null;
+  if (c !== dragCard) {
+    if (dragCard) dragCard.classList.remove("drop-hot");
+    dragCard = c;
+    if (dragCard) dragCard.classList.add("drop-hot");
+  }
+});
+window.addEventListener("dragleave", e => {
+  if (!e.relatedTarget && dragCard) { dragCard.classList.remove("drop-hot"); dragCard = null; }
+});
 window.addEventListener("drop", async e => {
   e.preventDefault();
+  if (dragCard) { dragCard.classList.remove("drop-hot"); dragCard = null; }
   if (e.target === codeTa) return;
-  const files = [...((e.dataTransfer && e.dataTransfer.files) || [])]
-    .filter(f => FILE_RE.test(f.name) || (f.type && f.type.startsWith("text")));
-  if (!files.length) return;
+  const all = [...((e.dataTransfer && e.dataTransfer.files) || [])];
+  const pdfs = all.filter(f => /\.pdf$/i.test(f.name));
+  const progs = all.filter(f => FILE_RE.test(f.name) || (f.type && f.type.startsWith("text")));
+
+  /* rysunek PDF upuszczony na kartę programu — dołącz do tego programu */
+  const card = e.target && e.target.closest ? e.target.closest(".card") : null;
+  if (pdfs.length && card) {
+    const p = byId(card.dataset.id);
+    if (!p || !p.dir) { toast("Ten program nie ma folderu na dysku"); return; }
+    let n = 0;
+    for (const f of pdfs) if (await savePdfFileToProgram(p, f)) n++;
+    if (n) { save(); render(); toast("Dodano rysunek do „" + p.dir + "”"); }
+    else toast("Nie udało się zapisać rysunku");
+    return;
+  }
+  if (pdfs.length && !progs.length) {
+    toast("Upuść rysunek PDF bezpośrednio na kartę programu, aby go dołączyć");
+    return;
+  }
+
+  if (!progs.length) return;
   if (document.getElementById("mEdit").classList.contains("open")) {
-    await applyDroppedFile(files[0]);
+    await applyDroppedFile(progs[0]);
     return;
   }
   closeModal("mView");
-  if (files.length === 1) {
+  if (progs.length === 1) {
     openEdit(null);
-    await applyDroppedFile(files[0]);
+    await applyDroppedFile(progs[0]);
   } else {
-    for (const f of files) await importFile(f);
+    for (const f of progs) await importFile(f);
     save(); render();
-    toast("Zaimportowano " + files.length + " programów");
+    toast("Zaimportowano " + progs.length + " programów");
   }
 });
 document.getElementById("fName").addEventListener("input", e => {
@@ -1914,6 +2003,17 @@ document.getElementById("grid").addEventListener("click", e => {
   if (th) { openPdfModal(th.dataset.pdfthumb); return; }
   const ap = e.target.closest("[data-addpdf]");
   if (ap) { openAddPdf(ap.dataset.addpdf); return; }
+  const dp = e.target.closest("[data-delpdf]");
+  if (dp) {
+    const p = byId(dp.dataset.delpdf);
+    if (p && p.pdfs && p.pdfs.length && confirm('Usunąć rysunek "' + p.pdfs[0] + '" z folderu programu „' + p.dir + '”?')) {
+      removePdfFromProgram(p, p.pdfs[0]).then(ok => {
+        if (ok) { save(); render(); toast("Usunięto rysunek z folderu programu"); }
+        else toast("Nie udało się usunąć rysunku");
+      });
+    }
+    return;
+  }
   const of = e.target.closest("[data-openfolder]");
   if (of) {
     const p = byId(of.dataset.openfolder);

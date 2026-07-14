@@ -121,6 +121,16 @@ ipcMain.handle("copy-file", async (e, { src, destRoot, destDir, name }) => {
   } catch (err) { return { ok: false, error: String(err.message || err) }; }
 });
 
+/* zapis pliku binarnego (np. rysunku PDF upuszczonego na kartę) */
+ipcMain.handle("write-binary", async (e, { root, dir, name, data }) => {
+  try {
+    const target = dir ? path.join(root, dir) : root;
+    await fs.mkdir(target, { recursive: true });
+    await fs.writeFile(path.join(target, name), Buffer.from(data));
+    return { ok: true };
+  } catch (err) { return { ok: false, error: String(err.message || err) }; }
+});
+
 ipcMain.handle("delete-file", async (e, { root, dir, file }) => {
   try {
     await fs.unlink(path.join(root, dir || "", file));
