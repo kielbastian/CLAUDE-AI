@@ -14,6 +14,8 @@ function createWindow() {
     minHeight: 600,
     backgroundColor: "#06080f",
     autoHideMenuBar: true,
+    frame: false,
+    titleBarStyle: "hidden",
     title: "CNC Manager",
     icon: path.join(__dirname, "build", "icon.png"),
     webPreferences: {
@@ -158,6 +160,16 @@ ipcMain.handle("read-file", async (e, p) => {
     return { ok: true, data: await fs.readFile(p), mtime: st.mtimeMs };
   } catch (err) { return { ok: false, error: String(err.message || err) }; }
 });
+
+/* ── sterowanie oknem ── */
+ipcMain.on("win-minimize", () => { if (win) win.minimize(); });
+ipcMain.on("win-toggle-maximize", () => {
+  if (win) {
+    if (win.isMaximized()) win.unmaximize();
+    else win.maximize();
+  }
+});
+ipcMain.on("win-close", () => { if (win) win.close(); });
 
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);

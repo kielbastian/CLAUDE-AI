@@ -52,16 +52,35 @@
     mask-image:radial-gradient(ellipse at 50% 0%,#000 30%,transparent 75%);
   }
 
+  /* ── sterowanie oknem (minimize/maximize/close) ────────────────────────── */
+  .win-ctrl{
+    position:fixed;top:0;right:0;z-index:500;height:36px;
+    display:flex;align-items:center;gap:1px;padding:0;
+    background:transparent;border-bottom:none;-webkit-app-region:drag;
+  }
+  .win-btn{
+    width:40px;height:36px;border:none;background:transparent;color:var(--mut);
+    cursor:pointer;display:grid;place-items:center;font-size:.9rem;
+    transition:background .15s,color .15s;-webkit-app-region:no-drag;
+  }
+  .win-btn:hover{background:rgba(255,255,255,.06);color:var(--txt)}
+  .win-btn:active{background:rgba(255,255,255,.10)}
+  .win-btn.close:hover{background:rgba(248,113,113,.20);color:#fca5a5}
+  body.light .win-btn:hover{background:rgba(15,23,42,.10)}
+  body.light .win-btn.close:hover{background:rgba(248,113,113,.18);color:#b91c1c}
+
   /* ── nagłówek ───────────────────────────────────────────────── */
   header{
     position:sticky;top:0;z-index:50;
     backdrop-filter:blur(18px);
     background:rgba(8,11,22,.72);
     border-bottom:1px solid var(--stroke);
+    -webkit-app-region:drag;
   }
   .header-in{
     max-width:1400px;margin:0 auto;padding:14px 24px;
     display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+    -webkit-app-region:no-drag;
   }
   .logo{display:flex;align-items:center;gap:12px;user-select:none}
   .logo-mark{
@@ -288,16 +307,31 @@
   .thumb-add:hover svg{stroke:var(--ac1)}
   .thumb-add:active{transform:scale(.94);box-shadow:0 0 0 3px rgba(34,211,238,.25)}
   .thumb-wrap{position:relative;flex:none}
-  .thumb-del{
-    position:absolute;top:-8px;right:-8px;width:22px;height:22px;border-radius:50%;
+  .thumb-ctrl{
+    position:absolute;top:-8px;right:-8px;display:flex;gap:4px;opacity:0;
+    transition:opacity .15s;z-index:2;
+  }
+  .card:hover .thumb-ctrl{opacity:1}
+  .thumb-del,.thumb-toggle{
+    width:22px;height:22px;border-radius:50%;
     border:1px solid rgba(248,113,113,.6);background:#2a0f14;color:#fca5a5;
     font-size:.7rem;line-height:1;cursor:pointer;display:grid;place-items:center;
-    opacity:0;transition:opacity .15s,transform .15s;z-index:2;
+    transition:background .15s,color .15s;
   }
-  .card:hover .thumb-del{opacity:1}
-  .thumb-del:hover{background:#7f1d1d;color:#fff}
-  .thumb-del:active{transform:scale(.82)}
+  .thumb-del:hover,.thumb-toggle:hover{background:#7f1d1d;color:#fff}
+  .thumb-del:active,.thumb-toggle:active{transform:scale(.82)}
+  .thumb-toggle{
+    border-color:rgba(34,211,238,.6);background:#0f2230;color:#7dd3fc;
+  }
+  .thumb-toggle:hover{background:#134e63;color:#22d3ee}
+  .thumb-toggle.on{
+    background:rgba(34,211,238,.25);border-color:rgba(34,211,238,.8);
+    box-shadow:0 0 8px rgba(34,211,238,.4);
+  }
   body.light .thumb-del{background:#fee2e2;color:#b91c1c}
+  body.light .thumb-toggle{background:#dbeafe;color:#0284c7;border-color:rgba(2,132,199,.5)}
+  body.light .thumb-toggle:hover{background:#bfdbfe;color:#0369a1}
+  body.light .thumb-toggle.on{background:rgba(2,132,199,.15);border-color:rgba(2,132,199,.8)}
   .card.drop-hot{
     border-color:rgba(52,211,153,.65);
     box-shadow:0 0 0 3px rgba(52,211,153,.25),0 0 26px rgba(52,211,153,.28);
@@ -335,6 +369,8 @@
     background:rgba(4,6,12,.72);backdrop-filter:blur(8px);
   }
   .modal.open{display:flex}
+  #mView{padding-top:0;align-items:center}
+  #mView.open{padding-top:0}
   .dialog{
     width:100%;max-width:860px;
     background:linear-gradient(180deg,#111730,#0c1120 40%);
@@ -558,6 +594,11 @@
 </head>
 <body>
 <div class="bg"></div>
+<div class="win-ctrl" id="winCtrl">
+  <button class="win-btn" id="btnWinMin" title="Minimalizuj">−</button>
+  <button class="win-btn" id="btnWinMax" title="Maksymalizuj">□</button>
+  <button class="win-btn close" id="btnWinClose" title="Zamknij">✕</button>
+</div>
 
 <header>
   <div class="header-in">
@@ -749,11 +790,13 @@
 
 <!-- ── modal: podgląd ───────────────────────────────────────────── -->
 <div class="modal" id="mView">
-  <div class="dialog">
-    <div class="dialog-head">
-      <h2 id="vTitle"></h2>
-      <span class="badge-o big" id="vOnum"></span>
-      <button class="x-btn" data-close="mView" title="Zamknij okno">✕</button>
+  <div class="dialog" style="max-width:900px;margin-top:0;border-radius:0">
+    <div style="position:relative;display:flex;align-items:center;gap:12px;padding:12px 24px 0;border-bottom:1px solid var(--stroke);margin-bottom:8px">
+      <h2 id="vTitle" style="flex:1;margin:0;font-size:.95rem"></h2>
+      <span class="badge-o" id="vOnum" style="padding:6px 12px;font-size:.9rem"></span>
+      <div style="flex:none;display:flex;gap:1px;margin-left:12px">
+        <button class="win-btn" style="width:32px;height:32px" data-close="mView" title="Zamknij okno">✕</button>
+      </div>
     </div>
     <div class="dialog-body" id="vBody"></div>
     <div class="dialog-foot">
@@ -1727,7 +1770,10 @@ function renderGrid() {
                 <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5"></path>
               </svg>
             </div>
-            <button class="thumb-del" data-delpdf="${p.id}" title="Usuń rysunek ${esc(p.pdfs[0])} z folderu programu">✕</button>
+            <div class="thumb-ctrl">
+              <button class="thumb-toggle ${p.autoSearch !== false ? "on" : ""}" data-togglepdf="${p.id}" title="Włącz/wyłącz automatyczne wyszukiwanie rysunku w szkicach">🔍</button>
+              <button class="thumb-del" data-delpdf="${p.id}" title="Usuń rysunek ${esc(p.pdfs[0])} z folderu programu">✕</button>
+            </div>
           </div>` : (p.dir ? `<button class="thumb thumb-add" data-addpdf="${p.id}" title="Znajdź i dodaj rysunek PDF do tego programu">
             <svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round">
               <path d="M12 5v14M5 12h14"></path>
@@ -1855,7 +1901,7 @@ function openEdit(id) {
   selectedPdf = null;
   pdfCandidates = [];
   attachedPdfs = (p && p.pdfs) ? p.pdfs.slice() : [];
-  if (pdfRoot && p && (p.drawing || p.name) && !attachedPdfs.length) doPdfSearch(true);
+  if (pdfRoot && p && (p.drawing || p.name) && !attachedPdfs.length && p.autoSearch !== false) doPdfSearch(true);
   else renderPdfBox();
   openModal("mEdit");
   setTimeout(() => document.getElementById("fName").focus(), 60);
@@ -2317,15 +2363,27 @@ document.getElementById("grid").addEventListener("click", e => {
   if (th) { openPdfModal(th.dataset.pdfthumb); return; }
   const ap = e.target.closest("[data-addpdf]");
   if (ap) { openAddPdf(ap.dataset.addpdf); return; }
-  const dp = e.target.closest("[data-delpdf]");
+  const tp = e.target.closest(“[data-togglepdf]”);
+  if (tp) {
+    e.stopPropagation();
+    const p = byId(tp.dataset.togglepdf);
+    if (p) {
+      p.autoSearch = !p.autoSearch;
+      save();
+      render();
+      toast(p.autoSearch ? “Automatyczne wyszukiwanie WŁĄCZONE” : “Automatyczne wyszukiwanie WYŁĄCZONE”);
+    }
+    return;
+  }
+  const dp = e.target.closest(“[data-delpdf]”);
   if (dp) {
     const p = byId(dp.dataset.delpdf);
     if (p && p.pdfs && p.pdfs.length) {
-      askConfirm('Usunąć rysunek "' + p.pdfs[0] + '" z folderu programu „' + p.dir + '”?').then(async yes => {
+      askConfirm('Usunąć rysunek “' + p.pdfs[0] + '” z folderu programu „' + p.dir + '”?').then(async yes => {
         if (!yes) return;
         const ok = await removePdfFromProgram(p, p.pdfs[0]);
-        if (ok) { save(); render(); toast("Usunięto rysunek z folderu programu"); }
-        else toast("Nie udało się usunąć rysunku");
+        if (ok) { save(); render(); toast(“Usunięto rysunek z folderu programu”); }
+        else toast(“Nie udało się usunąć rysunku”);
       });
     }
     return;
@@ -2385,6 +2443,13 @@ document.addEventListener("pointerdown", e => {
   t.appendChild(r);
   setTimeout(() => r.remove(), 650);
 });
+
+/* ════════════════════ window control ════════════════════ */
+if (window.native && window.native.minimize) {
+  document.getElementById("btnWinMin").addEventListener("click", () => window.native.minimize());
+  document.getElementById("btnWinMax").addEventListener("click", () => window.native.toggleMaximize());
+  document.getElementById("btnWinClose").addEventListener("click", () => window.native.close());
+}
 
 /* ════════════════════ start ════════════════════ */
 load();
