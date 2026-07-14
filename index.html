@@ -1098,6 +1098,27 @@ async function rescanFolder() {
   mergeScan(found);
 }
 
+/* Gdy w jednym folderze leży kilka programów (bo dzielą numer rysunku),
+   dopasowuje PDF-y do konkretnego programu po NAZWIE detalu, a nie po numerze
+   rysunku (który jest wspólny). Zwraca listę z najlepiej pasującym PDF na początku. */
+function orderPdfsForProgram(name, detail, drawing, list) {
+  if (!list || list.length <= 1) return list ? list.slice() : [];
+  const norm = s => fold(s).replace(/[\s\-_.,]+/g, "");
+  const dn = norm(drawing);
+  const toks = fold((name || "") + " " + (detail || "")).split(/\s+/)
+    .map(t => t.replace(/[^a-z0-9]/g, ""))
+    .filter(t => t.length >= 3 && norm(t) !== dn);
+  const score = fn => {
+    const f = norm(String(fn).replace(/\.pdf$/i, ""));
+    let s = 0;
+    for (const t of toks) if (f.includes(t)) s++;
+    return s;
+  };
+  return list.map(fn => ({ fn, s: score(fn) }))
+             .sort((a, b) => b.s - a.s)
+             .map(x => x.fn);
+}
+
 /* scala wynik skanowania z biblioteką (wspólne dla trybu natywnego i przeglądarki) */
 function mergeScan(found) {
   thumbByCard.clear();   // po przeskanowaniu dysku odśwież miniaturki od zera
@@ -1115,11 +1136,11 @@ function mergeScan(found) {
         onum: meta.onum || "", detail: meta.detail || "",
         drawing: meta.drawing || "", client: "", material: "", tags: [], note: "",
         fav: false, versions: [], code: x.code, created: x.mtime, modified: x.mtime,
-        pdfs: x.pdfs || []
+        pdfs: orderPdfsForProgram(meta.name, meta.detail, meta.drawing, x.pdfs)
       });
       added++;
     } else {
-      p.pdfs = x.pdfs || [];
+      p.pdfs = orderPdfsForProgram(p.name, p.detail, p.drawing, x.pdfs);
       if (p.code !== x.code) {
         (p.versions = p.versions || []).push({ date: p.modified, note: "Wersja sprzed zmiany pliku na dysku", code: p.code });
         p.code = x.code;
@@ -1355,7 +1376,7 @@ async function savePdfFileToProgram(p, file) {
       await w.write(buf);
       await w.close();
     }
-    p.pdfs = [...new Set([...(p.pdfs || []), file.name])];
+    p.pdfs = [file.name, ...(p.pdfs || []).filter(x => x !== file.name)];
     thumbByCard.delete(p.id);
     return true;
   } catch (e) { return false; }
@@ -1505,7 +1526,7 @@ async function copyPdfToProgram(p, entry) {
     const r = await window.native.copyFile(entry.abs, fsRoot.path, p.dir, entry.name)
       .catch(() => ({ ok: false }));
     if (!(r && r.ok)) return false;
-    p.pdfs = [...new Set([...(p.pdfs || []), entry.name])];
+    p.pdfs = [entry.name, ...(p.pdfs || []).filter(x => x !== entry.name)];
     thumbByCard.delete(p.id);
     return true;
   }
@@ -1516,7 +1537,7 @@ async function copyPdfToProgram(p, entry) {
     const w = await fh.createWritable();
     await w.write(await src.arrayBuffer());
     await w.close();
-    p.pdfs = [...new Set([...(p.pdfs || []), entry.name])];
+    p.pdfs = [entry.name, ...(p.pdfs || []).filter(x => x !== entry.name)];
     thumbByCard.delete(p.id);
     return true;
   } catch (e) { return false; }
