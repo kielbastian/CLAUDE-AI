@@ -33,6 +33,7 @@
     color:var(--txt);
     min-height:100vh;
     overflow-x:hidden;
+    padding-top:34px;   /* miejsce na zintegrowany pasek okna */
   }
   /* ── tło z gradientowymi poświatami ─────────────────────────── */
   .bg{
@@ -52,30 +53,36 @@
     mask-image:radial-gradient(ellipse at 50% 0%,#000 30%,transparent 75%);
   }
 
-  /* ── sterowanie oknem (minimize/maximize/close) ────────────────────────── */
+  /* ── zintegrowany pasek okna (minimize/maximize/close) ─────────────────── */
   .win-ctrl{
-    position:fixed;top:0;right:0;z-index:500;height:36px;
-    display:flex;align-items:center;gap:1px;padding:0;
-    background:transparent;border-bottom:none;-webkit-app-region:drag;
+    position:fixed;top:0;left:0;right:0;z-index:500;height:34px;
+    display:flex;align-items:center;gap:1px;
+    background:rgba(8,11,22,.82);backdrop-filter:blur(18px);
+    border-bottom:1px solid var(--stroke);
+    -webkit-app-region:drag;
+  }
+  .win-ctrl .wc-title{
+    flex:1;padding-left:14px;font-size:.72rem;font-weight:700;letter-spacing:.1em;
+    color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;user-select:none;
   }
   .win-btn{
-    width:40px;height:36px;border:none;background:transparent;color:var(--mut);
-    cursor:pointer;display:grid;place-items:center;font-size:.9rem;
+    width:44px;height:34px;border:none;background:transparent;color:var(--mut);
+    cursor:pointer;display:grid;place-items:center;font-size:.9rem;flex:none;
     transition:background .15s,color .15s;-webkit-app-region:no-drag;
   }
-  .win-btn:hover{background:rgba(255,255,255,.06);color:var(--txt)}
-  .win-btn:active{background:rgba(255,255,255,.10)}
-  .win-btn.close:hover{background:rgba(248,113,113,.20);color:#fca5a5}
+  .win-btn:hover{background:rgba(255,255,255,.08);color:var(--txt)}
+  .win-btn:active{background:rgba(255,255,255,.12)}
+  .win-btn.close:hover{background:rgba(248,113,113,.22);color:#fff}
+  body.light .win-ctrl{background:rgba(255,255,255,.85)}
   body.light .win-btn:hover{background:rgba(15,23,42,.10)}
-  body.light .win-btn.close:hover{background:rgba(248,113,113,.18);color:#b91c1c}
+  body.light .win-btn.close:hover{background:rgba(248,113,113,.85);color:#fff}
 
   /* ── nagłówek ───────────────────────────────────────────────── */
   header{
-    position:sticky;top:0;z-index:50;
+    position:sticky;top:34px;z-index:50;
     backdrop-filter:blur(18px);
     background:rgba(8,11,22,.72);
     border-bottom:1px solid var(--stroke);
-    -webkit-app-region:drag;
   }
   .header-in{
     max-width:1400px;margin:0 auto;padding:14px 24px;
@@ -171,7 +178,7 @@
   }
   @media(max-width:900px){.layout{grid-template-columns:1fr}}
 
-  aside{position:sticky;top:86px;display:flex;flex-direction:column;gap:18px}
+  aside{position:sticky;top:110px;display:flex;flex-direction:column;gap:18px}
   @media(max-width:900px){aside{position:static}}
   .panel{
     background:var(--card);border:1px solid var(--stroke);
@@ -314,24 +321,26 @@
   .card:hover .thumb-ctrl{opacity:1}
   .thumb-del,.thumb-toggle{
     width:22px;height:22px;border-radius:50%;
-    border:1px solid rgba(248,113,113,.6);background:#2a0f14;color:#fca5a5;
-    font-size:.7rem;line-height:1;cursor:pointer;display:grid;place-items:center;
-    transition:background .15s,color .15s;
+    font-size:.66rem;line-height:1;cursor:pointer;display:grid;place-items:center;
+    transition:background .15s,border-color .15s,box-shadow .15s,transform .12s;
   }
-  .thumb-del:hover,.thumb-toggle:hover{background:#7f1d1d;color:#fff}
+  .thumb-del{border:1px solid rgba(248,113,113,.6);background:#2a0f14;color:#fca5a5}
+  .thumb-del:hover{background:#7f1d1d;color:#fff}
   .thumb-del:active,.thumb-toggle:active{transform:scale(.82)}
+  /* kłódka zamknięta (domyślnie wyłączone auto-szukanie w tym stanie) */
   .thumb-toggle{
-    border-color:rgba(34,211,238,.6);background:#0f2230;color:#7dd3fc;
+    border:1px solid var(--stroke-hi);background:rgba(120,130,150,.28);
   }
-  .thumb-toggle:hover{background:#134e63;color:#22d3ee}
+  .thumb-toggle:hover{background:rgba(120,130,150,.45);border-color:var(--mut)}
+  /* kłódka otwarta — auto-szukanie aktywne */
   .thumb-toggle.on{
-    background:rgba(34,211,238,.25);border-color:rgba(34,211,238,.8);
-    box-shadow:0 0 8px rgba(34,211,238,.4);
+    border-color:rgba(52,211,153,.8);background:rgba(52,211,153,.28);
+    box-shadow:0 0 8px rgba(52,211,153,.4);
   }
+  .thumb-toggle.on:hover{background:rgba(52,211,153,.42)}
   body.light .thumb-del{background:#fee2e2;color:#b91c1c}
-  body.light .thumb-toggle{background:#dbeafe;color:#0284c7;border-color:rgba(2,132,199,.5)}
-  body.light .thumb-toggle:hover{background:#bfdbfe;color:#0369a1}
-  body.light .thumb-toggle.on{background:rgba(2,132,199,.15);border-color:rgba(2,132,199,.8)}
+  body.light .thumb-toggle{background:rgba(100,116,139,.25)}
+  body.light .thumb-toggle.on{background:rgba(16,185,129,.22);border-color:rgba(16,185,129,.8)}
   .card.drop-hot{
     border-color:rgba(52,211,153,.65);
     box-shadow:0 0 0 3px rgba(52,211,153,.25),0 0 26px rgba(52,211,153,.28);
@@ -595,9 +604,10 @@
 <body>
 <div class="bg"></div>
 <div class="win-ctrl" id="winCtrl">
-  <button class="win-btn" id="btnWinMin" title="Minimalizuj">−</button>
-  <button class="win-btn" id="btnWinMax" title="Maksymalizuj">□</button>
-  <button class="win-btn close" id="btnWinClose" title="Zamknij">✕</button>
+  <span class="wc-title">CNC MANAGER — MAREK KULCZYCKI</span>
+  <button class="win-btn" id="btnWinMin" title="Minimalizuj">&#8211;</button>
+  <button class="win-btn" id="btnWinMax" title="Maksymalizuj">&#9633;</button>
+  <button class="win-btn close" id="btnWinClose" title="Zamknij">&#10005;</button>
 </div>
 
 <header>
@@ -1771,7 +1781,7 @@ function renderGrid() {
               </svg>
             </div>
             <div class="thumb-ctrl">
-              <button class="thumb-toggle ${p.autoSearch !== false ? "on" : ""}" data-togglepdf="${p.id}" title="Włącz/wyłącz automatyczne wyszukiwanie rysunku w szkicach">🔍</button>
+              <button class="thumb-toggle ${p.autoSearch !== false ? "on" : ""}" data-togglepdf="${p.id}" title="${p.autoSearch !== false ? "Kłódka otwarta — rysunek jest automatycznie wyszukiwany w szkicach. Kliknij, aby zablokować." : "Kłódka zamknięta — rysunek NIE jest automatycznie wyszukiwany. Kliknij, aby odblokować."}">${p.autoSearch !== false ? "🔓" : "🔒"}</button>
               <button class="thumb-del" data-delpdf="${p.id}" title="Usuń rysunek ${esc(p.pdfs[0])} z folderu programu">✕</button>
             </div>
           </div>` : (p.dir ? `<button class="thumb thumb-add" data-addpdf="${p.id}" title="Znajdź i dodaj rysunek PDF do tego programu">
@@ -1834,6 +1844,18 @@ function renderSidebar() {
 
 /* ════════════════════ podgląd programu ════════════════════ */
 function openView(id) {
+  const p = byId(id); if (!p) return;
+  // w aplikacji desktopowej podgląd otwiera się w osobnym oknie
+  if (window.native && window.native.openDetail) {
+    const theme = document.body.classList.contains("light") ? "light" : "dark";
+    window.native.openDetail({ program: p, theme });
+    return;
+  }
+  openViewModal(id);
+}
+
+/* podgląd w oknie przeglądarki (gdy brak warstwy natywnej Electrona) */
+function openViewModal(id) {
   const p = byId(id); if (!p) return;
   viewId = id;
   document.getElementById("vTitle").textContent = p.name;
@@ -1984,7 +2006,7 @@ async function saveProgram() {
   }
   save();
   closeModal("mEdit");
-  if (viewId && document.getElementById("mView").classList.contains("open")) openView(viewId);
+  if (viewId && document.getElementById("mView").classList.contains("open")) openViewModal(viewId);
   render();
 }
 
@@ -2363,27 +2385,30 @@ document.getElementById("grid").addEventListener("click", e => {
   if (th) { openPdfModal(th.dataset.pdfthumb); return; }
   const ap = e.target.closest("[data-addpdf]");
   if (ap) { openAddPdf(ap.dataset.addpdf); return; }
-  const tp = e.target.closest(“[data-togglepdf]”);
+  const tp = e.target.closest("[data-togglepdf]");
   if (tp) {
     e.stopPropagation();
     const p = byId(tp.dataset.togglepdf);
     if (p) {
-      p.autoSearch = !p.autoSearch;
+      // undefined/true = kłódka otwarta (szuka), false = kłódka zamknięta (nie szuka)
+      p.autoSearch = (p.autoSearch === false);
       save();
       render();
-      toast(p.autoSearch ? “Automatyczne wyszukiwanie WŁĄCZONE” : “Automatyczne wyszukiwanie WYŁĄCZONE”);
+      toast(p.autoSearch
+        ? "🔓 Kłódka otwarta — rysunek będzie automatycznie wyszukiwany"
+        : "🔒 Kłódka zamknięta — automatyczne wyszukiwanie wyłączone");
     }
     return;
   }
-  const dp = e.target.closest(“[data-delpdf]”);
+  const dp = e.target.closest("[data-delpdf]");
   if (dp) {
     const p = byId(dp.dataset.delpdf);
     if (p && p.pdfs && p.pdfs.length) {
-      askConfirm('Usunąć rysunek “' + p.pdfs[0] + '” z folderu programu „' + p.dir + '”?').then(async yes => {
+      askConfirm('Usunąć rysunek „' + p.pdfs[0] + '” z folderu programu „' + p.dir + '”?').then(async yes => {
         if (!yes) return;
         const ok = await removePdfFromProgram(p, p.pdfs[0]);
-        if (ok) { save(); render(); toast(“Usunięto rysunek z folderu programu”); }
-        else toast(“Nie udało się usunąć rysunku”);
+        if (ok) { save(); render(); toast("Usunięto rysunek z folderu programu"); }
+        else toast("Nie udało się usunąć rysunku");
       });
     }
     return;
@@ -2449,6 +2474,18 @@ if (window.native && window.native.minimize) {
   document.getElementById("btnWinMin").addEventListener("click", () => window.native.minimize());
   document.getElementById("btnWinMax").addEventListener("click", () => window.native.toggleMaximize());
   document.getElementById("btnWinClose").addEventListener("click", () => window.native.close());
+}
+
+/* akcje przekazane z osobnego okna podglądu (Edytuj / Usuń / Pobierz) */
+if (window.native && window.native.onDetailAction) {
+  window.native.onDetailAction(msg => {
+    if (!msg || !msg.id) return;
+    const p = byId(msg.id);
+    if (!p) return;
+    if (msg.type === "edit") openEdit(msg.id);
+    else if (msg.type === "delete") removeProgram(msg.id);
+    else if (msg.type === "download") download(p);
+  });
 }
 
 /* ════════════════════ start ════════════════════ */

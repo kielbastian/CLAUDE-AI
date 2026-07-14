@@ -14,5 +14,8 @@ contextBridge.exposeInMainWorld("native", {
   minimize: () => ipcRenderer.send("win-minimize"),
   toggleMaximize: () => ipcRenderer.send("win-toggle-maximize"),
   close: () => ipcRenderer.send("win-close"),
-  openDetail: (id) => ipcRenderer.invoke("open-detail", id)
+  openDetail: (payload) => ipcRenderer.invoke("open-detail", payload),
+  getDetailData: () => ipcRenderer.invoke("get-detail-data"),
+  detailAction: (msg) => ipcRenderer.send("detail-action", msg),
+  onDetailAction: (cb) => ipcRenderer.on("detail-action", (e, msg) => cb(msg))
 });

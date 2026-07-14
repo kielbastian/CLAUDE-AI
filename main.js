@@ -5,6 +5,7 @@ const fs = require("fs/promises");
 const PROG_RE = /\.(txt|nc|cnc|tap|eia|prg|ngc)$/i;
 
 let win = null;
+const detailPayloads = new Map();   // id okna podglądu -> dane programu
 
 function createWindow() {
   win = new BrowserWindow({
@@ -24,8 +25,12 @@ function createWindow() {
   });
   win.loadFile("index.html");
 
-  // menu pod prawym przyciskiem myszy w polach tekstowych
-  win.webContents.on("context-menu", (e, params) => {
+  attachContextMenu(win);
+}
+
+/* menu pod prawym przyciskiem myszy w polach tekstowych */
+function attachContextMenu(w) {
+  w.webContents.on("context-menu", (e, params) => {
     const items = [];
     if (params.isEditable) {
       items.push(
@@ -40,6 +45,30 @@ function createWindow() {
     }
     if (items.length) Menu.buildFromTemplate(items).popup();
   });
+}
+
+/* osobne okno podglądu programu */
+function createDetailWindow(payload) {
+  const dw = new BrowserWindow({
+    width: 900,
+    height: 820,
+    minWidth: 560,
+    minHeight: 420,
+    backgroundColor: payload && payload.theme === "light" ? "#dfe4ee" : "#0c1020",
+    autoHideMenuBar: true,
+    frame: false,
+    titleBarStyle: "hidden",
+    title: (payload && payload.program && payload.program.name) || "Podgląd programu",
+    icon: path.join(__dirname, "build", "icon.png"),
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js")
+    }
+  });
+  detailPayloads.set(dw.id, payload);
+  dw.on("closed", () => detailPayloads.delete(dw.id));
+  attachContextMenu(dw);
+  dw.loadFile("detail.html");
+  return dw;
 }
 
 /* ── operacje na plikach — natywny zapis przez system Windows ── */
@@ -161,15 +190,43 @@ ipcMain.handle("read-file", async (e, p) => {
   } catch (err) { return { ok: false, error: String(err.message || err) }; }
 });
 
-/* ── sterowanie oknem ── */
-ipcMain.on("win-minimize", () => { if (win) win.minimize(); });
-ipcMain.on("win-toggle-maximize", () => {
-  if (win) {
-    if (win.isMaximized()) win.unmaximize();
-    else win.maximize();
+/* ── sterowanie oknem — działa dla okna, z którego przyszło żądanie ── */
+ipcMain.on("win-minimize", (e) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (w) w.minimize();
+});
+ipcMain.on("win-toggle-maximize", (e) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (!w) return;
+  if (w.isMaximized()) w.unmaximize();
+  else w.maximize();
+});
+ipcMain.on("win-close", (e) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (w) w.close();
+});
+
+/* ── osobne okno podglądu programu ── */
+ipcMain.handle("open-detail", (e, payload) => {
+  createDetailWindow(payload);
+  return { ok: true };
+});
+ipcMain.handle("get-detail-data", (e) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  return w ? (detailPayloads.get(w.id) || null) : null;
+});
+/* akcje z okna podglądu (Edytuj / Usuń / Pobierz) przekazywane do okna głównego */
+ipcMain.on("detail-action", (e, msg) => {
+  if (win && !win.isDestroyed()) {
+    if (win.isMinimized()) win.restore();
+    win.focus();
+    win.webContents.send("detail-action", msg);
+  }
+  if (msg && msg.close) {
+    const w = BrowserWindow.fromWebContents(e.sender);
+    if (w) w.close();
   }
 });
-ipcMain.on("win-close", () => { if (win) win.close(); });
 
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
