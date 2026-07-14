@@ -318,6 +318,11 @@
   }
   .empty svg{width:52px;height:52px;stroke:#39415c;margin-bottom:14px}
   .empty p{font-size:.95rem}
+  .more-bar{
+    grid-column:1/-1;display:flex;align-items:center;justify-content:center;gap:14px;
+    padding:16px;color:var(--mut);font-size:.85rem;
+    border:1px dashed var(--stroke);border-radius:var(--radius);
+  }
 
   /* ── modale ─────────────────────────────────────────────────── */
   .modal{
@@ -624,6 +629,12 @@
         <option value="onumDesc">Numer O: od największego</option>
         <option value="nameAsc">Nazwa: A → Z</option>
       </select>
+      <select id="limitSel" class="sortsel" style="margin-top:9px">
+        <option value="20">Pokaż 20 (szybciej)</option>
+        <option value="50">Pokaż 50</option>
+        <option value="100">Pokaż 100</option>
+        <option value="0">Pokaż wszystkie</option>
+      </select>
     </div>
     <div class="panel">
       <h3>Filtry</h3>
@@ -838,8 +849,13 @@ if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker
 const LS_KEY = "cncPrograms_v1";
 let programs = [];
 let query = "";
+let queryTokens = [];    // słowa wyszukiwania po normalizacji (bez polskich znaków)
 let filter = "all";      // all | fav | tag:xxx
 let sortMode = localStorage.getItem("cncSort") || "modNew";
+let viewLimit = parseInt(localStorage.getItem("cncLimit"), 10);
+if (isNaN(viewLimit)) viewLimit = 20;   // ile kart pokazywać naraz (0 = wszystkie)
+const hayCache = new Map();   // id -> { mod, hay } — bufor tekstu do wyszukiwania
+const thumbByCard = new Map();// id -> { name, url } — gotowe miniaturki bez odczytu z dysku
 let editId = null;       // id edytowanego programu (null = nowy)
 let viewId = null;       // id programu w podglądzie
 
@@ -1074,6 +1090,7 @@ async function rescanFolder() {
 
 /* scala wynik skanowania z biblioteką (wspólne dla trybu natywnego i przeglądarki) */
 function mergeScan(found) {
+  thumbByCard.clear();   // po przeskanowaniu dysku odśwież miniaturki od zera
   const diskIds = new Set();
   let added = 0;
   found.forEach(x => {
@@ -1329,6 +1346,7 @@ async function savePdfFileToProgram(p, file) {
       await w.close();
     }
     p.pdfs = [...new Set([...(p.pdfs || []), file.name])];
+    thumbByCard.delete(p.id);
     return true;
   } catch (e) { return false; }
 }
@@ -1345,6 +1363,7 @@ async function removePdfFromProgram(p, name) {
       await dh.removeEntry(name);
     }
     p.pdfs = (p.pdfs || []).filter(x => x !== name);
+    thumbByCard.delete(p.id);
     return true;
   } catch (e) { return false; }
 }
@@ -1395,12 +1414,20 @@ async function loadThumbs() {
   for (const el of [...document.querySelectorAll("[data-pdfthumb]")]) {
     if (run !== thumbRun) return;
     const p = byId(el.dataset.pdfthumb);
-    if (!p) continue;
+    if (!p || !(p.pdfs && p.pdfs.length)) continue;
+    const name = p.pdfs[0];
+    // gotowa miniaturka z pamięci — bez odczytu pliku z dysku (główne przyspieszenie)
+    const cached = thumbByCard.get(p.id);
+    if (cached && cached.name === name) {
+      el.innerHTML = '<img src="' + cached.url + '" alt="">';
+      el.classList.add("has");
+      continue;
+    }
     const f = await pdfFileOf(p);
     if (!f) continue;
     // klucz oparty na rozmiarze i dacie pliku — dwa różne rysunki nigdy nie
     // dzielą miniaturki, nawet gdy pliki nazywają się tak samo
-    const key = "sz" + f.size + ":" + f.lastModified + ":" + p.pdfs[0];
+    const key = "sz" + f.size + ":" + f.lastModified + ":" + name;
     let url = thumbCache.get(key);
     if (!url) { try { url = await idbGet(key, "thumbs2"); } catch (e) {} }
     if (!url) {
@@ -1408,6 +1435,7 @@ async function loadThumbs() {
       idbSet(key, url, "thumbs2").catch(() => {});
     }
     thumbCache.set(key, url);
+    thumbByCard.set(p.id, { name, url });
     if (run !== thumbRun) return;
     el.innerHTML = '<img src="' + url + '" alt="">';
     el.classList.add("has");
@@ -1468,6 +1496,7 @@ async function copyPdfToProgram(p, entry) {
       .catch(() => ({ ok: false }));
     if (!(r && r.ok)) return false;
     p.pdfs = [...new Set([...(p.pdfs || []), entry.name])];
+    thumbByCard.delete(p.id);
     return true;
   }
   try {
@@ -1478,6 +1507,7 @@ async function copyPdfToProgram(p, entry) {
     await w.write(await src.arrayBuffer());
     await w.close();
     p.pdfs = [...new Set([...(p.pdfs || []), entry.name])];
+    thumbByCard.delete(p.id);
     return true;
   } catch (e) { return false; }
 }
@@ -1588,13 +1618,22 @@ function toast(msg) {
 }
 
 /* ════════════════════ renderowanie ════════════════════ */
+/* buforowany tekst do wyszukiwania — liczony raz na program, aż do jego zmiany */
+function hayOf(p) {
+  const c = hayCache.get(p.id);
+  if (c && c.mod === p.modified) return c.hay;
+  const hay = fold([p.name, p.onum, p.detail, p.drawing, p.client, p.material,
+                    (p.tags || []).join(" "), p.note, p.code].join(" "));
+  hayCache.set(p.id, { mod: p.modified, hay });
+  return hay;
+}
+
 function matches(p) {
   if (filter === "fav" && !p.fav) return false;
   if (filter.startsWith("tag:") && !(p.tags || []).includes(filter.slice(4))) return false;
-  if (!query) return true;
-  const hay = fold([p.name, p.onum, p.detail, p.drawing, p.client, p.material,
-                    (p.tags || []).join(" "), p.note, p.code].join(" "));
-  return fold(query).split(/\s+/).every(w => hay.includes(w));
+  if (!queryTokens.length) return true;
+  const hay = hayOf(p);
+  return queryTokens.every(w => hay.includes(w));
 }
 
 function sortPrograms(list) {
@@ -1609,9 +1648,13 @@ function sortPrograms(list) {
   return list.sort(cmp);
 }
 
-function render() {
+function render() { renderGrid(); renderSidebar(); }
+
+function renderGrid() {
   const grid = document.getElementById("grid");
-  const list = sortPrograms(programs.filter(matches));
+  const full = sortPrograms(programs.filter(matches));
+  const list = viewLimit > 0 ? full.slice(0, viewLimit) : full;
+  const moreCount = full.length - list.length;
 
   if (!list.length) {
     grid.innerHTML = `<div class="empty">
@@ -1672,9 +1715,14 @@ function render() {
           </span>
         </div>
       </article>`).join("");
+    if (moreCount > 0) {
+      grid.innerHTML += `<div class="more-bar">
+        Pokazano ${list.length} z ${full.length} programów
+        <button class="btn btn-sm" id="btnShowAll">Pokaż wszystkie</button>
+      </div>`;
+    }
   }
 
-  renderSidebar();
   setTimeout(loadThumbs, 30);
 }
 
@@ -1992,8 +2040,9 @@ sortSelEl.value = sortMode;
 sortSelEl.addEventListener("change", () => {
   sortMode = sortSelEl.value;
   localStorage.setItem("cncSort", sortMode);
-  render();
+  renderGrid();
 });
+document.getElementById("limitSel").value = String(viewLimit);
 
 /* przełącznik jasnego / ciemnego motywu */
 document.getElementById("btnTheme").addEventListener("click", () => {
@@ -2158,12 +2207,27 @@ document.getElementById("btnDownload").addEventListener("click", () => { const p
 
 const searchEl = document.getElementById("search");
 const clearEl = document.getElementById("searchClear");
-searchEl.addEventListener("input", () => {
+let searchTimer = null;
+function applySearch() {
   query = searchEl.value.trim();
-  clearEl.style.display = query ? "block" : "none";
-  render();
+  queryTokens = query ? fold(query).split(/\s+/).filter(Boolean) : [];
+  renderGrid();
+}
+searchEl.addEventListener("input", () => {
+  clearEl.style.display = searchEl.value ? "block" : "none";
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(applySearch, 130);   // debounce — nie renderuj przy każdym znaku
 });
-clearEl.addEventListener("click", () => { searchEl.value = ""; query = ""; clearEl.style.display = "none"; render(); searchEl.focus(); });
+clearEl.addEventListener("click", () => {
+  searchEl.value = ""; query = ""; queryTokens = [];
+  clearEl.style.display = "none"; renderGrid(); searchEl.focus();
+});
+
+document.getElementById("limitSel").addEventListener("change", e => {
+  viewLimit = parseInt(e.target.value, 10) || 0;
+  localStorage.setItem("cncLimit", String(viewLimit));
+  renderGrid();
+});
 
 document.getElementById("filters").addEventListener("click", e => {
   const c = e.target.closest("[data-filter]"); if (!c) return;
@@ -2172,6 +2236,14 @@ document.getElementById("filters").addEventListener("click", e => {
 });
 
 document.getElementById("grid").addEventListener("click", e => {
+  const sa = e.target.closest("#btnShowAll");
+  if (sa) {
+    viewLimit = 0;
+    localStorage.setItem("cncLimit", "0");
+    const ls = document.getElementById("limitSel"); if (ls) ls.value = "0";
+    renderGrid();
+    return;
+  }
   const th = e.target.closest("[data-pdfthumb]");
   if (th) { openPdfModal(th.dataset.pdfthumb); return; }
   const ap = e.target.closest("[data-addpdf]");
