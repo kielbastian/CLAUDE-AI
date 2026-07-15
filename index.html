@@ -1132,19 +1132,17 @@ async function rescanFolder() {
   try {
     for await (const [name, h] of fsRoot.entries()) {
       if (h.kind === "directory") {
-        const progs = [], pdfs = [];
+        const progs = [];
         try {
           for await (const [fn, fh] of h.entries()) {
             if (fh.kind !== "file") continue;
             if (FILE_RE.test(fn)) {
               const f = await fh.getFile();
               progs.push({ dir: name, file: fn, code: await f.text(), mtime: f.lastModified });
-            } else if (/\.pdf$/i.test(fn)) {
-              pdfs.push(fn);
             }
           }
         } catch (e) {}
-        progs.forEach(pr => { pr.pdfs = pdfs; found.push(pr); });
+        progs.forEach(pr => { pr.pdfs = []; found.push(pr); });
       } else if (h.kind === "file" && FILE_RE.test(name)) {
         const f = await h.getFile();
         found.push({ dir: "", file: name, code: await f.text(), mtime: f.lastModified, pdfs: [] });
@@ -1154,44 +1152,30 @@ async function rescanFolder() {
   mergeScan(found);
 }
 
-/* Gdy w jednym folderze leży kilka programów (bo dzielą numer rysunku),
-   dopasowuje PDF-y do konkretnego programu po NAZWIE detalu, a nie po numerze
-   rysunku). Po odświeżeniu ZACHOWUJE obecne przypisanie rysunku — aplikacja
-   nigdy sama nie zmienia, który PDF jest przypisany. Utrzymuje dotychczasową
-   kolejność (pierwszy = wybrany rysunek), pomija pliki usunięte z dysku
-   i dokłada nowe na końcu. */
-function syncPdfsWithDisk(current, disk) {
-  const d = disk || [];
-  const kept = (current || []).filter(f => d.includes(f));   // to, co nadal jest na dysku
-  const extra = d.filter(f => !kept.includes(f));            // nowe pliki na końcu
-  return kept.concat(extra);
-}
 
-/* scala wynik skanowania z biblioteką (wspólne dla trybu natywnego i przeglądarki) */
+/* scala wynik skanowania z biblioteką — NIGDY nie zmienia automatycznie przypisania rysunków */
 function mergeScan(found) {
   thumbByCard.clear();   // po przeskanowaniu dysku odśwież miniaturki od zera
   const diskIds = new Set();
   let added = 0;
   found.forEach(x => {
-    const id = "d:" + (x.dir ? x.dir + "/" : "") + x.file;
+    const id = “d:” + (x.dir ? x.dir + “/” : “”) + x.file;
     diskIds.add(id);
     const p = byId(id);
     if (!p) {
       const meta = parseGcodeMeta(x.code);
       programs.push({
-        id, source: "disk", dir: x.dir, file: x.file,
-        name: meta.name || x.file.replace(/\.[^.]+$/, ""),
-        onum: meta.onum || "", detail: meta.detail || "",
-        drawing: meta.drawing || "", client: "", material: "", tags: [], note: "",
+        id, source: “disk”, dir: x.dir, file: x.file,
+        name: meta.name || x.file.replace(/\.[^.]+$/, “”),
+        onum: meta.onum || “”, detail: meta.detail || “”,
+        drawing: meta.drawing || “”, client: “”, material: “”, tags: [], note: “”,
         fav: false, versions: [], code: x.code, created: x.mtime, modified: x.mtime,
-        pdfs: (x.pdfs || []).slice()
+        pdfs: []
       });
       added++;
     } else {
-      // odświeżenie nie zmienia przypisanego rysunku — tylko synchronizacja z dyskiem
-      p.pdfs = syncPdfsWithDisk(p.pdfs, x.pdfs);
       if (p.code !== x.code) {
-        (p.versions = p.versions || []).push({ date: p.modified, note: "Wersja sprzed zmiany pliku na dysku", code: p.code });
+        (p.versions = p.versions || []).push({ date: p.modified, note: “Wersja sprzed zmiany pliku na dysku”, code: p.code });
         p.code = x.code;
         p.modified = x.mtime;
         const meta = parseGcodeMeta(x.code);
@@ -1200,10 +1184,10 @@ function mergeScan(found) {
       }
     }
   });
-  programs = programs.filter(p => p.source !== "disk" || diskIds.has(p.id));
+  programs = programs.filter(p => p.source !== “disk” || diskIds.has(p.id));
   save();
   render();
-  toast("Folder „" + fsRoot.name + "”: " + found.length + " plików" + (added ? ", nowych: " + added : ""));
+  toast(“Folder „” + fsRoot.name + “”: “ + found.length + “ plików” + (added ? “, nowych: “ + added : “”));
 }
 
 let fsLastError = "";

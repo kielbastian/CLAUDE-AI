@@ -84,33 +84,32 @@ ipcMain.handle("exists", async (e, p) => {
   try { await fs.access(p); return true; } catch { return false; }
 });
 
-/* podfoldery z plikami programów (+ PDF-y w tych podfolderach) oraz pliki luzem */
+/* skanuje podfoldery z plikami programów oraz pliki luzem — BEZ automatycznego pobierania PDF */
 ipcMain.handle("scan-programs", async (e, root) => {
   const found = [];
   const entries = await fs.readdir(root, { withFileTypes: true });
   for (const ent of entries) {
     if (ent.isDirectory()) {
       const dirPath = path.join(root, ent.name);
-      const progs = [], pdfs = [];
+      const progs = [];
       try {
         for (const f of await fs.readdir(dirPath, { withFileTypes: true })) {
           if (!f.isFile()) continue;
           if (PROG_RE.test(f.name)) progs.push(f.name);
-          else if (/\.pdf$/i.test(f.name)) pdfs.push(f.name);
         }
       } catch {}
       for (const fn of progs) {
         try {
           const fp = path.join(dirPath, fn);
           const st = await fs.stat(fp);
-          found.push({ dir: ent.name, file: fn, code: await fs.readFile(fp, "utf8"), mtime: st.mtimeMs, pdfs });
+          found.push({ dir: ent.name, file: fn, code: await fs.readFile(fp, "utf8"), mtime: st.mtimeMs });
         } catch {}
       }
     } else if (ent.isFile() && PROG_RE.test(ent.name)) {
       try {
         const fp = path.join(root, ent.name);
         const st = await fs.stat(fp);
-        found.push({ dir: "", file: ent.name, code: await fs.readFile(fp, "utf8"), mtime: st.mtimeMs, pdfs: [] });
+        found.push({ dir: "", file: ent.name, code: await fs.readFile(fp, "utf8"), mtime: st.mtimeMs });
       } catch {}
     }
   }
