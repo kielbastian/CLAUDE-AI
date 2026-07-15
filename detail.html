@@ -54,12 +54,29 @@
     height:100vh;overflow:hidden;display:flex;flex-direction:column;
   }
   .bg{
-    position:fixed;inset:0;z-index:-1;
-    background:
-      radial-gradient(1300px 850px at 88% -12%,rgba(var(--ac3-rgb),.20),transparent 66%),
-      radial-gradient(1150px 800px at -14% 18%,rgba(var(--ac1-rgb),.14),transparent 66%),
-      linear-gradient(180deg,var(--bg1),var(--bg0) 60%);
+    position:fixed;inset:0;z-index:-1;overflow:hidden;
+    background:linear-gradient(180deg,var(--bg1),var(--bg0) 60%);
   }
+  .glow{position:absolute;border-radius:50%;pointer-events:none;will-change:transform}
+  .glow.g1{
+    width:1300px;height:900px;top:-22%;right:-12%;
+    background:radial-gradient(closest-side,rgba(var(--ac3-rgb),.22),transparent 70%);
+    animation:drift1 30s ease-in-out infinite alternate;
+  }
+  .glow.g2{
+    width:1150px;height:850px;top:2%;left:-16%;
+    background:radial-gradient(closest-side,rgba(var(--ac1-rgb),.16),transparent 70%);
+    animation:drift2 38s ease-in-out infinite alternate;
+  }
+  .glow.g3{
+    width:1050px;height:1050px;bottom:-34%;left:32%;
+    background:radial-gradient(closest-side,rgba(var(--ac2-rgb),.18),transparent 70%);
+    animation:drift3 26s ease-in-out infinite alternate;
+  }
+  @keyframes drift1{from{transform:translate(0,0) scale(1)}to{transform:translate(-100px,64px) scale(1.1)}}
+  @keyframes drift2{from{transform:translate(0,0) scale(1)}to{transform:translate(84px,56px) scale(1.12)}}
+  @keyframes drift3{from{transform:translate(0,0) scale(1)}to{transform:translate(64px,-72px) scale(1.07)}}
+  @media (prefers-reduced-motion: reduce){.glow{animation:none}}
 
   /* ── zintegrowany pasek okna ── */
   .titlebar{
@@ -205,12 +222,9 @@
     --card:rgba(255,255,255,.9);--stroke:rgba(15,23,42,.14);--stroke-hi:rgba(15,23,42,.3);
     --txt:#1b2333;--mut:#5b6474;
   }
-  body.light .bg{
-    background:
-      radial-gradient(1300px 850px at 88% -12%,rgba(var(--ac3-rgb),.14),transparent 66%),
-      radial-gradient(1150px 800px at -14% 18%,rgba(var(--ac1-rgb),.13),transparent 66%),
-      linear-gradient(180deg,var(--bg1),var(--bg0) 60%);
-  }
+  body.light .glow.g1{background:radial-gradient(closest-side,rgba(var(--ac3-rgb),.15),transparent 70%)}
+  body.light .glow.g2{background:radial-gradient(closest-side,rgba(var(--ac1-rgb),.14),transparent 70%)}
+  body.light .glow.g3{background:radial-gradient(closest-side,rgba(var(--ac2-rgb),.12),transparent 70%)}
   body.light .titlebar{background:rgba(255,255,255,.85)}
   body.light .foot{background:rgba(255,255,255,.6)}
   body.light .win-btn:hover{background:rgba(15,23,42,.10)}
@@ -227,7 +241,7 @@
 </style>
 </head>
 <body>
-<div class="bg"></div>
+<div class="bg"><div class="glow g1"></div><div class="glow g2"></div><div class="glow g3"></div></div>
 
 <div class="titlebar">
   <div class="tb-icon">
