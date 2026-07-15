@@ -6,6 +6,8 @@ on:
     branches: [ main, master, 'claude/**' ]
     paths:
       - index.html
+      - detail.html
+      - preload.js
       - main.js
       - package.json
       - vendor/**
