@@ -1166,6 +1166,16 @@ function orderPdfsForProgram(name, detail, drawing, list) {
              .map(x => x.fn);
 }
 
+/* Kłódka zamknięta: zachowuje obecne przypisanie rysunku po odświeżeniu.
+   Utrzymuje dotychczasową kolejność (pierwszy = wybrany rysunek), pomija pliki
+   usunięte z dysku i dokłada nowe na końcu — nigdy nie podmienia wybranego rysunku. */
+function preserveLockedPdfs(current, disk) {
+  const d = disk || [];
+  const kept = (current || []).filter(f => d.includes(f));   // to, co nadal jest na dysku
+  const extra = d.filter(f => !kept.includes(f));            // nowe pliki na końcu
+  return kept.concat(extra);
+}
+
 /* scala wynik skanowania z biblioteką (wspólne dla trybu natywnego i przeglądarki) */
 function mergeScan(found) {
   thumbByCard.clear();   // po przeskanowaniu dysku odśwież miniaturki od zera
@@ -1187,7 +1197,13 @@ function mergeScan(found) {
       });
       added++;
     } else {
-      p.pdfs = orderPdfsForProgram(p.name, p.detail, p.drawing, x.pdfs);
+      // kłódka zamknięta (autoSearch === false) → nie zmieniaj przypisanego rysunku,
+      // tylko zsynchronizuj z dyskiem (zachowaj obecną kolejność, usuń skasowane, dodaj nowe na końcu)
+      if (p.autoSearch === false) {
+        p.pdfs = preserveLockedPdfs(p.pdfs, x.pdfs);
+      } else {
+        p.pdfs = orderPdfsForProgram(p.name, p.detail, p.drawing, x.pdfs);
+      }
       if (p.code !== x.code) {
         (p.versions = p.versions || []).push({ date: p.modified, note: "Wersja sprzed zmiany pliku na dysku", code: p.code });
         p.code = x.code;
