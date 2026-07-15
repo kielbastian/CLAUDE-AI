@@ -319,22 +319,20 @@
     transition:opacity .15s;z-index:2;
   }
   .card:hover .thumb-ctrl{opacity:1}
-  .thumb-del,.thumb-toggle{
+  .thumb-del,.thumb-swap{
     width:22px;height:22px;border-radius:50%;
     font-size:.66rem;line-height:1;cursor:pointer;display:grid;place-items:center;
-    border:1px solid rgba(248,113,113,.6);background:#2a0f14;color:#fca5a5;
     transition:background .15s,border-color .15s,box-shadow .15s,transform .12s;
   }
-  .thumb-del:hover,.thumb-toggle:hover{background:#7f1d1d;color:#fff}
-  .thumb-del:active,.thumb-toggle:active{transform:scale(.82)}
-  /* kłódka otwarta — auto-szukanie aktywne: mocniejszy czerwony + poświata */
-  .thumb-toggle.on{
-    border-color:rgba(248,113,113,.95);background:#7f1d1d;color:#fff;
-    box-shadow:0 0 8px rgba(248,113,113,.6);
-  }
-  .thumb-toggle.on:hover{background:#991b1b}
-  body.light .thumb-del,body.light .thumb-toggle{background:#fee2e2;color:#b91c1c}
-  body.light .thumb-toggle.on{background:#fca5a5;color:#7f1d1d;border-color:rgba(185,28,28,.8)}
+  .thumb-del{border:1px solid rgba(248,113,113,.6);background:#2a0f14;color:#fca5a5}
+  .thumb-del:hover{background:#7f1d1d;color:#fff}
+  .thumb-del:active,.thumb-swap:active{transform:scale(.82)}
+  /* ręczne dopasowanie rysunku */
+  .thumb-swap{border:1px solid rgba(34,211,238,.6);background:#0f2230;color:#7dd3fc}
+  .thumb-swap svg{width:12px;height:12px}
+  .thumb-swap:hover{background:#134e63;color:#fff}
+  body.light .thumb-del{background:#fee2e2;color:#b91c1c}
+  body.light .thumb-swap{background:#dbeafe;color:#0369a1;border-color:rgba(2,132,199,.5)}
   .card.drop-hot{
     border-color:rgba(52,211,153,.65);
     box-shadow:0 0 0 3px rgba(52,211,153,.25),0 0 26px rgba(52,211,153,.28);
@@ -703,15 +701,14 @@
     </div>
     <div class="panel">
       <h3>Rysunki PDF</h3>
-      <button class="btn" id="btnMatchAll" style="width:100%;justify-content:center">
+      <button class="btn" id="btnOpenPdfDir" style="width:100%;justify-content:center">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5"></path>
-          <circle cx="11" cy="14" r="2.6"></circle><path d="M13 16l2.4 2.4"></path>
+          <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path>
         </svg>
-        Dopasuj rysunki
+        Otwórz folder rysunków PDF
       </button>
       <div style="font-size:.72rem;color:var(--mut);margin-top:9px;line-height:1.55">
-        Wyszukuje po numerze SZ i kopiuje rysunki do wszystkich programów, które ich jeszcze nie mają.
+        Rysunki dodajesz ręcznie: na karcie programu użyj przycisku „Dopasuj PDF", aby wybrać właściwy rysunek, albo otwórz foldery i skopiuj plik samodzielnie.
       </div>
     </div>
   </aside>
@@ -1147,29 +1144,11 @@ async function rescanFolder() {
 
 /* Gdy w jednym folderze leży kilka programów (bo dzielą numer rysunku),
    dopasowuje PDF-y do konkretnego programu po NAZWIE detalu, a nie po numerze
-   rysunku (który jest wspólny). Zwraca listę z najlepiej pasującym PDF na początku. */
-function orderPdfsForProgram(name, detail, drawing, list) {
-  if (!list || list.length <= 1) return list ? list.slice() : [];
-  const norm = s => fold(s).replace(/[\s\-_.,]+/g, "");
-  const dn = norm(drawing);
-  const toks = fold((name || "") + " " + (detail || "")).split(/\s+/)
-    .map(t => t.replace(/[^a-z0-9]/g, ""))
-    .filter(t => t.length >= 3 && norm(t) !== dn);
-  const score = fn => {
-    const f = norm(String(fn).replace(/\.pdf$/i, ""));
-    let s = 0;
-    for (const t of toks) if (f.includes(t)) s++;
-    return s;
-  };
-  return list.map(fn => ({ fn, s: score(fn) }))
-             .sort((a, b) => b.s - a.s)
-             .map(x => x.fn);
-}
-
-/* Kłódka zamknięta: zachowuje obecne przypisanie rysunku po odświeżeniu.
-   Utrzymuje dotychczasową kolejność (pierwszy = wybrany rysunek), pomija pliki
-   usunięte z dysku i dokłada nowe na końcu — nigdy nie podmienia wybranego rysunku. */
-function preserveLockedPdfs(current, disk) {
+   rysunku). Po odświeżeniu ZACHOWUJE obecne przypisanie rysunku — aplikacja
+   nigdy sama nie zmienia, który PDF jest przypisany. Utrzymuje dotychczasową
+   kolejność (pierwszy = wybrany rysunek), pomija pliki usunięte z dysku
+   i dokłada nowe na końcu. */
+function syncPdfsWithDisk(current, disk) {
   const d = disk || [];
   const kept = (current || []).filter(f => d.includes(f));   // to, co nadal jest na dysku
   const extra = d.filter(f => !kept.includes(f));            // nowe pliki na końcu
@@ -1193,17 +1172,12 @@ function mergeScan(found) {
         onum: meta.onum || "", detail: meta.detail || "",
         drawing: meta.drawing || "", client: "", material: "", tags: [], note: "",
         fav: false, versions: [], code: x.code, created: x.mtime, modified: x.mtime,
-        pdfs: orderPdfsForProgram(meta.name, meta.detail, meta.drawing, x.pdfs)
+        pdfs: (x.pdfs || []).slice()
       });
       added++;
     } else {
-      // kłódka zamknięta (autoSearch === false) → nie zmieniaj przypisanego rysunku,
-      // tylko zsynchronizuj z dyskiem (zachowaj obecną kolejność, usuń skasowane, dodaj nowe na końcu)
-      if (p.autoSearch === false) {
-        p.pdfs = preserveLockedPdfs(p.pdfs, x.pdfs);
-      } else {
-        p.pdfs = orderPdfsForProgram(p.name, p.detail, p.drawing, x.pdfs);
-      }
+      // odświeżenie nie zmienia przypisanego rysunku — tylko synchronizacja z dyskiem
+      p.pdfs = syncPdfsWithDisk(p.pdfs, x.pdfs);
       if (p.code !== x.code) {
         (p.versions = p.versions || []).push({ date: p.modified, note: "Wersja sprzed zmiany pliku na dysku", code: p.code });
         p.code = x.code;
@@ -1422,12 +1396,12 @@ async function openAddPdf(id) {
     if (!pdfRoot) return;
   }
   apProgramId = id;
-  document.getElementById("apTitle").textContent = "Dodaj rysunek — " + p.name;
+  document.getElementById("apTitle").textContent = "Dopasuj rysunek — " + p.name;
   const q = p.drawing || p.name || "";
   document.getElementById("apSearch").value = q;
   apCandidates = findPdfMatches(p.drawing, p.name);
   if (!apCandidates.length) apCandidates = filterPdfs(q);
-  apSelected = apCandidates[0] || null;
+  apSelected = null;   // nic nie jest wybrane z góry — rysunek wskazujesz sam
   renderApList();
   openModal("mAddPdf");
 }
@@ -1641,7 +1615,7 @@ async function applyDroppedFile(file) {
   const dr = document.getElementById("fDrawing");
   if (!dr.value.trim() && meta.drawing) dr.value = meta.drawing;
   checkOnumDup();
-  if (pdfRoot) doPdfSearch(true);
+  if (pdfRoot) doPdfSearch(false);
 }
 
 /* import wielu plików naraz — od razu do biblioteki (i na dysk, gdy folder połączony) */
@@ -1665,10 +1639,7 @@ async function importFile(file) {
     if (byId("d:" + base + "/" + base + ".txt")) base = base + "_" + onum;
     p.dir = base; p.file = base + ".txt"; p.id = "d:" + base + "/" + p.file; p.source = "disk";
     await writeDisk(p);
-    if (pdfRoot) {
-      const match = findPdfMatches(p.drawing, p.name)[0];
-      if (match) await copyPdfToProgram(p, match);
-    }
+    // rysunek PDF dodajesz ręcznie przyciskiem „Dopasuj PDF" na karcie
   }
   programs.push(p);
 }
@@ -1798,14 +1769,18 @@ function renderGrid() {
               </svg>
             </div>
             <div class="thumb-ctrl">
-              <button class="thumb-toggle ${p.autoSearch !== false ? "on" : ""}" data-togglepdf="${p.id}" title="${p.autoSearch !== false ? "Kłódka otwarta — rysunek jest automatycznie wyszukiwany w szkicach. Kliknij, aby zablokować." : "Kłódka zamknięta — rysunek NIE jest automatycznie wyszukiwany. Kliknij, aby odblokować."}">${p.autoSearch !== false ? "🔓" : "🔒"}</button>
+              <button class="thumb-swap" data-addpdf="${p.id}" title="Dopasuj / zmień rysunek — wybierz plik ręcznie">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 8h13l-3.2-3.2M20 16H7l3.2 3.2"></path>
+                </svg>
+              </button>
               <button class="thumb-del" data-delpdf="${p.id}" title="Usuń rysunek ${esc(p.pdfs[0])} z folderu programu">✕</button>
             </div>
-          </div>` : (p.dir ? `<button class="thumb thumb-add" data-addpdf="${p.id}" title="Znajdź i dodaj rysunek PDF do tego programu">
+          </div>` : (p.dir ? `<button class="thumb thumb-add" data-addpdf="${p.id}" title="Wybierz rysunek PDF ręcznie i skopiuj do folderu programu">
             <svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round">
               <path d="M12 5v14M5 12h14"></path>
             </svg>
-            Dodaj PDF
+            Dopasuj PDF
           </button>` : "")}
         </div>
         ${(p.tags || []).length ? `<div class="tags">${p.tags.map(t => `<span class="tag">${esc(t)}</span>`).join("")}</div>` : ""}
@@ -1940,8 +1915,7 @@ function openEdit(id) {
   selectedPdf = null;
   pdfCandidates = [];
   attachedPdfs = (p && p.pdfs) ? p.pdfs.slice() : [];
-  if (pdfRoot && p && (p.drawing || p.name) && !attachedPdfs.length && p.autoSearch !== false) doPdfSearch(true);
-  else renderPdfBox();
+  renderPdfBox();   // bez automatycznego szukania — rysunek wybierasz sam przyciskiem „Szukaj rysunku"
   openModal("mEdit");
   setTimeout(() => document.getElementById("fName").focus(), 60);
 }
@@ -2137,10 +2111,10 @@ document.getElementById("btnPdfOff").addEventListener("click", disconnectPdfFold
 document.getElementById("pdfBox").addEventListener("click", async e => {
   if (e.target.closest("#pdfConnect")) {
     await connectPdfFolder();
-    if (pdfRoot) doPdfSearch(true); else renderPdfBox();
+    if (pdfRoot) doPdfSearch(false); else renderPdfBox();
     return;
   }
-  if (e.target.closest("#pdfSearch")) { doPdfSearch(true); return; }
+  if (e.target.closest("#pdfSearch")) { doPdfSearch(false); return; }
   const it = e.target.closest("[data-pdf]");
   if (it) {
     const f = pdfCandidates[+it.dataset.pdf];
@@ -2149,7 +2123,7 @@ document.getElementById("pdfBox").addEventListener("click", async e => {
   }
 });
 document.getElementById("fDrawing").addEventListener("change", () => {
-  if (pdfRoot) doPdfSearch(true);
+  if (pdfRoot) doPdfSearch(false);
 });
 
 /* wybór sposobu sortowania */
@@ -2170,37 +2144,20 @@ document.getElementById("btnTheme").addEventListener("click", () => {
 });
 if (localStorage.getItem("cncTheme") === "light") document.body.classList.add("light");
 
-/* masowe dopasowanie rysunków: dla każdego programu bez rysunku szuka
-   PDF-a po numerze SZ i kopiuje go do folderu programu */
-async function matchAllPdfs() {
-  if (!fsRoot) { toast("Najpierw połącz folder z programami"); return; }
+/* otwiera folder źródłowy z rysunkami PDF w Eksploratorze — rysunek kopiujesz sam */
+document.getElementById("btnOpenPdfDir").addEventListener("click", async () => {
   if (!pdfRoot) {
-    toast("Wskaż folder z rysunkami PDF");
+    toast("Najpierw wskaż folder z rysunkami PDF");
     await connectPdfFolder();
     if (!pdfRoot) return;
   }
-  const btn = document.getElementById("btnMatchAll");
-  btn.disabled = true;
-  const norm = s => fold(s).replace(/[\s\-_]+/g, "");
-  let added = 0, noMatch = 0, noDrawing = 0;
-  for (const p of programs) {
-    if (!p.dir || (p.pdfs && p.pdfs.length)) continue;
-    const dn = norm(p.drawing);
-    if (!dn) { noDrawing++; continue; }
-    const match = findPdfMatches(p.drawing, p.name).find(f => norm(f.name).includes(dn));
-    if (!match) { noMatch++; continue; }
-    if (await copyPdfToProgram(p, match)) added++;
-    else noMatch++;
+  if (pdfRoot.native && window.native) {
+    const r = await window.native.showInFolder(pdfRoot.path);
+    if (r && !r.ok) toast("Nie udało się otworzyć folderu rysunków");
+  } else {
+    toast("Otwieranie folderu działa w aplikacji na Windows");
   }
-  btn.disabled = false;
-  save();
-  render();
-  let msg = "Skopiowano rysunki do " + added + " programów";
-  if (noMatch) msg += " · nie znaleziono: " + noMatch;
-  if (noDrawing) msg += " · bez numeru rysunku: " + noDrawing;
-  toast(msg);
-}
-document.getElementById("btnMatchAll").addEventListener("click", matchAllPdfs);
+});
 
 /* przycisk Odśwież — ponowny skan obu folderów */
 document.getElementById("btnRefresh").addEventListener("click", async () => {
@@ -2402,26 +2359,6 @@ document.getElementById("grid").addEventListener("click", e => {
   if (th) { openPdfModal(th.dataset.pdfthumb); return; }
   const ap = e.target.closest("[data-addpdf]");
   if (ap) { openAddPdf(ap.dataset.addpdf); return; }
-  const tp = e.target.closest("[data-togglepdf]");
-  if (tp) {
-    e.stopPropagation();
-    const p = byId(tp.dataset.togglepdf);
-    if (p) {
-      // undefined/true = kłódka otwarta (szuka), false = kłódka zamknięta (nie szuka)
-      p.autoSearch = (p.autoSearch === false);
-      save();
-      // aktualizujemy tylko klikniętą kłódkę — bez przeładowania całej listy
-      tp.textContent = p.autoSearch ? "🔓" : "🔒";
-      tp.classList.toggle("on", p.autoSearch);
-      tp.title = p.autoSearch
-        ? "Kłódka otwarta — rysunek jest automatycznie wyszukiwany w szkicach. Kliknij, aby zablokować."
-        : "Kłódka zamknięta — rysunek NIE jest automatycznie wyszukiwany. Kliknij, aby odblokować.";
-      toast(p.autoSearch
-        ? "🔓 Kłódka otwarta — rysunek będzie automatycznie wyszukiwany"
-        : "🔒 Kłódka zamknięta — automatyczne wyszukiwanie wyłączone");
-    }
-    return;
-  }
   const dp = e.target.closest("[data-delpdf]");
   if (dp) {
     const p = byId(dp.dataset.delpdf);
