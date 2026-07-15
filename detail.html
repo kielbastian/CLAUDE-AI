@@ -137,6 +137,32 @@
   .btn-danger{color:#fca5a5}
   .btn-danger:hover{border-color:rgba(248,113,113,.5);background:rgba(248,113,113,.10)}
 
+  /* ── formularz edycji (w tym samym oknie) ── */
+  .efgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:620px){.efgrid{grid-template-columns:1fr}}
+  .efield{display:flex;flex-direction:column;gap:6px}
+  .efield.wide{grid-column:1/-1}
+  .efield label{font-size:.72rem;font-weight:700;letter-spacing:.06em;color:var(--mut);text-transform:uppercase}
+  .efield input,.efield textarea{
+    padding:10px 13px;border-radius:11px;
+    background:rgba(255,255,255,.05);border:1px solid var(--stroke);
+    color:var(--txt);font-size:.9rem;font-family:inherit;outline:none;
+    transition:border-color .2s,box-shadow .2s;
+  }
+  .efield textarea{resize:vertical;min-height:60px}
+  .efield textarea.code-in{
+    font-family:ui-monospace,Consolas,"Cascadia Mono",monospace;
+    font-size:.84rem;min-height:280px;line-height:1.55;
+    background:rgba(0,0,0,.35);white-space:pre;
+  }
+  .efield input:focus,.efield textarea:focus{
+    border-color:var(--ac2);
+    box-shadow:0 0 0 3px rgba(99,102,241,.18),0 0 20px rgba(99,102,241,.12);
+  }
+  .efield input.bad{border-color:var(--err);box-shadow:0 0 0 3px rgba(248,113,113,.15)}
+  body.light .efield input,body.light .efield textarea{background:rgba(15,23,42,.05)}
+  body.light .efield textarea.code-in{background:#111726;color:#e9edf7}
+
   ::-webkit-scrollbar{width:9px;height:9px}
   ::-webkit-scrollbar-thumb{background:#242c48;border-radius:99px}
   ::-webkit-scrollbar-thumb:hover{background:#2f3a5e}
@@ -197,9 +223,25 @@
   </div>
 </div>
 
-<div class="body" id="body"></div>
+<div class="body">
+  <div id="viewPane"></div>
+  <div id="editPane" style="display:none">
+    <div class="efgrid">
+      <div class="efield"><label>Nazwa programu</label><input id="eName" type="text"></div>
+      <div class="efield"><label>Numer O</label><input id="eOnum" type="text" placeholder="O00125"></div>
+      <div class="efield"><label>Detal</label><input id="eDetail" type="text"></div>
+      <div class="efield"><label>Nr rysunku</label><input id="eDrawing" type="text"></div>
+      <div class="efield"><label>Klient</label><input id="eClient" type="text"></div>
+      <div class="efield"><label>Materiał</label><input id="eMaterial" type="text"></div>
+      <div class="efield wide"><label>Tagi (po przecinku)</label><input id="eTags" type="text" placeholder="wałek, gwint, nierdzewka"></div>
+      <div class="efield wide"><label>Notatka</label><textarea id="eNote" rows="2"></textarea></div>
+      <div class="efield wide"><label>Opis zmian — do historii wersji</label><input id="eChange" type="text" placeholder="np. zmieniony posuw wykańczaka z F0.15 na F0.2"></div>
+      <div class="efield wide"><label>Kod programu — G-kod</label><textarea id="eCode" class="code-in" spellcheck="false"></textarea></div>
+    </div>
+  </div>
+</div>
 
-<div class="foot">
+<div class="foot" id="footView">
   <button class="btn btn-danger" id="btnDelete">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
       <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"></path>
@@ -231,6 +273,18 @@
       <path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
     </svg>
     Edytuj
+  </button>
+</div>
+
+<div class="foot" id="footEdit" style="display:none">
+  <button class="btn" id="btnCancelEdit">Anuluj</button>
+  <span style="flex:1"></span>
+  <button class="btn btn-primary" id="btnSaveEdit">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+      <path d="M17 21v-8H7v8M7 3v5h8"></path>
+    </svg>
+    Zapisz program
   </button>
 </div>
 
@@ -281,6 +335,21 @@ function toast(msg) {
 
 let prog = null;
 let pdfDir = null;   // folder z rysunkami PDF (do otwarcia folderu szkicu)
+let editing = false; // czy okno jest w trybie edycji
+
+const collapse = s => String(s || "").replace(/\s+/g, " ").trim();
+/* podmienia numer O w kodzie na podany (spójność kodu z polem „Numer O”) */
+function replaceOnumInCode(code, onum) {
+  if (!onum) return code;
+  const num = String(onum).replace(/^[Oo]/, "");
+  if (/^[ \t]*[Oo]\d+/m.test(code)) return code.replace(/^([ \t]*)[Oo]\d+/m, "$1O" + num);
+  return code;
+}
+/* wyłuskuje numer O z kodu, gdy pole „Numer O” jest puste */
+function onumFromCode(code) {
+  const m = String(code || "").match(/^[ \t]*[Oo](\d{1,5})/m);
+  return m ? "O" + m[1] : "";
+}
 
 function render(p) {
   prog = p;
@@ -298,7 +367,7 @@ function render(p) {
     ["Plik na dysku", p.file ? (p.dir ? p.dir + "/" : "") + p.file : ""]
   ].filter(m => m[1]);
 
-  document.getElementById("body").innerHTML = `
+  document.getElementById("viewPane").innerHTML = `
     <div class="meta-grid">
       ${meta.map(m => `<div class="meta"><span>${esc(m[0])}</span><b>${esc(m[1])}</b></div>`).join("")}
       ${offsets.length ? `<div class="meta"><span>Bazy</span><b>${offsets.map(esc).join(", ")}</b></div>` : ""}
@@ -351,12 +420,94 @@ document.getElementById("btnDownload").addEventListener("click", () => {
 });
 document.getElementById("btnEdit").addEventListener("click", () => {
   if (!prog) return;
-  window.native.detailAction({ type: "edit", id: prog.id, close: true });
+  openEditMode();
 });
 document.getElementById("btnDelete").addEventListener("click", () => {
   if (!prog) return;
-  window.native.detailAction({ type: "delete", id: prog.id, close: true });
+  window.native.detailAction({ type: "delete", id: prog.id, close: true, focusMain: true });
 });
+
+/* ── edycja w tym samym oknie (bez powrotu do okna głównego) ── */
+function openEditMode() {
+  if (!prog) return;
+  document.getElementById("eName").value = prog.name || "";
+  document.getElementById("eOnum").value = prog.onum || "";
+  document.getElementById("eDetail").value = prog.detail || "";
+  document.getElementById("eDrawing").value = prog.drawing || "";
+  document.getElementById("eClient").value = prog.client || "";
+  document.getElementById("eMaterial").value = prog.material || "";
+  document.getElementById("eTags").value = (prog.tags || []).join(", ");
+  document.getElementById("eNote").value = prog.note || "";
+  document.getElementById("eCode").value = prog.code || "";
+  document.getElementById("eChange").value = "";
+  document.getElementById("eName").classList.remove("bad");
+  document.getElementById("viewPane").style.display = "none";
+  document.getElementById("editPane").style.display = "";
+  document.getElementById("footView").style.display = "none";
+  document.getElementById("footEdit").style.display = "";
+  document.querySelector(".body").scrollTop = 0;
+  editing = true;
+  document.getElementById("tbTitle").textContent = "Edycja: " + (prog.name || "");
+  setTimeout(() => document.getElementById("eName").focus(), 60);
+}
+
+function cancelEdit() {
+  document.getElementById("editPane").style.display = "none";
+  document.getElementById("viewPane").style.display = "";
+  document.getElementById("footEdit").style.display = "none";
+  document.getElementById("footView").style.display = "";
+  editing = false;
+  render(prog);   // przywróć podgląd bieżącego programu
+}
+
+function saveEdit() {
+  if (!prog) return;
+  const name = document.getElementById("eName").value.trim();
+  if (!name) {
+    document.getElementById("eName").classList.add("bad");
+    document.getElementById("eName").focus();
+    toast("Podaj nazwę programu");
+    return;
+  }
+  let onum = document.getElementById("eOnum").value.trim().toUpperCase();
+  let code = document.getElementById("eCode").value;
+  if (!onum) onum = onumFromCode(code);
+  if (onum) code = replaceOnumInCode(code, onum);
+  const change = document.getElementById("eChange").value.trim();
+
+  const data = {
+    name,
+    onum,
+    detail: document.getElementById("eDetail").value.trim(),
+    drawing: document.getElementById("eDrawing").value.trim(),
+    client: document.getElementById("eClient").value.trim(),
+    material: document.getElementById("eMaterial").value.trim(),
+    tags: document.getElementById("eTags").value.split(",").map(t => t.trim()).filter(Boolean),
+    note: document.getElementById("eNote").value.trim(),
+    code
+  };
+
+  // historia wersji (spójnie z oknem głównym) — gdy zmienił się kod
+  if (prog.code !== code) {
+    prog.versions = prog.versions || [];
+    prog.versions.push({ date: prog.modified, note: change || "Poprzednia wersja", code: prog.code });
+  }
+  Object.assign(prog, data, { modified: Date.now() });
+
+  // zapis w oknie głównym (biblioteka + dysk) BEZ przełączania na okno główne
+  window.native.detailAction({ type: "save", id: prog.id, data, change });
+
+  editing = false;
+  document.getElementById("editPane").style.display = "none";
+  document.getElementById("viewPane").style.display = "";
+  document.getElementById("footEdit").style.display = "none";
+  document.getElementById("footView").style.display = "";
+  render(prog);
+  toast("Zapisano zmiany — " + prog.name);
+}
+
+document.getElementById("btnCancelEdit").addEventListener("click", cancelEdit);
+document.getElementById("btnSaveEdit").addEventListener("click", saveEdit);
 /* otwiera folder szkicu (rysunku) tego programu — szkic z pola „Nr rysunku” / nawiasu w kodzie */
 document.getElementById("btnSketch").addEventListener("click", async () => {
   if (!prog) return;
@@ -368,17 +519,24 @@ document.getElementById("btnSketch").addEventListener("click", async () => {
   else if (!(r && r.ok)) toast("Nie udało się otworzyć folderu rysunku");
 });
 
+/* skróty klawiszowe w trybie edycji: Ctrl+S = zapisz, Esc = anuluj */
+document.addEventListener("keydown", e => {
+  if (!editing) return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); saveEdit(); }
+  else if (e.key === "Escape") { e.preventDefault(); cancelEdit(); }
+});
+
 /* start — pobierz dane programu z procesu głównego */
 (async () => {
   try {
     const data = await window.native.getDetailData();
-    if (!data || !data.program) { document.getElementById("body").innerHTML =
+    if (!data || !data.program) { document.getElementById("viewPane").innerHTML =
       '<div style="padding:40px;text-align:center;color:#8d96ad">Nie udało się wczytać programu.</div>'; return; }
     if (data.theme === "light") document.body.classList.add("light");
     pdfDir = data.pdfDir || null;
     render(data.program);
   } catch (e) {
-    document.getElementById("body").innerHTML =
+    document.getElementById("viewPane").innerHTML =
       '<div style="padding:40px;text-align:center;color:#8d96ad">Błąd: ' + esc(e.message) + '</div>';
   }
 })();

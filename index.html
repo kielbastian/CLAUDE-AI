@@ -232,7 +232,17 @@
   .sketch-in::placeholder{color:#5d6780}
   .sketch-in:focus{border-color:var(--ac1);box-shadow:0 0 0 3px rgba(34,211,238,.15)}
   body.light .sketch-in{background:rgba(15,23,42,.05)}
-  .onums{display:flex;flex-wrap:wrap;gap:6px;max-height:180px;overflow:auto}
+  .onums{
+    display:flex;flex-wrap:wrap;gap:6px;align-content:flex-start;
+    height:180px;overflow-y:scroll;overflow-x:hidden;
+    padding:8px;border:1px solid var(--stroke);border-radius:11px;
+    background:rgba(0,0,0,.16);
+  }
+  .onums::-webkit-scrollbar{width:11px}
+  .onums::-webkit-scrollbar-track{background:rgba(255,255,255,.04);border-radius:99px}
+  .onums::-webkit-scrollbar-thumb{background:#2f3a5e;border-radius:99px;border:2px solid transparent;background-clip:padding-box}
+  .onums::-webkit-scrollbar-thumb:hover{background:#3d4a75;background-clip:padding-box}
+  body.light .onums{background:rgba(15,23,42,.04)}
   .onum{
     font-family:ui-monospace,Consolas,monospace;font-size:.72rem;
     padding:3px 8px;border-radius:7px;
@@ -705,10 +715,6 @@
       </div>
     </div>
     <div class="panel">
-      <h3>Zajęte numery O</h3>
-      <div class="onums" id="onums"></div>
-    </div>
-    <div class="panel">
       <h3>Rysunki PDF</h3>
       <button class="btn" id="btnOpenPdfDir" style="width:100%;justify-content:center">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -719,9 +725,10 @@
       <input id="sketchInput" class="sketch-in" type="text" autocomplete="off"
              placeholder="Szkic do otwarcia, np. SZ2349"
              title="Wpisz numer/nazwę szkicu i naciśnij „Otwórz folder rysunków PDF” — otworzy się jego folder">
-      <div style="font-size:.72rem;color:var(--mut);margin-top:8px;line-height:1.5">
-        Wpisz szkic i naciśnij przycisk powyżej, aby otworzyć jego folder. Puste pole = cały folder rysunków.
-      </div>
+    </div>
+    <div class="panel">
+      <h3>Zajęte numery O</h3>
+      <div class="onums" id="onums"></div>
     </div>
   </aside>
 
@@ -1159,23 +1166,23 @@ function mergeScan(found) {
   const diskIds = new Set();
   let added = 0;
   found.forEach(x => {
-    const id = “d:” + (x.dir ? x.dir + “/” : “”) + x.file;
+    const id = "d:" + (x.dir ? x.dir + "/" : "") + x.file;
     diskIds.add(id);
     const p = byId(id);
     if (!p) {
       const meta = parseGcodeMeta(x.code);
       programs.push({
-        id, source: “disk”, dir: x.dir, file: x.file,
-        name: meta.name || x.file.replace(/\.[^.]+$/, “”),
-        onum: meta.onum || “”, detail: meta.detail || “”,
-        drawing: meta.drawing || “”, client: “”, material: “”, tags: [], note: “”,
+        id, source: "disk", dir: x.dir, file: x.file,
+        name: meta.name || x.file.replace(/\.[^.]+$/, ""),
+        onum: meta.onum || "", detail: meta.detail || "",
+        drawing: meta.drawing || "", client: "", material: "", tags: [], note: "",
         fav: false, versions: [], code: x.code, created: x.mtime, modified: x.mtime,
         pdfs: []
       });
       added++;
     } else {
       if (p.code !== x.code) {
-        (p.versions = p.versions || []).push({ date: p.modified, note: “Wersja sprzed zmiany pliku na dysku”, code: p.code });
+        (p.versions = p.versions || []).push({ date: p.modified, note: "Wersja sprzed zmiany pliku na dysku", code: p.code });
         p.code = x.code;
         p.modified = x.mtime;
         const meta = parseGcodeMeta(x.code);
@@ -1184,10 +1191,10 @@ function mergeScan(found) {
       }
     }
   });
-  programs = programs.filter(p => p.source !== “disk” || diskIds.has(p.id));
+  programs = programs.filter(p => p.source !== "disk" || diskIds.has(p.id));
   save();
   render();
-  toast(“Folder „” + fsRoot.name + “”: “ + found.length + “ plików” + (added ? “, nowych: “ + added : “”));
+  toast("Folder „" + fsRoot.name + "”: " + found.length + " plików" + (added ? ", nowych: " + added : ""));
 }
 
 let fsLastError = "";
@@ -2437,13 +2444,32 @@ if (window.native && window.native.minimize) {
   document.getElementById("btnWinClose").addEventListener("click", () => window.native.close());
 }
 
-/* akcje przekazane z osobnego okna podglądu (Edytuj / Usuń / Pobierz) */
+/* zapis zmian dokonanych w osobnym oknie podglądu (edycja w miejscu) —
+   nie dotyka rysunków PDF, tylko dane i kod programu */
+async function applyDetailSave(id, data, change) {
+  const p = byId(id);
+  if (!p || !data) return;
+  if (typeof data.code === "string" && p.code !== data.code) {
+    p.versions = p.versions || [];
+    p.versions.push({ date: p.modified, note: (change || "").trim() || "Poprzednia wersja", code: p.code });
+  }
+  Object.assign(p, data, { modified: Date.now() });
+  if (p.source === "disk") {
+    const ok = await writeDisk(p);
+    if (!ok) toast("Uwaga: nie udało się zapisać na dysku (" + fsLastError + ")");
+  }
+  save();
+  render();
+}
+
+/* akcje przekazane z osobnego okna podglądu (Zapisz / Usuń / Pobierz) */
 if (window.native && window.native.onDetailAction) {
   window.native.onDetailAction(msg => {
     if (!msg || !msg.id) return;
     const p = byId(msg.id);
     if (!p) return;
-    if (msg.type === "edit") openEdit(msg.id);
+    if (msg.type === "save") applyDetailSave(msg.id, msg.data, msg.change);
+    else if (msg.type === "edit") openEdit(msg.id);
     else if (msg.type === "delete") removeProgram(msg.id);
     else if (msg.type === "download") download(p);
   });

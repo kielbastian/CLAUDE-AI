@@ -255,11 +255,15 @@ ipcMain.handle("get-detail-data", (e) => {
   const w = BrowserWindow.fromWebContents(e.sender);
   return w ? (detailPayloads.get(w.id) || null) : null;
 });
-/* akcje z okna podglądu (Edytuj / Usuń / Pobierz) przekazywane do okna głównego */
+/* akcje z okna podglądu (Zapisz / Usuń / Pobierz) przekazywane do okna głównego.
+   Okno główne wychodzi na wierzch tylko, gdy akcja tego wymaga (msg.focusMain) —
+   dzięki temu zapis podczas edycji NIE przełącza użytkownika na okno główne. */
 ipcMain.on("detail-action", (e, msg) => {
   if (win && !win.isDestroyed()) {
-    if (win.isMinimized()) win.restore();
-    win.focus();
+    if (msg && msg.focusMain) {
+      if (win.isMinimized()) win.restore();
+      win.focus();
+    }
     win.webContents.send("detail-action", msg);
   }
   if (msg && msg.close) {
