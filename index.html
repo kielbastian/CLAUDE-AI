@@ -322,25 +322,19 @@
   .thumb-del,.thumb-toggle{
     width:22px;height:22px;border-radius:50%;
     font-size:.66rem;line-height:1;cursor:pointer;display:grid;place-items:center;
+    border:1px solid rgba(248,113,113,.6);background:#2a0f14;color:#fca5a5;
     transition:background .15s,border-color .15s,box-shadow .15s,transform .12s;
   }
-  .thumb-del{border:1px solid rgba(248,113,113,.6);background:#2a0f14;color:#fca5a5}
-  .thumb-del:hover{background:#7f1d1d;color:#fff}
+  .thumb-del:hover,.thumb-toggle:hover{background:#7f1d1d;color:#fff}
   .thumb-del:active,.thumb-toggle:active{transform:scale(.82)}
-  /* kłódka zamknięta (domyślnie wyłączone auto-szukanie w tym stanie) */
-  .thumb-toggle{
-    border:1px solid var(--stroke-hi);background:rgba(120,130,150,.28);
-  }
-  .thumb-toggle:hover{background:rgba(120,130,150,.45);border-color:var(--mut)}
-  /* kłódka otwarta — auto-szukanie aktywne */
+  /* kłódka otwarta — auto-szukanie aktywne: mocniejszy czerwony + poświata */
   .thumb-toggle.on{
-    border-color:rgba(52,211,153,.8);background:rgba(52,211,153,.28);
-    box-shadow:0 0 8px rgba(52,211,153,.4);
+    border-color:rgba(248,113,113,.95);background:#7f1d1d;color:#fff;
+    box-shadow:0 0 8px rgba(248,113,113,.6);
   }
-  .thumb-toggle.on:hover{background:rgba(52,211,153,.42)}
-  body.light .thumb-del{background:#fee2e2;color:#b91c1c}
-  body.light .thumb-toggle{background:rgba(100,116,139,.25)}
-  body.light .thumb-toggle.on{background:rgba(16,185,129,.22);border-color:rgba(16,185,129,.8)}
+  .thumb-toggle.on:hover{background:#991b1b}
+  body.light .thumb-del,body.light .thumb-toggle{background:#fee2e2;color:#b91c1c}
+  body.light .thumb-toggle.on{background:#fca5a5;color:#7f1d1d;border-color:rgba(185,28,28,.8)}
   .card.drop-hot{
     border-color:rgba(52,211,153,.65);
     box-shadow:0 0 0 3px rgba(52,211,153,.25),0 0 26px rgba(52,211,153,.28);
@@ -1324,14 +1318,21 @@ async function scanPdfFolder() {
 /* szuka rysunku po numerze (SZ2456) i po nazwie z nawiasów obok numeru O */
 function findPdfMatches(drawing, name) {
   const norm = s => fold(s).replace(/[\s\-_]+/g, "");
+  // wyłuskuje numery rysunku typu SZ#### z tekstu (odporne na spacje/myślniki)
+  const szList = s => (fold(s).match(/sz\s*-?\s*\d{2,6}/g) || []).map(x => x.replace(/[\s\-]+/g, ""));
   const dn = norm(drawing);
+  const targetSZ = szList(drawing)[0] || "";        // np. "sz2439"
   const tokens = fold(name).split(/\s+/)
-    .filter(t => t.length >= 3 && !/^\d+$/.test(t) && norm(t) !== dn);
+    .filter(t => t.length >= 3 && !/^\d+$/.test(t) && norm(t) !== dn && !/^sz\d+$/.test(norm(t)));
   const out = [];
   for (const f of pdfFiles) {
     const fn = norm(f.name.replace(/\.pdf$/i, ""));
+    const fileSZ = szList(f.name);                   // numery SZ w nazwie pliku
+    // znamy numer rysunku, a plik należy do INNEGO numeru SZ → to nie ten rysunek, pomiń
+    if (targetSZ && fileSZ.length && !fileSZ.includes(targetSZ)) continue;
     let score = 0;
-    if (dn && fn.includes(dn)) score += 10;
+    if (targetSZ && fileSZ.includes(targetSZ)) score += 100;   // trafiony numer rysunku
+    else if (dn && fn.includes(dn)) score += 100;              // pełny numer w nazwie
     for (const t of tokens) if (fn.includes(norm(t))) score += 1;
     if (score > 0) out.push({ f, score });
   }
