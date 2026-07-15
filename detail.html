@@ -61,21 +61,34 @@
   .glow.g1{
     width:1300px;height:900px;top:-22%;right:-12%;
     background:radial-gradient(closest-side,rgba(var(--ac3-rgb),.22),transparent 70%);
-    animation:drift1 30s ease-in-out infinite alternate;
+    animation:drift1 19s ease-in-out infinite alternate;
   }
   .glow.g2{
     width:1150px;height:850px;top:2%;left:-16%;
     background:radial-gradient(closest-side,rgba(var(--ac1-rgb),.16),transparent 70%);
-    animation:drift2 38s ease-in-out infinite alternate;
+    animation:drift2 23s ease-in-out infinite alternate;
   }
   .glow.g3{
     width:1050px;height:1050px;bottom:-34%;left:32%;
     background:radial-gradient(closest-side,rgba(var(--ac2-rgb),.18),transparent 70%);
-    animation:drift3 26s ease-in-out infinite alternate;
+    animation:drift3 16s ease-in-out infinite alternate;
   }
-  @keyframes drift1{from{transform:translate(0,0) scale(1)}to{transform:translate(-100px,64px) scale(1.1)}}
-  @keyframes drift2{from{transform:translate(0,0) scale(1)}to{transform:translate(84px,56px) scale(1.12)}}
-  @keyframes drift3{from{transform:translate(0,0) scale(1)}to{transform:translate(64px,-72px) scale(1.07)}}
+  @keyframes drift1{
+    0%{transform:translate(0,0) scale(1)}
+    50%{transform:translate(-200px,130px) scale(1.15)}
+    100%{transform:translate(-80px,240px) scale(1.05)}
+  }
+  @keyframes drift2{
+    0%{transform:translate(0,0) scale(1)}
+    50%{transform:translate(220px,110px) scale(1.18)}
+    100%{transform:translate(100px,-60px) scale(1.08)}
+  }
+  @keyframes drift3{
+    0%{transform:translate(0,0) scale(1)}
+    50%{transform:translate(170px,-170px) scale(1.13)}
+    100%{transform:translate(-130px,-70px) scale(1.06)}
+  }
+  body.no-motion .glow{animation:none !important}
   @media (prefers-reduced-motion: reduce){.glow{animation:none}}
 
   /* ── zintegrowany pasek okna ── */
@@ -571,6 +584,7 @@ document.addEventListener("keydown", e => {
       '<div style="padding:40px;text-align:center;color:#8d96ad">Nie udało się wczytać programu.</div>'; return; }
     if (data.theme === "light") document.body.classList.add("light");
     if (data.accent && data.accent !== "default") document.body.classList.add("theme-" + data.accent);
+    if (data.motion === false) document.body.classList.add("no-motion");
     pdfDir = data.pdfDir || null;
     render(data.program);
   } catch (e) {

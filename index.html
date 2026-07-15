@@ -79,21 +79,34 @@
   .glow.g1{
     width:1300px;height:900px;top:-22%;right:-12%;
     background:radial-gradient(closest-side,rgba(var(--ac3-rgb),.24),transparent 70%);
-    animation:drift1 30s ease-in-out infinite alternate;
+    animation:drift1 19s ease-in-out infinite alternate;
   }
   .glow.g2{
     width:1150px;height:850px;top:2%;left:-16%;
     background:radial-gradient(closest-side,rgba(var(--ac1-rgb),.18),transparent 70%);
-    animation:drift2 38s ease-in-out infinite alternate;
+    animation:drift2 23s ease-in-out infinite alternate;
   }
   .glow.g3{
     width:1150px;height:1150px;bottom:-34%;left:34%;
     background:radial-gradient(closest-side,rgba(var(--ac2-rgb),.22),transparent 70%);
-    animation:drift3 26s ease-in-out infinite alternate;
+    animation:drift3 16s ease-in-out infinite alternate;
   }
-  @keyframes drift1{from{transform:translate(0,0) scale(1)}to{transform:translate(-110px,70px) scale(1.1)}}
-  @keyframes drift2{from{transform:translate(0,0) scale(1)}to{transform:translate(90px,60px) scale(1.12)}}
-  @keyframes drift3{from{transform:translate(0,0) scale(1)}to{transform:translate(70px,-80px) scale(1.07)}}
+  @keyframes drift1{
+    0%{transform:translate(0,0) scale(1)}
+    50%{transform:translate(-240px,150px) scale(1.16)}
+    100%{transform:translate(-90px,290px) scale(1.05)}
+  }
+  @keyframes drift2{
+    0%{transform:translate(0,0) scale(1)}
+    50%{transform:translate(260px,130px) scale(1.2)}
+    100%{transform:translate(120px,-70px) scale(1.08)}
+  }
+  @keyframes drift3{
+    0%{transform:translate(0,0) scale(1)}
+    50%{transform:translate(200px,-200px) scale(1.14)}
+    100%{transform:translate(-160px,-90px) scale(1.06)}
+  }
+  body.no-motion .glow{animation:none !important}
   @media (prefers-reduced-motion: reduce){.glow{animation:none}}
   .bg::after{
     content:"";position:absolute;inset:0;
@@ -700,6 +713,44 @@
   .sw-orange{background:linear-gradient(135deg,#fbbf24,#fb923c 42%,#f97316)}
   .sw-green{background:linear-gradient(135deg,#4ade80,#22c55e 45%,#16a34a)}
   .sw-red{background:linear-gradient(135deg,#fb7185,#ef4444 45%,#dc2626)}
+
+  /* ── menu wyboru folderu programów ──────────────────────────── */
+  .folder-wrap{position:relative;display:inline-flex}
+  #btnFolder .chev{opacity:.7;margin-left:2px}
+  .folder-menu{
+    position:absolute;top:calc(100% + 10px);left:0;z-index:400;
+    min-width:270px;max-width:360px;padding:8px;display:none;flex-direction:column;gap:3px;
+    background:rgba(14,19,38,.98);backdrop-filter:blur(20px);
+    border:1px solid var(--stroke-hi);border-radius:14px;
+    box-shadow:0 18px 50px rgba(0,0,0,.55),0 0 30px rgba(var(--ac2-rgb),.20);
+    animation:pop .18s cubic-bezier(.3,1.4,.5,1) both;
+  }
+  .folder-menu.open{display:flex}
+  body.light .folder-menu{background:rgba(255,255,255,.98)}
+  .fm-item{
+    display:flex;align-items:center;gap:10px;
+    padding:10px 11px;border-radius:10px;cursor:pointer;
+    border:1px solid transparent;color:var(--txt);font-size:.86rem;font-weight:600;
+    transition:background .14s,border-color .14s;
+  }
+  .fm-item:hover{background:rgba(255,255,255,.06);border-color:var(--stroke)}
+  body.light .fm-item:hover{background:rgba(15,23,42,.05)}
+  .fm-item.on{background:var(--grad-soft);border-color:rgba(var(--ac2-rgb),.55)}
+  .fm-item svg{width:17px;height:17px;flex:none;stroke:var(--mut)}
+  .fm-item.on svg{stroke:var(--txt)}
+  .fm-name{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .fm-count{font-size:.72rem;color:var(--mut);font-weight:700;
+    font-family:'Orbitron','Rajdhani',sans-serif}
+  .fm-del{
+    width:24px;height:24px;border-radius:7px;border:1px solid transparent;cursor:pointer;flex:none;
+    background:transparent;color:var(--mut);font-size:.9rem;line-height:1;
+    display:grid;place-items:center;transition:all .14s;
+  }
+  .fm-del:hover{background:rgba(248,113,113,.16);color:#fca5a5;border-color:rgba(248,113,113,.4)}
+  .fm-sep{height:1px;background:var(--stroke);margin:5px 4px}
+  .fm-add{color:var(--ac1)}
+  .fm-add svg{stroke:var(--ac1)}
+  .fm-add:hover{background:rgba(var(--ac1-rgb),.10);border-color:rgba(var(--ac1-rgb),.4)}
 </style>
 </head>
 <body>
@@ -738,14 +789,17 @@
       </svg>
       Odśwież
     </button>
-    <button class="btn" id="btnFolder" title="Połącz z folderem CNC Programy na dysku">
-      <span class="dot"></span>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path>
-      </svg>
-      <span id="folderLabel">Połącz folder</span>
-    </button>
-    <button class="x-btn" id="btnFolderOff" title="Odłącz folder" style="display:none">✕</button>
+    <div class="folder-wrap">
+      <button class="btn" id="btnFolder" title="Foldery z programami — przełącz albo dodaj">
+        <span class="dot"></span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path>
+        </svg>
+        <span id="folderLabel">Połącz folder</span>
+        <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M6 9l6 6 6-6"></path></svg>
+      </button>
+      <div class="folder-menu" id="folderMenu"></div>
+    </div>
     <button class="btn" id="btnPdf" title="Połącz z folderem, w którym są rysunki PDF">
       <span class="dot"></span>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -783,6 +837,19 @@
             <button class="swatch sw-orange" data-accent="orange" title="Pomarańczowy"></button>
             <button class="swatch sw-green" data-accent="green" title="Zielony"></button>
             <button class="swatch sw-red" data-accent="red" title="Czerwony"></button>
+          </div>
+        </div>
+        <div class="set-sec">
+          <span class="set-label">Ruch tła (poświaty)</span>
+          <div class="set-modes">
+            <button class="set-mode" data-motion="on">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+              Włączony
+            </button>
+            <button class="set-mode" data-motion="off">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 8h8v8H8z"></path></svg>
+              Wyłączony
+            </button>
           </div>
         </div>
       </div>
@@ -1105,14 +1172,58 @@ function nextFreeOnum() {
   return "O" + String(n).padStart(4, "0");
 }
 
-/* ════════════════ folder CNC Programy na dysku (File System Access API) ════════════════ */
-let fsRoot = null;
+/* ════════════════ foldery CNC Programy na dysku (File System Access API) ════════════════ */
+let fsRoot = null;          // aktywny folder (natywnie: {native,path,name,key}; przeglądarka: uchwyt katalogu)
+let folders = [];           // lista folderów [{key,path,name}] (tryb natywny)
+let activeFolderKey = null; // klucz aktywnego folderu (cel nowych programów, skanu)
+let folderView = "all";     // co pokazywać w siatce: "all" albo klucz folderu
 let pdfRoot = null;         // folder z rysunkami PDF
 let pdfFiles = [];          // zeskanowana lista PDF-ów: {name, path, handle}
 let pdfCandidates = [];     // wyniki wyszukiwania rysunku w formularzu
 let selectedPdf = null;     // rysunek wybrany do skopiowania przy zapisie
 let attachedPdfs = [];      // rysunki już leżące w folderze edytowanego programu
 const FILE_RE = /\.(txt|nc|cnc|tap|eia|prg|ngc)$/i;
+
+const folderKey = () => "f" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+const folderOf = k => folders.find(f => f.key === k) || null;
+function activeFolder() { return folderOf(activeFolderKey); }
+/* ścieżka na dysku folderu, do którego należy dany program (tryb natywny) */
+function rootPathOf(p) {
+  if (p && p.root) { const f = folderOf(p.root); if (f && f.path) return f.path; }
+  return (fsRoot && fsRoot.path) ? fsRoot.path : null;
+}
+function diskCountOf(key) { return programs.filter(p => p.source === "disk" && p.root === key).length; }
+/* czy program należy do aktualnie oglądanego folderu */
+function inView(p) { return folderView === "all" || p.source !== "disk" || p.root === folderView; }
+function saveFolders() {
+  localStorage.setItem("cncFolders", JSON.stringify(folders.map(f => ({ key: f.key, path: f.path, name: f.name }))));
+  localStorage.setItem("cncActiveFolder", activeFolderKey || "");
+}
+/* wczytuje listę folderów + jednorazowa migracja starego pojedynczego folderu */
+function loadFolders() {
+  try { folders = JSON.parse(localStorage.getItem("cncFolders") || "[]") || []; } catch (e) { folders = []; }
+  activeFolderKey = localStorage.getItem("cncActiveFolder") || null;
+  const rootless = programs.filter(p => p.source === "disk" && !p.root);
+  let legacy = null;
+  try { legacy = JSON.parse(localStorage.getItem("cncRootPath") || "null"); } catch (e) {}
+  // migracja tylko gdy jest co migrować (stary folder na dysku albo osierocone programy)
+  if (!folders.length && ((legacy && legacy.path) || rootless.length)) {
+    const key = folderKey();
+    folders = [{ key, path: (legacy && legacy.path) || "", name: (legacy && legacy.name) || "Programy" }];
+    activeFolderKey = key;
+  }
+  if (rootless.length && folders.length) {
+    const key = activeFolderKey || folders[0].key;
+    rootless.forEach(p => {
+      p.root = key;
+      if (p.id.startsWith("d:") && p.id.indexOf(":", 2) === -1) p.id = "d:" + key + ":" + p.id.slice(2);
+    });
+    save();
+  }
+  if (folders.length) saveFolders();
+  if (!folderOf(activeFolderKey)) activeFolderKey = folders[0] ? folders[0].key : null;
+  folderView = activeFolderKey || "all";
+}
 
 function idb() {
   return new Promise((res, rej) => {
@@ -1148,57 +1259,118 @@ async function idbGet(k, store = "kv") {
 function updateFolderUI(resume) {
   const btn = document.getElementById("btnFolder");
   const lbl = document.getElementById("folderLabel");
-  const off = document.getElementById("btnFolderOff");
   btn.classList.remove("connected", "resume");
-  if (!fsRoot) {
+  if (!folders.length) {
     lbl.textContent = "Połącz folder";
-    btn.title = "Połącz z folderem CNC Programy na dysku";
-    off.style.display = "none";
-    return;
-  }
-  off.style.display = "";
-  if (resume) {
-    btn.classList.add("resume");
-    lbl.textContent = "Wznów: " + fsRoot.name;
-    btn.title = "Kliknij, aby przywrócić dostęp do folderu";
+    btn.title = "Dodaj folder z programami CNC";
   } else {
-    btn.classList.add("connected");
-    lbl.textContent = fsRoot.name;
-    btn.title = "Kliknij, aby przeskanować folder ponownie";
+    btn.classList.add(resume ? "resume" : "connected");
+    if (folderView === "all") lbl.textContent = folders.length > 1 ? "Wszystkie foldery" : (folderOf(activeFolderKey) || {}).name || "Foldery";
+    else { const f = folderOf(folderView); lbl.textContent = f ? f.name : "Foldery"; }
+    btn.title = "Przełącz folder z programami albo dodaj kolejny";
   }
+  renderFolderMenu();
 }
 
-async function connectFolder() {
+/* buduje rozwijane menu z listą folderów */
+function renderFolderMenu() {
+  const box = document.getElementById("folderMenu");
+  if (!box) return;
+  let html = "";
+  if (folders.length > 1) {
+    html += `<div class="fm-item ${folderView === "all" ? "on" : ""}" data-view="all">
+      <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16"></path></svg>
+      <span class="fm-name">Wszystkie foldery</span>
+      <span class="fm-count">${programs.filter(p => p.source === "disk").length}</span></div>`;
+  }
+  folders.forEach(f => {
+    html += `<div class="fm-item ${folderView === f.key ? "on" : ""}" data-view="${esc(f.key)}">
+      <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path></svg>
+      <span class="fm-name" title="${esc(f.path || f.name)}">${esc(f.name)}</span>
+      <span class="fm-count">${diskCountOf(f.key)}</span>
+      <button class="fm-del" data-delfolder="${esc(f.key)}" title="Odłącz ten folder">✕</button></div>`;
+  });
+  html += `<div class="fm-sep"></div>
+    <div class="fm-item fm-add" data-addfolder="1">
+      <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"></path></svg>
+      <span class="fm-name">Dodaj folder…</span></div>`;
+  box.innerHTML = html;
+}
+
+/* dodaje kolejny folder z programami i od razu go skanuje */
+async function addFolder() {
   if (window.native) {
-    const r = await window.native.pickFolder("Wybierz folder główny z programami CNC");
+    const r = await window.native.pickFolder("Wybierz folder z programami CNC");
     if (!r) return;
-    fsRoot = { native: true, path: r.path, name: r.name };
-    localStorage.setItem("cncRootPath", JSON.stringify(r));
+    let f = folders.find(x => x.path === r.path);
+    if (!f) { f = { key: folderKey(), path: r.path, name: r.name }; folders.push(f); }
+    activeFolderKey = f.key; folderView = f.key;
+    fsRoot = { native: true, path: f.path, name: f.name, key: f.key };
+    saveFolders();
     updateFolderUI(false);
-    await rescanFolder();
+    await rescanFolderKey(f.key);
     return;
   }
   if (!window.showDirectoryPicker) {
     toast("Ta przeglądarka nie obsługuje dostępu do folderów — użyj Chrome lub Edge");
     return;
   }
-  try { fsRoot = await window.showDirectoryPicker({ mode: "readwrite" }); }
+  let h;
+  try { h = await window.showDirectoryPicker({ mode: "readwrite" }); }
   catch (e) { return; }
-  try { await idbSet("root", fsRoot); } catch (e) {}
+  const key = (folders[0] && folders[0].key) || folderKey();
+  folders = [{ key, path: "", name: h.name }];   // przeglądarka: pojedynczy folder
+  activeFolderKey = key; folderView = key;
+  fsRoot = h; try { fsRoot.key = key; } catch (e) {}
+  try { await idbSet("root", h); } catch (e) {}
+  saveFolders();
   updateFolderUI(false);
-  await rescanFolder();
+  await rescanFolderKey(key);
 }
 
-async function restoreFolder() {
+/* przełącza widok/aktywny folder (bez skanowania — natychmiast) */
+async function switchFolder(view) {
+  folderView = view;
+  if (view !== "all") {
+    activeFolderKey = view;
+    const f = folderOf(view);
+    if (f && window.native) fsRoot = { native: true, path: f.path, name: f.name, key: f.key };
+  }
+  saveFolders();
+  updateFolderUI(false);
+  render();
+}
+
+/* odłącza folder — usuwa jego programy z biblioteki (pliki na dysku zostają) */
+async function removeFolder(key) {
+  const f = folderOf(key); if (!f) return;
+  const n = diskCountOf(key);
+  if (!await askConfirm('Odłączyć folder „' + f.name + '”?\n\nZ biblioteki zniknie ' + n + ' programów z tego folderu.\nPliki na dysku pozostaną nienaruszone.')) return;
+  programs = programs.filter(p => !(p.source === "disk" && p.root === key));
+  folders = folders.filter(x => x.key !== key);
+  if (activeFolderKey === key) activeFolderKey = folders[0] ? folders[0].key : null;
+  if (folderView === key) folderView = activeFolderKey || "all";
+  fsRoot = activeFolder() ? { native: !!window.native, path: activeFolder().path, name: activeFolder().name, key: activeFolderKey } : null;
+  if (!window.native) { try { await idbSet("root", null); } catch (e) {} }
+  save(); saveFolders(); updateFolderUI(false); render();
+  toast("Odłączono folder „" + f.name + "”");
+}
+
+/* przywraca foldery przy starcie + skanuje dysk */
+async function restoreFolders() {
   if (window.native) {
-    try {
-      const r = JSON.parse(localStorage.getItem("cncRootPath") || "null");
-      if (r && await window.native.exists(r.path)) {
-        fsRoot = { native: true, path: r.path, name: r.name };
-        updateFolderUI(false);
-        await rescanFolder();
-      }
-    } catch (e) {}
+    const alive = [];
+    for (const f of folders) {
+      let ok = false; try { ok = await window.native.exists(f.path); } catch (e) {}
+      if (ok) alive.push(f);
+    }
+    if (alive.length) folders = alive;
+    if (!folderOf(activeFolderKey)) activeFolderKey = folders[0] ? folders[0].key : null;
+    if (folderView !== "all" && !folderOf(folderView)) folderView = activeFolderKey || "all";
+    if (activeFolder()) fsRoot = { native: true, path: activeFolder().path, name: activeFolder().name, key: activeFolderKey };
+    saveFolders();
+    updateFolderUI(false);
+    for (const f of folders) await rescanFolderKey(f.key);
     try {
       const r2 = JSON.parse(localStorage.getItem("cncPdfPath") || "null");
       if (r2 && await window.native.exists(r2.path)) {
@@ -1207,18 +1379,22 @@ async function restoreFolder() {
         await scanPdfFolder();
       }
     } catch (e) {}
+    render();
     return;
   }
-  if (!window.showDirectoryPicker) return;
+  updateFolderUI(false);
+  if (!window.showDirectoryPicker) { render(); return; }
   let h = null;
   try { h = await idbGet("root"); } catch (e) {}
   if (h) {
-    fsRoot = h;
+    const key = folders[0] ? folders[0].key : folderKey();
+    if (!folders.length) { folders = [{ key, path: "", name: h.name }]; activeFolderKey = key; folderView = key; saveFolders(); }
+    fsRoot = h; try { fsRoot.key = activeFolderKey; } catch (e) {}
     let st = "prompt";
     try { st = await h.queryPermission({ mode: "readwrite" }); } catch (e) {}
     updateFolderUI(st !== "granted");
-    if (st === "granted") await rescanFolder();
-    else toast('Kliknij "Wznów: ' + h.name + '", aby przywrócić dostęp do folderu');
+    if (st === "granted") await rescanFolderKey(activeFolderKey);
+    else toast('Kliknij „' + h.name + '”, aby przywrócić dostęp do folderu');
   }
   let hp = null;
   try { hp = await idbGet("pdfRoot"); } catch (e) {}
@@ -1229,63 +1405,61 @@ async function restoreFolder() {
     updatePdfUI(st !== "granted");
     if (st === "granted") await scanPdfFolder();
   }
+  render();
 }
 
-async function disconnectFolder() {
-  fsRoot = null;
-  localStorage.removeItem("cncRootPath");
-  try { await idbSet("root", null); } catch (e) {}
-  updateFolderUI(false);
-  toast("Odłączono folder — programy pozostają w bibliotece");
-}
-
-/* skanuje folder główny: podfoldery z plikami programów + pliki luzem */
-async function rescanFolder() {
-  if (!fsRoot) return;
+/* skanuje wskazany folder (podfoldery z programami + pliki luzem) */
+async function rescanFolderKey(key) {
+  const f = folderOf(key); if (!f) return;
   let found = [];
-  if (fsRoot.native) {
-    try { found = await window.native.scanPrograms(fsRoot.path); }
-    catch (e) { toast("Nie udało się odczytać folderu"); return; }
-    mergeScan(found);
-    return;
-  }
-  try {
-    for await (const [name, h] of fsRoot.entries()) {
-      if (h.kind === "directory") {
-        const progs = [];
-        try {
-          for await (const [fn, fh] of h.entries()) {
-            if (fh.kind !== "file") continue;
-            if (FILE_RE.test(fn)) {
-              const f = await fh.getFile();
-              progs.push({ dir: name, file: fn, code: await f.text(), mtime: f.lastModified });
+  if (window.native) {
+    try { found = await window.native.scanPrograms(f.path); }
+    catch (e) { toast("Nie udało się odczytać folderu „" + f.name + "”"); return; }
+  } else {
+    const dir = fsRoot;   // przeglądarka: pojedynczy folder = aktywny uchwyt
+    if (!dir || !dir.entries) return;
+    try {
+      for await (const [name, h] of dir.entries()) {
+        if (h.kind === "directory") {
+          try {
+            for await (const [fn, fh] of h.entries()) {
+              if (fh.kind === "file" && FILE_RE.test(fn)) {
+                const file = await fh.getFile();
+                found.push({ dir: name, file: fn, code: await file.text(), mtime: file.lastModified });
+              }
             }
-          }
-        } catch (e) {}
-        progs.forEach(pr => { pr.pdfs = []; found.push(pr); });
-      } else if (h.kind === "file" && FILE_RE.test(name)) {
-        const f = await h.getFile();
-        found.push({ dir: "", file: name, code: await f.text(), mtime: f.lastModified, pdfs: [] });
+          } catch (e) {}
+        } else if (h.kind === "file" && FILE_RE.test(name)) {
+          const file = await h.getFile();
+          found.push({ dir: "", file: name, code: await file.text(), mtime: file.lastModified });
+        }
       }
-    }
-  } catch (e) { toast("Nie udało się odczytać folderu"); return; }
-  mergeScan(found);
+    } catch (e) { toast("Nie udało się odczytać folderu"); return; }
+  }
+  mergeScanFolder(f, found);
 }
 
+/* odświeżenie: aktywny folder (albo wszystkie, gdy widok „Wszystkie foldery") */
+async function rescanFolder() {
+  if (folderView === "all" && window.native) { for (const f of folders.slice()) await rescanFolderKey(f.key); return; }
+  if (activeFolderKey) await rescanFolderKey(activeFolderKey);
+}
 
-/* scala wynik skanowania z biblioteką — NIGDY nie zmienia automatycznie przypisania rysunków */
-function mergeScan(found) {
+/* scala wynik skanowania folderu z biblioteką (programy dyskowe namespace'owane kluczem
+   folderu) — NIGDY nie zmienia automatycznie przypisania rysunków PDF */
+function mergeScanFolder(folder, found) {
   thumbByCard.clear();   // po przeskanowaniu dysku odśwież miniaturki od zera
+  const key = folder.key;
   const diskIds = new Set();
   let added = 0;
   found.forEach(x => {
-    const id = "d:" + (x.dir ? x.dir + "/" : "") + x.file;
+    const id = "d:" + key + ":" + (x.dir ? x.dir + "/" : "") + x.file;
     diskIds.add(id);
     const p = byId(id);
     if (!p) {
       const meta = parseGcodeMeta(x.code);
       programs.push({
-        id, source: "disk", dir: x.dir, file: x.file,
+        id, source: "disk", root: key, dir: x.dir, file: x.file,
         name: meta.name || x.file.replace(/\.[^.]+$/, ""),
         onum: meta.onum || "", detail: meta.detail || "",
         drawing: meta.drawing || "", client: "", material: "", tags: [], note: "",
@@ -1304,23 +1478,27 @@ function mergeScan(found) {
       }
     }
   });
-  programs = programs.filter(p => p.source !== "disk" || diskIds.has(p.id));
+  // usuń tylko programy dyskowe TEGO folderu, których już nie ma na dysku
+  programs = programs.filter(p => !(p.source === "disk" && p.root === key) || diskIds.has(p.id));
   save();
   render();
-  toast("Folder „" + fsRoot.name + "”: " + found.length + " plików" + (added ? ", nowych: " + added : ""));
+  toast("Folder „" + folder.name + "”: " + found.length + " plików" + (added ? ", nowych: " + added : ""));
 }
 
 let fsLastError = "";
 async function writeDisk(p) {
-  if (!fsRoot || !p.file) { fsLastError = "folder nie jest połączony"; return false; }
+  if (!p.file) { fsLastError = "brak nazwy pliku"; return false; }
   fsLastError = "";
-  if (fsRoot.native) {
-    const r = await window.native.writeProgram(fsRoot.path, p.dir || "", p.file, p.code || "")
+  if (window.native) {
+    const rp = rootPathOf(p);
+    if (!rp) { fsLastError = "folder nie jest połączony"; return false; }
+    const r = await window.native.writeProgram(rp, p.dir || "", p.file, p.code || "")
       .catch(e => ({ ok: false, error: String(e) }));
     if (r && r.ok) return true;
     fsLastError = (r && r.error) || "błąd zapisu";
     return false;
   }
+  if (!fsRoot) { fsLastError = "folder nie jest połączony"; return false; }
   try {
     let st = "granted";
     try {
@@ -1526,8 +1704,8 @@ async function savePdfFileToProgram(p, file) {
   if (!fsRoot || !p.dir) return false;
   try {
     const buf = await file.arrayBuffer();
-    if (fsRoot.native) {
-      const r = await window.native.writeBinary(fsRoot.path, p.dir, file.name, new Uint8Array(buf));
+    if (window.native) {
+      const r = await window.native.writeBinary(rootPathOf(p), p.dir, file.name, new Uint8Array(buf));
       if (!(r && r.ok)) return false;
     } else {
       const dh = await fsRoot.getDirectoryHandle(p.dir, { create: true });
@@ -1546,8 +1724,8 @@ async function savePdfFileToProgram(p, file) {
 async function removePdfFromProgram(p, name) {
   if (!fsRoot || !p.dir || !name) return false;
   try {
-    if (fsRoot.native) {
-      const r = await window.native.deleteFile(fsRoot.path, p.dir, name);
+    if (window.native) {
+      const r = await window.native.deleteFile(rootPathOf(p), p.dir, name);
       if (!(r && r.ok)) return false;
     } else {
       const dh = await fsRoot.getDirectoryHandle(p.dir);
@@ -1584,9 +1762,9 @@ async function makeThumb(file) {
 
 async function pdfFileOf(p) {
   if (!fsRoot || !p.dir || !(p.pdfs && p.pdfs.length)) return null;
-  if (fsRoot.native) {
+  if (window.native) {
     try {
-      const r = await window.native.readFile(fsRoot.path + "/" + p.dir + "/" + p.pdfs[0]);
+      const r = await window.native.readFile(rootPathOf(p) + "/" + p.dir + "/" + p.pdfs[0]);
       if (!(r && r.ok)) return null;
       return new File([r.data], p.pdfs[0], { type: "application/pdf", lastModified: Math.round(r.mtime) });
     } catch (e) { return null; }
@@ -1682,8 +1860,8 @@ async function openOriginal(id) {
 /* kopiuje wybrany rysunek PDF do podfolderu programu */
 async function copyPdfToProgram(p, entry) {
   if (!fsRoot || !p.dir || !entry) return false;
-  if (fsRoot.native) {
-    const r = await window.native.copyFile(entry.abs, fsRoot.path, p.dir, entry.name)
+  if (window.native) {
+    const r = await window.native.copyFile(entry.abs, rootPathOf(p), p.dir, entry.name)
       .catch(() => ({ ok: false }));
     if (!(r && r.ok)) return false;
     p.pdfs = [entry.name, ...(p.pdfs || []).filter(x => x !== entry.name)];
@@ -1750,10 +1928,11 @@ async function importFile(file) {
     name, onum, detail: meta.detail || "",
     drawing: meta.drawing || "", client: "", material: "", tags: [], note: "", code
   };
-  if (fsRoot) {
+  if (fsRoot && activeFolderKey) {
+    const key = activeFolderKey;
     let base = sanitizeName(name);
-    if (byId("d:" + base + "/" + base + ".txt")) base = base + "_" + onum;
-    p.dir = base; p.file = base + ".txt"; p.id = "d:" + base + "/" + p.file; p.source = "disk";
+    if (byId("d:" + key + ":" + base + "/" + base + ".txt")) base = base + "_" + onum;
+    p.dir = base; p.file = base + ".txt"; p.root = key; p.id = "d:" + key + ":" + p.dir + "/" + p.file; p.source = "disk";
     await writeDisk(p);
     // rysunek PDF dodajesz ręcznie przyciskiem „Dopasuj PDF" na karcie
   }
@@ -1817,6 +1996,7 @@ function hayOf(p) {
 }
 
 function matches(p) {
+  if (!inView(p)) return false;   // filtr aktywnego folderu
   if (filter === "fav" && !p.fav) return false;
   if (filter.startsWith("tag:") && !(p.tags || []).includes(filter.slice(4))) return false;
   if (!queryTokens.length) return true;
@@ -1863,7 +2043,7 @@ function renderGrid() {
               <circle cx="8.5" cy="8.5" r="1.5"></circle><path d="M21 15l-5-5L5 21"></path>
             </svg>
           </button>` : ""}
-          ${(window.native && p.dir && fsRoot && fsRoot.native) ? `<button class="dir-btn" data-openfolder="${p.id}" title="Otwórz folder programu w Eksploratorze">
+          ${(window.native && p.dir) ? `<button class="dir-btn" data-openfolder="${p.id}" title="Otwórz folder programu w Eksploratorze">
             <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
               <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path>
             </svg>
@@ -1922,8 +2102,9 @@ function renderGrid() {
 }
 
 function renderSidebar() {
+  const vis = programs.filter(inView);   // statystyki i numery dotyczą oglądanego folderu
   // filtry
-  const allTags = [...new Set(programs.flatMap(p => p.tags || []))].sort((a, b) => a.localeCompare(b, "pl"));
+  const allTags = [...new Set(vis.flatMap(p => p.tags || []))].sort((a, b) => a.localeCompare(b, "pl"));
   const chips = [
     { key: "all", label: "Wszystkie" },
     { key: "fav", label: "★ Ulubione" },
@@ -1933,14 +2114,14 @@ function renderSidebar() {
     `<button class="chip ${filter === c.key ? "on" : ""}" data-filter="${esc(c.key)}">${esc(c.label)}</button>`).join("");
 
   // statystyki
-  document.getElementById("stProg").textContent = programs.length;
-  document.getElementById("stVer").textContent = programs.reduce((s, p) => s + (p.versions || []).length + 1, 0);
-  document.getElementById("stFav").textContent = programs.filter(p => p.fav).length;
-  document.getElementById("stCli").textContent = new Set(programs.map(p => (p.client || "").trim().toLowerCase()).filter(Boolean)).size;
+  document.getElementById("stProg").textContent = vis.length;
+  document.getElementById("stVer").textContent = vis.reduce((s, p) => s + (p.versions || []).length + 1, 0);
+  document.getElementById("stFav").textContent = vis.filter(p => p.fav).length;
+  document.getElementById("stCli").textContent = new Set(vis.map(p => (p.client || "").trim().toLowerCase()).filter(Boolean)).size;
 
   // numery O
   const counts = {};
-  programs.forEach(p => { if (p.onum) counts[p.onum] = (counts[p.onum] || 0) + 1; });
+  vis.forEach(p => { if (p.onum) counts[p.onum] = (counts[p.onum] || 0) + 1; });
   const nums = Object.keys(counts).sort();
   document.getElementById("onums").innerHTML = nums.length
     ? nums.map(n => {
@@ -1956,7 +2137,7 @@ function openView(id) {
   // w aplikacji desktopowej podgląd otwiera się w osobnym oknie
   if (window.native && window.native.openDetail) {
     const theme = document.body.classList.contains("light") ? "light" : "dark";
-    window.native.openDetail({ program: p, theme, accent: currentAccent(), pdfDir: (pdfRoot && pdfRoot.native) ? pdfRoot.path : null });
+    window.native.openDetail({ program: p, theme, accent: currentAccent(), motion: motionOn(), pdfDir: (pdfRoot && pdfRoot.native) ? pdfRoot.path : null });
     return;
   }
   openViewModal(id);
@@ -2095,10 +2276,11 @@ async function saveProgram() {
     }
   } else {
     const p = Object.assign({ id: uid(), source: "local", fav: false, versions: [], created: Date.now(), modified: Date.now() }, data);
-    if (fsRoot) {
+    if (fsRoot && activeFolderKey) {
+      const key = activeFolderKey;
       let base = sanitizeName(p.name);
-      if (byId("d:" + base + "/" + base + ".txt")) base = base + "_" + (p.onum || Date.now());
-      p.dir = base; p.file = base + ".txt"; p.id = "d:" + base + "/" + p.file; p.source = "disk";
+      if (byId("d:" + key + ":" + base + "/" + base + ".txt")) base = base + "_" + (p.onum || Date.now());
+      p.dir = base; p.file = base + ".txt"; p.root = key; p.id = "d:" + key + ":" + p.dir + "/" + p.file; p.source = "disk";
       const ok = await writeDisk(p);
       toast(ok ? "Utworzono folder „" + p.dir + "” i zapisano " + p.file
                : "Nie udało się zapisać na dysku (" + fsLastError + ") — program zapisany w aplikacji");
@@ -2138,8 +2320,8 @@ async function removeProgram(id) {
     : "";
   if (!await askConfirm('Usunąć program "' + p.name + '" wraz z historią wersji?' + extra)) return;
   if (p.source === "disk" && fsRoot && p.file) {
-    if (fsRoot.native) {
-      try { await window.native.deleteFile(fsRoot.path, p.dir || "", p.file); } catch (e) {}
+    if (window.native) {
+      try { await window.native.deleteFile(rootPathOf(p), p.dir || "", p.file); } catch (e) {}
     } else {
       try {
         const dh = p.dir ? await fsRoot.getDirectoryHandle(p.dir) : fsRoot;
@@ -2195,19 +2377,23 @@ document.getElementById("btnNew").addEventListener("click", () => openEdit(null)
 document.getElementById("btnSave").addEventListener("click", saveProgram);
 document.getElementById("fOnum").addEventListener("input", checkOnumDup);
 
-document.getElementById("btnFolder").addEventListener("click", async () => {
-  if (!fsRoot) { await connectFolder(); return; }
-  if (fsRoot.native) { await rescanFolder(); return; }
-  let st = "prompt";
-  try { st = await fsRoot.queryPermission({ mode: "readwrite" }); } catch (e) {}
-  if (st !== "granted") {
-    try { st = await fsRoot.requestPermission({ mode: "readwrite" }); } catch (e) {}
-    if (st !== "granted") { toast("Brak zgody na dostęp do folderu"); return; }
-  }
-  updateFolderUI(false);
-  await rescanFolder();
+const folderMenu = document.getElementById("folderMenu");
+document.getElementById("btnFolder").addEventListener("click", e => {
+  e.stopPropagation();
+  if (!folders.length) { addFolder(); return; }   // brak folderów → od razu dodaj pierwszy
+  folderMenu.classList.toggle("open");
 });
-document.getElementById("btnFolderOff").addEventListener("click", disconnectFolder);
+folderMenu.addEventListener("click", async e => {
+  const del = e.target.closest("[data-delfolder]");
+  if (del) { e.stopPropagation(); folderMenu.classList.remove("open"); await removeFolder(del.dataset.delfolder); return; }
+  const add = e.target.closest("[data-addfolder]");
+  if (add) { folderMenu.classList.remove("open"); await addFolder(); return; }
+  const it = e.target.closest("[data-view]");
+  if (it) { folderMenu.classList.remove("open"); await switchFolder(it.dataset.view); return; }
+});
+document.addEventListener("click", e => {
+  if (folderMenu.classList.contains("open") && !e.target.closest(".folder-wrap")) folderMenu.classList.remove("open");
+});
 
 document.getElementById("btnPdf").addEventListener("click", async () => {
   if (!pdfRoot) { await connectPdfFolder(); return; }
@@ -2268,13 +2454,22 @@ function applyAccent(name) {
   localStorage.setItem("cncAccent", name || "default");
   syncSettingsUI();
 }
+function motionOn() { return !document.body.classList.contains("no-motion"); }
+function applyMotion(on) {
+  document.body.classList.toggle("no-motion", !on);
+  localStorage.setItem("cncMotion", on ? "on" : "off");
+  syncSettingsUI();
+}
 function syncSettingsUI() {
   const light = document.body.classList.contains("light");
-  document.querySelectorAll(".set-mode").forEach(b =>
+  document.querySelectorAll(".set-mode[data-mode]").forEach(b =>
     b.classList.toggle("on", (b.dataset.mode === "light") === light));
   const acc = currentAccent();
   document.querySelectorAll(".swatch").forEach(b =>
     b.classList.toggle("on", b.dataset.accent === acc));
+  const on = motionOn();
+  document.querySelectorAll(".set-mode[data-motion]").forEach(b =>
+    b.classList.toggle("on", (b.dataset.motion === "on") === on));
 }
 const settingsMenu = document.getElementById("settingsMenu");
 document.getElementById("btnSettings").addEventListener("click", e => {
@@ -2287,15 +2482,18 @@ settingsMenu.addEventListener("click", e => {
   if (m) { applyMode(m.dataset.mode === "light"); return; }
   const a = e.target.closest("[data-accent]");
   if (a) { applyAccent(a.dataset.accent); return; }
+  const mo = e.target.closest("[data-motion]");
+  if (mo) { applyMotion(mo.dataset.motion === "on"); return; }
 });
 /* zamknij menu ustawień kliknięciem poza nim */
 document.addEventListener("click", e => {
   if (settingsMenu.classList.contains("open") && !e.target.closest(".settings-wrap"))
     settingsMenu.classList.remove("open");
 });
-/* przywróć zapisany motyw i kolor akcentu */
+/* przywróć zapisany motyw, kolor akcentu i ruch tła */
 if (localStorage.getItem("cncTheme") === "light") document.body.classList.add("light");
 applyAccent(localStorage.getItem("cncAccent") || "default");
+applyMotion(localStorage.getItem("cncMotion") !== "off");
 
 /* otwiera folder rysunków PDF (albo konkretny szkic wpisany w polu) w Eksploratorze */
 document.getElementById("btnOpenPdfDir").addEventListener("click", async () => {
@@ -2320,8 +2518,8 @@ document.getElementById("sketchInput").addEventListener("keydown", e => {
 
 /* przycisk Odśwież — ponowny skan obu folderów */
 document.getElementById("btnRefresh").addEventListener("click", async () => {
-  if (!fsRoot && !pdfRoot) { toast("Najpierw połącz folder z programami"); return; }
-  if (fsRoot) await rescanFolder();
+  if (!folders.length && !pdfRoot) { toast("Najpierw połącz folder z programami"); return; }
+  if (folders.length) await rescanFolder();
   if (pdfRoot) await scanPdfFolder();
 });
 
@@ -2536,8 +2734,8 @@ document.getElementById("grid").addEventListener("click", e => {
   const of = e.target.closest("[data-openfolder]");
   if (of) {
     const p = byId(of.dataset.openfolder);
-    if (p && fsRoot && fsRoot.native && p.dir) {
-      const target = fsRoot.path + "/" + p.dir + (p.file ? "/" + p.file : "");
+    if (p && window.native && p.dir) {
+      const target = rootPathOf(p) + "/" + p.dir + (p.file ? "/" + p.file : "");
       window.native.showInFolder(target).then(r => {
         if (r && !r.ok) toast("Nie udało się otworzyć folderu");
       });
@@ -2569,6 +2767,7 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape") {
     document.querySelectorAll(".modal.open").forEach(m => closeModal(m.id));
     settingsMenu.classList.remove("open");
+    folderMenu.classList.remove("open");
   }
   if ((e.ctrlKey || e.metaKey) && e.key === "s" && document.getElementById("mEdit").classList.contains("open")) {
     e.preventDefault(); saveProgram();
@@ -2630,8 +2829,9 @@ if (window.native && window.native.onDetailAction) {
 
 /* ════════════════════ start ════════════════════ */
 load();
+loadFolders();     // migracja + ustawienie aktywnego folderu (synchronicznie)
 render();
-restoreFolder();
+restoreFolders();  // weryfikacja folderów na dysku + skan
 </script>
 </body>
 </html>
