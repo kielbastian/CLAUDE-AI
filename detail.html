@@ -206,6 +206,12 @@
     </svg>
     Usuń
   </button>
+  <button class="btn" id="btnSketch" title="Otwórz w Eksploratorze folder szkicu (rysunku) przypisanego do tego programu">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path>
+    </svg>
+    Otwórz folder rysunku
+  </button>
   <span style="flex:1"></span>
   <button class="btn" id="btnCopy">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -274,6 +280,7 @@ function toast(msg) {
 }
 
 let prog = null;
+let pdfDir = null;   // folder z rysunkami PDF (do otwarcia folderu szkicu)
 
 function render(p) {
   prog = p;
@@ -350,6 +357,16 @@ document.getElementById("btnDelete").addEventListener("click", () => {
   if (!prog) return;
   window.native.detailAction({ type: "delete", id: prog.id, close: true });
 });
+/* otwiera folder szkicu (rysunku) tego programu — szkic z pola „Nr rysunku” / nawiasu w kodzie */
+document.getElementById("btnSketch").addEventListener("click", async () => {
+  if (!prog) return;
+  if (!pdfDir) { toast("Najpierw połącz folder z rysunkami PDF w głównym oknie"); return; }
+  const sketch = (prog.drawing || prog.detail || "").trim();
+  if (!window.native.openSketch) { toast("Funkcja niedostępna"); return; }
+  const r = await window.native.openSketch(pdfDir, sketch);
+  if (r && r.notFound) toast('Nie znaleziono szkicu „' + sketch + '” — otwarto główny folder rysunków');
+  else if (!(r && r.ok)) toast("Nie udało się otworzyć folderu rysunku");
+});
 
 /* start — pobierz dane programu z procesu głównego */
 (async () => {
@@ -358,6 +375,7 @@ document.getElementById("btnDelete").addEventListener("click", () => {
     if (!data || !data.program) { document.getElementById("body").innerHTML =
       '<div style="padding:40px;text-align:center;color:#8d96ad">Nie udało się wczytać programu.</div>'; return; }
     if (data.theme === "light") document.body.classList.add("light");
+    pdfDir = data.pdfDir || null;
     render(data.program);
   } catch (e) {
     document.getElementById("body").innerHTML =

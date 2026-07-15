@@ -223,6 +223,15 @@
   body.light .sortsel{background:rgba(15,23,42,.05)}
   .sortsel option{background:#0c1120;color:var(--txt)}
   body.light .sortsel option{background:#fff;color:#1b2333}
+  .sketch-in{
+    width:100%;margin-top:9px;padding:9px 12px;border-radius:11px;
+    background:rgba(255,255,255,.05);border:1px solid var(--stroke);
+    color:var(--txt);font-size:.83rem;font-family:inherit;outline:none;
+    transition:border-color .2s,box-shadow .2s;
+  }
+  .sketch-in::placeholder{color:#5d6780}
+  .sketch-in:focus{border-color:var(--ac1);box-shadow:0 0 0 3px rgba(34,211,238,.15)}
+  body.light .sketch-in{background:rgba(15,23,42,.05)}
   .onums{display:flex;flex-wrap:wrap;gap:6px;max-height:180px;overflow:auto}
   .onum{
     font-family:ui-monospace,Consolas,monospace;font-size:.72rem;
@@ -707,8 +716,11 @@
         </svg>
         Otwórz folder rysunków PDF
       </button>
-      <div style="font-size:.72rem;color:var(--mut);margin-top:9px;line-height:1.55">
-        Rysunki dodajesz ręcznie: na karcie programu użyj przycisku „Dopasuj PDF", aby wybrać właściwy rysunek, albo otwórz foldery i skopiuj plik samodzielnie.
+      <input id="sketchInput" class="sketch-in" type="text" autocomplete="off"
+             placeholder="Szkic do otwarcia, np. SZ2349"
+             title="Wpisz numer/nazwę szkicu i naciśnij „Otwórz folder rysunków PDF” — otworzy się jego folder">
+      <div style="font-size:.72rem;color:var(--mut);margin-top:8px;line-height:1.5">
+        Wpisz szkic i naciśnij przycisk powyżej, aby otworzyć jego folder. Puste pole = cały folder rysunków.
       </div>
     </div>
   </aside>
@@ -1840,7 +1852,7 @@ function openView(id) {
   // w aplikacji desktopowej podgląd otwiera się w osobnym oknie
   if (window.native && window.native.openDetail) {
     const theme = document.body.classList.contains("light") ? "light" : "dark";
-    window.native.openDetail({ program: p, theme });
+    window.native.openDetail({ program: p, theme, pdfDir: (pdfRoot && pdfRoot.native) ? pdfRoot.path : null });
     return;
   }
   openViewModal(id);
@@ -2144,19 +2156,25 @@ document.getElementById("btnTheme").addEventListener("click", () => {
 });
 if (localStorage.getItem("cncTheme") === "light") document.body.classList.add("light");
 
-/* otwiera folder źródłowy z rysunkami PDF w Eksploratorze — rysunek kopiujesz sam */
+/* otwiera folder rysunków PDF (albo konkretny szkic wpisany w polu) w Eksploratorze */
 document.getElementById("btnOpenPdfDir").addEventListener("click", async () => {
   if (!pdfRoot) {
     toast("Najpierw wskaż folder z rysunkami PDF");
     await connectPdfFolder();
     if (!pdfRoot) return;
   }
-  if (pdfRoot.native && window.native) {
-    const r = await window.native.showInFolder(pdfRoot.path);
-    if (r && !r.ok) toast("Nie udało się otworzyć folderu rysunków");
+  const sketch = (document.getElementById("sketchInput").value || "").trim();
+  if (pdfRoot.native && window.native && window.native.openSketch) {
+    const r = await window.native.openSketch(pdfRoot.path, sketch);
+    if (r && r.notFound) toast('Nie znaleziono szkicu „' + sketch + '” — otwarto główny folder rysunków');
+    else if (!(r && r.ok)) toast("Nie udało się otworzyć folderu rysunków");
   } else {
     toast("Otwieranie folderu działa w aplikacji na Windows");
   }
+});
+/* Enter w polu szkicu = kliknięcie przycisku */
+document.getElementById("sketchInput").addEventListener("keydown", e => {
+  if (e.key === "Enter") { e.preventDefault(); document.getElementById("btnOpenPdfDir").click(); }
 });
 
 /* przycisk Odśwież — ponowny skan obu folderów */

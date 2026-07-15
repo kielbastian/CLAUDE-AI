@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld("native", {
   writeBinary: (root, dir, name, data) => ipcRenderer.invoke("write-binary", { root, dir, name, data }),
   deleteFile: (root, dir, file) => ipcRenderer.invoke("delete-file", { root, dir, file }),
   showInFolder: (p) => ipcRenderer.invoke("show-in-folder", p),
+  openSketch: (root, sketch) => ipcRenderer.invoke("open-sketch", { root, sketch }),
   minimize: () => ipcRenderer.send("win-minimize"),
   toggleMaximize: () => ipcRenderer.send("win-toggle-maximize"),
   close: () => ipcRenderer.send("win-close"),
