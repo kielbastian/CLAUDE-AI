@@ -2394,7 +2394,12 @@ document.getElementById("grid").addEventListener("click", e => {
       // undefined/true = kłódka otwarta (szuka), false = kłódka zamknięta (nie szuka)
       p.autoSearch = (p.autoSearch === false);
       save();
-      render();
+      // aktualizujemy tylko klikniętą kłódkę — bez przeładowania całej listy
+      tp.textContent = p.autoSearch ? "🔓" : "🔒";
+      tp.classList.toggle("on", p.autoSearch);
+      tp.title = p.autoSearch
+        ? "Kłódka otwarta — rysunek jest automatycznie wyszukiwany w szkicach. Kliknij, aby zablokować."
+        : "Kłódka zamknięta — rysunek NIE jest automatycznie wyszukiwany. Kliknij, aby odblokować.";
       toast(p.autoSearch
         ? "🔓 Kłódka otwarta — rysunek będzie automatycznie wyszukiwany"
         : "🔒 Kłódka zamknięta — automatyczne wyszukiwanie wyłączone");
