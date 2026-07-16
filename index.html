@@ -256,13 +256,24 @@
             border-radius: var(--radius-sm);
             font-size: 13.5px; color: var(--text);
             outline: none; transition: all 0.18s; width: 100%;
+            /* wymusza własną warstwę kompozycji — zapobiega "białemu" glitchowi
+               przemalowania <select> pod kartami z backdrop-filter w Chromium */
+            transform: translateZ(0);
+            isolation: isolate;
         }
         input:focus, select:focus {
             border-color: var(--brand);
             box-shadow: 0 0 0 3px rgba(0, 154, 213, 0.18);
             background: var(--surface-3);
         }
-        select option { background: var(--surface-2); }
+        select option { background: var(--surface-2); color: var(--text); }
+
+        /* Usuń strzałki zwiększania/zmniejszania w polach liczbowych — tylko wpisywanie */
+        input[type=number]::-webkit-inner-spin-button,
+        input[type=number]::-webkit-outer-spin-button {
+            -webkit-appearance: none; margin: 0;
+        }
+        input[type=number] { -moz-appearance: textfield; appearance: textfield; }
 
         /* Segmented control */
         .seg {
