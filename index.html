@@ -1491,9 +1491,10 @@ function mergeScanFolder(folder, found) {
     const p = byId(id);
     if (!p) {
       const meta = parseGcodeMeta(x.code);
+      // gdy w pliku .nc nie ma nazwy detalu — użyj nazwy folderu programu
       programs.push({
         id, source: "disk", root: key, dir: x.dir, file: x.file,
-        name: meta.name || x.file.replace(/\.[^.]+$/, ""),
+        name: meta.name || collapse(x.dir) || x.file.replace(/\.[^.]+$/, ""),
         onum: meta.onum || "", detail: meta.detail || "",
         drawing: meta.drawing || "", client: "", material: "", tags: [], note: "",
         fav: false, versions: [], code: x.code, created: x.mtime, modified: x.mtime,
@@ -2509,7 +2510,7 @@ function applyWidget(on) {
 }
 function applyFolderSearch(on) {
   folderSearch = on;
-  localStorage.setItem("cncFolderSearch", on ? "on" : "off");
+  localStorage.setItem("cncDirSearch", on ? "on" : "off");
   hayCache.clear();     // przebuduj tekst wyszukiwania z/bez nazw folderów
   const s = document.getElementById("search");
   if (s) s.placeholder = on
@@ -2560,7 +2561,7 @@ document.addEventListener("click", e => {
 if (localStorage.getItem("cncTheme") === "light") document.body.classList.add("light");
 applyAccent(localStorage.getItem("cncAccent") || "default");
 applyMotion(localStorage.getItem("cncMotion") !== "off");
-applyFolderSearch(localStorage.getItem("cncFolderSearch") === "on");   // domyślnie wyłączone
+applyFolderSearch(localStorage.getItem("cncDirSearch") !== "off");   // domyślnie włączone
 /* widget wyszukiwania — przywróć stan (pokaż, jeśli był włączony) */
 widgetEnabled = localStorage.getItem("cncWidget") === "on";
 if (widgetEnabled && window.native && window.native.toggleWidget) window.native.toggleWidget(true, widgetPayload());
