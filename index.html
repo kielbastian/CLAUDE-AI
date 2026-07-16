@@ -1,0 +1,1302 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generator G-code Haas ST-35Y | CAM Studio</title>
+    <style>
+        :root {
+            --bg: #0b1120;
+            --bg-2: #0f172a;
+            --surface: #131c2e;
+            --surface-2: #1a2438;
+            --surface-3: #223049;
+            --panel-border: rgba(148, 163, 184, 0.14);
+            --stroke: rgba(148, 163, 184, 0.22);
+            --brand: #009ad5;
+            --brand-2: #0076a3;
+            --brand-grad: linear-gradient(135deg, #0076a3 0%, #00b4e6 100%);
+            --accent: #a855f7;
+            --text: #f1f5f9;
+            --text-muted: #94a3b8;
+            --text-dim: #64748b;
+            --ok: #22c55e;
+            --ok-grad: linear-gradient(135deg, #16a34a 0%, #22c55e 100%);
+            --warn: #f59e0b;
+            --danger: #ef4444;
+            --code-bg: #080c15;
+            --radius: 14px;
+            --radius-sm: 9px;
+            --shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.6);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        html, body {
+            height: 100%;
+            font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background:
+                radial-gradient(1100px 600px at 12% -8%, rgba(0, 154, 213, 0.14), transparent 60%),
+                radial-gradient(900px 500px at 100% 0%, rgba(168, 85, 247, 0.10), transparent 55%),
+                var(--bg);
+            color: var(--text);
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* ---------- App shell (file-manager style) ---------- */
+        .app {
+            display: grid;
+            grid-template-columns: 74px 1fr;
+            min-height: 100vh;
+        }
+
+        .sidebar {
+            background: linear-gradient(180deg, var(--surface) 0%, var(--bg-2) 100%);
+            border-right: 1px solid var(--panel-border);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            padding: 18px 0;
+            position: sticky;
+            top: 0;
+            height: 100vh;
+        }
+
+        .brand-badge {
+            width: 42px; height: 42px;
+            border-radius: 12px;
+            background: var(--brand-grad);
+            display: grid; place-items: center;
+            font-weight: 800; font-size: 18px; color: #fff;
+            box-shadow: 0 6px 18px rgba(0, 118, 163, 0.5);
+            margin-bottom: 14px;
+        }
+
+        .nav-item {
+            width: 46px; height: 46px;
+            border-radius: 12px;
+            display: grid; place-items: center;
+            color: var(--text-muted);
+            font-size: 20px;
+            cursor: pointer;
+            transition: all 0.18s ease;
+            border: 1px solid transparent;
+            position: relative;
+        }
+        .nav-item:hover { background: var(--surface-2); color: var(--text); }
+        .nav-item.active {
+            background: rgba(0, 154, 213, 0.14);
+            color: #38bdf8;
+            border-color: rgba(0, 154, 213, 0.4);
+        }
+        .nav-item .tip {
+            position: absolute; left: 56px; top: 50%; transform: translateY(-50%);
+            background: var(--surface-3); color: var(--text);
+            padding: 5px 10px; border-radius: 8px; font-size: 12px; white-space: nowrap;
+            border: 1px solid var(--stroke); opacity: 0; pointer-events: none;
+            transition: opacity 0.15s; z-index: 40; box-shadow: var(--shadow);
+        }
+        .nav-item:hover .tip { opacity: 1; }
+        .nav-spacer { flex: 1; }
+
+        .content { display: flex; flex-direction: column; min-width: 0; }
+
+        .topbar {
+            display: flex; align-items: center; gap: 16px;
+            padding: 16px 26px;
+            border-bottom: 1px solid var(--panel-border);
+            background: rgba(15, 23, 42, 0.55);
+            backdrop-filter: blur(10px);
+            position: sticky; top: 0; z-index: 30;
+        }
+        .topbar h1 { font-size: 18px; font-weight: 700; letter-spacing: 0.2px; }
+        .topbar .path {
+            font-size: 12px; color: var(--text-dim); margin-top: 2px;
+            display: flex; gap: 6px; align-items: center;
+        }
+        .topbar .path b { color: var(--text-muted); font-weight: 600; }
+        .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+
+        .chip {
+            font-size: 12px; padding: 6px 12px; border-radius: 999px;
+            background: var(--surface-2); border: 1px solid var(--stroke);
+            color: var(--text-muted); display: flex; align-items: center; gap: 7px;
+        }
+        .chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+
+        .workspace {
+            display: grid;
+            grid-template-columns: 400px 1fr;
+            gap: 22px;
+            padding: 22px 26px 40px;
+            align-items: start;
+        }
+        @media (max-width: 1180px) {
+            .workspace { grid-template-columns: 1fr; }
+        }
+
+        /* ---------- Cards ---------- */
+        .card {
+            background: linear-gradient(180deg, var(--surface) 0%, var(--bg-2) 130%);
+            border: 1px solid var(--panel-border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+        }
+        .card + .card { margin-top: 22px; }
+
+        .card-head {
+            display: flex; align-items: center; gap: 10px;
+            padding: 15px 18px;
+            border-bottom: 1px solid var(--panel-border);
+            background: rgba(255, 255, 255, 0.015);
+        }
+        .card-head .ico {
+            width: 30px; height: 30px; border-radius: 9px;
+            display: grid; place-items: center; font-size: 15px;
+            background: rgba(0, 154, 213, 0.12); color: #38bdf8;
+            border: 1px solid rgba(0, 154, 213, 0.25);
+        }
+        .card-head h2 { font-size: 13.5px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; }
+        .card-head .sub { font-size: 11px; color: var(--text-dim); font-weight: 500; }
+        .card-head .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+        .card-body { padding: 18px; display: flex; flex-direction: column; gap: 15px; }
+
+        /* ---------- Form ---------- */
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .field { display: flex; flex-direction: column; gap: 6px; }
+        label { font-size: 11.5px; font-weight: 600; color: var(--text-muted); letter-spacing: 0.2px; }
+        .hint { font-size: 10.5px; color: var(--text-dim); font-weight: 500; }
+
+        input, select {
+            padding: 10px 12px;
+            background: var(--surface-2);
+            border: 1px solid var(--stroke);
+            border-radius: var(--radius-sm);
+            font-size: 13.5px; color: var(--text);
+            outline: none; transition: all 0.18s; width: 100%;
+        }
+        input:focus, select:focus {
+            border-color: var(--brand);
+            box-shadow: 0 0 0 3px rgba(0, 154, 213, 0.18);
+            background: var(--surface-3);
+        }
+        select option { background: var(--surface-2); }
+
+        /* Segmented control */
+        .seg {
+            display: flex; background: var(--surface-2); border: 1px solid var(--stroke);
+            border-radius: var(--radius-sm); overflow: hidden; padding: 3px; gap: 3px;
+        }
+        .seg label {
+            flex: 1; text-align: center; padding: 9px 6px; border-radius: 7px;
+            cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--text-muted);
+            user-select: none; transition: all 0.16s; margin: 0; display: flex;
+            align-items: center; justify-content: center; gap: 6px;
+        }
+        .seg input { display: none; }
+        .seg input:checked + label {
+            background: var(--brand-grad); color: #fff;
+            box-shadow: 0 3px 10px rgba(0, 118, 163, 0.45);
+        }
+        .seg.accent input:checked + label { background: linear-gradient(135deg, #7c3aed, #a855f7); box-shadow: 0 3px 10px rgba(168,85,247,0.4); }
+
+        /* Buttons */
+        button {
+            border: none; border-radius: var(--radius-sm); cursor: pointer;
+            font-size: 13px; font-weight: 600; padding: 10px 14px;
+            transition: all 0.16s ease; display: inline-flex; align-items: center;
+            justify-content: center; gap: 7px; color: var(--text);
+        }
+        .btn-primary {
+            background: var(--brand-grad); color: #fff; width: 100%;
+            font-size: 14.5px; padding: 13px; box-shadow: 0 6px 18px rgba(0, 118, 163, 0.4);
+        }
+        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 9px 24px rgba(0, 154, 213, 0.55); }
+        .btn-ghost { background: var(--surface-2); border: 1px solid var(--stroke); }
+        .btn-ghost:hover { background: var(--surface-3); }
+        .btn-ok { background: var(--ok-grad); color: #052e16; }
+        .btn-ok:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(34, 197, 94, 0.4); }
+        .btn-danger { background: rgba(239, 68, 68, 0.14); color: #fca5a5; border: 1px solid rgba(239,68,68,0.35); }
+        .btn-danger:hover { background: rgba(239, 68, 68, 0.24); }
+        .btn-sm { padding: 7px 11px; font-size: 12px; }
+        .toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+
+        /* Canvas */
+        .canvas-wrap {
+            position: relative; background: radial-gradient(120% 120% at 50% 0%, #0a1120 0%, #060a12 100%);
+            border-radius: 10px; overflow: hidden; border: 1px solid var(--panel-border);
+        }
+        canvas { display: block; width: 100%; height: 460px; cursor: crosshair; }
+        .canvas-overlay {
+            position: absolute; top: 12px; left: 12px; display: flex; gap: 8px; flex-wrap: wrap;
+            pointer-events: none;
+        }
+        .badge {
+            font-size: 11px; font-weight: 600; padding: 5px 10px; border-radius: 7px;
+            background: rgba(9, 14, 25, 0.82); border: 1px solid var(--stroke);
+            color: var(--text-muted); backdrop-filter: blur(6px);
+        }
+        .badge b { color: #38bdf8; }
+        .badge.mode-dim b { color: #c084fc; }
+
+        /* Coordinate table */
+        .tbl-wrap { overflow-x: auto; border: 1px solid var(--panel-border); border-radius: 10px; }
+        table.coord { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+        table.coord th {
+            text-align: left; padding: 9px 10px; font-size: 10.5px; text-transform: uppercase;
+            letter-spacing: 0.5px; color: var(--text-dim); background: var(--surface-2);
+            border-bottom: 1px solid var(--panel-border); position: sticky; top: 0;
+        }
+        table.coord td { padding: 5px 8px; border-bottom: 1px solid rgba(148,163,184,0.07); }
+        table.coord tr:last-child td { border-bottom: none; }
+        table.coord tr.grv td { background: rgba(168, 85, 247, 0.06); }
+        table.coord input, table.coord select { padding: 7px 8px; font-size: 12.5px; }
+        table.coord .idx { color: var(--text-dim); font-weight: 700; text-align: center; width: 34px; }
+        table.coord .row-del {
+            background: transparent; color: var(--text-dim); padding: 6px; border-radius: 6px; font-size: 15px;
+        }
+        table.coord .row-del:hover { color: var(--danger); background: rgba(239,68,68,0.12); }
+        .tbl-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+
+        /* Output */
+        .output {
+            background: var(--code-bg); color: #d7e0ee;
+            font-family: 'Fira Code', 'JetBrains Mono', 'Courier New', monospace;
+            padding: 16px; border-radius: 10px; height: 300px; overflow-y: auto;
+            white-space: pre; font-size: 12.5px; line-height: 1.65;
+            border: 1px solid var(--panel-border); box-shadow: inset 0 6px 20px rgba(0,0,0,0.55);
+            tab-size: 2;
+        }
+        .output::-webkit-scrollbar, .tbl-wrap::-webkit-scrollbar { width: 9px; height: 9px; }
+        .output::-webkit-scrollbar-thumb, .tbl-wrap::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 6px; }
+
+        .notice {
+            display: none; font-size: 12.5px; font-weight: 500; padding: 11px 13px;
+            border-radius: 9px; border: 1px solid rgba(239,68,68,0.4);
+            background: rgba(239,68,68,0.12); color: #fca5a5; align-items: center; gap: 9px;
+        }
+        .notice.show { display: flex; }
+
+        /* Toasts */
+        #toasts {
+            position: fixed; right: 22px; bottom: 22px; display: flex; flex-direction: column;
+            gap: 10px; z-index: 100;
+        }
+        .toast {
+            padding: 12px 16px; border-radius: 11px; font-size: 13px; font-weight: 600;
+            background: var(--surface-3); border: 1px solid var(--stroke); color: var(--text);
+            box-shadow: var(--shadow); display: flex; align-items: center; gap: 10px;
+            animation: slideIn 0.22s ease; max-width: 340px;
+        }
+        .toast.ok { border-color: rgba(34,197,94,0.45); }
+        .toast.ok .i { color: var(--ok); }
+        .toast.err { border-color: rgba(239,68,68,0.45); }
+        .toast.err .i { color: var(--danger); }
+        .toast.info .i { color: #38bdf8; }
+        @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: none; } }
+
+        .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 11px; color: var(--text-dim); }
+        .legend span { display: flex; align-items: center; gap: 6px; }
+        .legend i { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <!-- Sidebar (file-manager style rail) -->
+        <aside class="sidebar">
+            <div class="brand-badge">C</div>
+            <div class="nav-item active">🛠️<span class="tip">Projekt CAM</span></div>
+            <div class="nav-item" id="nav_sketch">✏️<span class="tip">Szkicownik</span></div>
+            <div class="nav-item" id="nav_table">📐<span class="tip">Wymiary</span></div>
+            <div class="nav-item" id="nav_code">📄<span class="tip">G-code</span></div>
+            <div class="nav-spacer"></div>
+            <div class="nav-item" id="nav_help">❔<span class="tip">Pomoc / skróty</span></div>
+        </aside>
+
+        <div class="content">
+            <div class="topbar">
+                <div>
+                    <h1>CAM Studio — Generator G-code</h1>
+                    <div class="path"><b>Projekt</b> ▸ Haas ST-35Y ▸ <span id="path_mode">Toczenie zewnętrzne</span></div>
+                </div>
+                <div class="topbar-right">
+                    <div class="chip"><span class="dot"></span> Haas ST-35Y</div>
+                    <div class="chip" id="chip_pts">0 punktów</div>
+                </div>
+            </div>
+
+            <div class="workspace">
+                <!-- LEFT: technology -->
+                <div>
+                    <div class="card">
+                        <div class="card-head">
+                            <div class="ico">⚙️</div>
+                            <div>
+                                <h2>Parametry technologiczne</h2>
+                                <div class="sub">Warunki skrawania i cykl G71 / G70</div>
+                            </div>
+                        </div>
+                        <div class="card-body">
+
+                            <div class="field">
+                                <label>Rodzaj obróbki</label>
+                                <div class="seg" id="seg_optype">
+                                    <input type="radio" id="op_ext" name="op_type" value="EXT" checked>
+                                    <label for="op_ext">⌭ Zewnętrzne</label>
+                                    <input type="radio" id="op_int" name="op_type" value="INT">
+                                    <label for="op_int">◎ Wytaczanie</label>
+                                </div>
+                            </div>
+
+                            <div class="field">
+                                <label>Typ cyklu G71 (podcięcia / rowki)</label>
+                                <div class="seg accent" id="seg_g71">
+                                    <input type="radio" id="g71_1" name="g71_type" value="1" checked>
+                                    <label for="g71_1">Typ 1 — profil rosnący</label>
+                                    <input type="radio" id="g71_2" name="g71_type" value="2">
+                                    <label for="g71_2">Typ 2 — z podcięciami</label>
+                                </div>
+                                <span class="hint" id="g71_hint">Typ 1: profil monotoniczny. Typ 2: dozwolone rowki/podcięcia (kieszenie).</span>
+                            </div>
+
+                            <div class="grid-2">
+                                <div class="field">
+                                    <label id="lbl_blank">Średnica surówki Ø (mm)</label>
+                                    <input type="number" id="d_blank" value="90" step="1">
+                                </div>
+                                <div class="field" id="wrap_pilot" style="display:none;">
+                                    <label>Średnica otworu wstępnego Ø (mm)</label>
+                                    <input type="number" id="d_pilot" value="20" step="1">
+                                </div>
+                                <div class="field">
+                                    <label>Głębokość skrawania ap (mm)</label>
+                                    <input type="number" id="ap" value="2.00" step="0.1" min="0.05">
+                                </div>
+                            </div>
+
+                            <div class="field">
+                                <label>Tryb obrotów wrzeciona</label>
+                                <div class="seg" id="seg_spindle">
+                                    <input type="radio" id="mode_g96" name="spindle_mode" value="G96" checked>
+                                    <label for="mode_g96">G96 — stałe Vc</label>
+                                    <input type="radio" id="mode_g97" name="spindle_mode" value="G97">
+                                    <label for="mode_g97">G97 — stałe n</label>
+                                </div>
+                            </div>
+
+                            <div class="grid-2">
+                                <div class="field">
+                                    <label id="lbl_speed">Prędkość Vc (m/min)</label>
+                                    <input type="number" id="spindle_speed" value="180" min="1">
+                                </div>
+                                <div class="field">
+                                    <label>Maks. obroty (G50)</label>
+                                    <input type="number" id="g50_limit" value="2500" min="1">
+                                </div>
+                                <div class="field">
+                                    <label>Posuw zgrubny (mm/obr)</label>
+                                    <input type="number" id="feed_rough" value="0.25" step="0.01">
+                                </div>
+                                <div class="field">
+                                    <label>Posuw wykańczający (mm/obr)</label>
+                                    <input type="number" id="feed_finish" value="0.12" step="0.01">
+                                </div>
+                                <div class="field">
+                                    <label>Narzędzie i korektor (T)</label>
+                                    <input type="text" id="tool_no" value="0101">
+                                </div>
+                                <div class="field">
+                                    <label>Naddatek wykań. X (I)</label>
+                                    <input type="number" id="finish_allowance_x" value="0.40" step="0.05">
+                                </div>
+                                <div class="field">
+                                    <label>Naddatek wykań. Z (K)</label>
+                                    <input type="number" id="finish_allowance_z" value="0.10" step="0.05">
+                                </div>
+                                <div class="field">
+                                    <label>Bezpieczny start Z (mm)</label>
+                                    <input type="number" id="safe_z" value="5.00">
+                                </div>
+                            </div>
+
+                            <div id="error_box" class="notice"><span>⚠️</span><span id="error_txt"></span></div>
+                            <button class="btn-primary" id="btn_generate">⚡ Generuj G-code z modelu</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- RIGHT column -->
+                <div style="min-width:0;">
+                    <!-- CAD -->
+                    <div class="card" id="card_cad">
+                        <div class="card-head">
+                            <div class="ico">✏️</div>
+                            <div>
+                                <h2 id="cad_title">Szkicownik profilu 2D</h2>
+                                <div class="sub">Narzędzie: przeciągnij (Shift/środkowy) aby przesuwać, kółko = zoom</div>
+                            </div>
+                            <div class="right">
+                                <div class="seg" id="seg_tool" style="padding:2px;">
+                                    <input type="radio" id="tool_sketch" name="cad_tool" value="SKETCH" checked>
+                                    <label for="tool_sketch" style="padding:7px 10px;">✏️ Rysuj</label>
+                                    <input type="radio" id="tool_groove" name="cad_tool" value="GROOVE">
+                                    <label for="tool_groove" style="padding:7px 10px;">▽ Rowek</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="canvas-wrap">
+                                <canvas id="simCanvas"></canvas>
+                                <div class="canvas-overlay">
+                                    <div class="badge" id="badge_mode">Tryb: <b>Rysowanie</b></div>
+                                    <div class="badge" id="badge_pos">X — Z —</div>
+                                </div>
+                            </div>
+                            <div class="legend">
+                                <span><i style="background:#00b4e6"></i> Profil detalu</span>
+                                <span><i style="background:#a855f7"></i> Podcięcie / rowek</span>
+                                <span><i style="background:#22c55e"></i> Podgląd linii</span>
+                                <span><i style="background:#ef4444"></i> Ścieżka narzędzia</span>
+                            </div>
+                            <div class="toolbar">
+                                <button class="btn-danger btn-sm" id="btn_clear_cad">🗑 Wyczyść</button>
+                                <button class="btn-ghost btn-sm" id="btn_undo_cad">↶ Cofnij</button>
+                                <button class="btn-ghost btn-sm" id="btn_reset_view">⛶ Reset widoku</button>
+                                <button class="btn-ok btn-sm" id="btn_sim_start">▶ Animuj obróbkę</button>
+                                <button class="btn-ghost btn-sm" id="btn_sim_reset">⏹ Reset animacji</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Coordinate table (new dimensioning) -->
+                    <div class="card" id="card_table">
+                        <div class="card-head">
+                            <div class="ico">📐</div>
+                            <div>
+                                <h2>Wymiarowanie — tabela współrzędnych</h2>
+                                <div class="sub">Wpisuj wartości bezpośrednio: Ø X, długość Z, faza/promień na narożu</div>
+                            </div>
+                            <div class="right">
+                                <button class="btn-ok btn-sm" id="btn_add_row">＋ Dodaj punkt</button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="tbl-wrap">
+                                <table class="coord">
+                                    <thead>
+                                        <tr>
+                                            <th>#</th>
+                                            <th>Ø X (mm)</th>
+                                            <th>Z (mm)</th>
+                                            <th>Naroże</th>
+                                            <th>Wart. (mm)</th>
+                                            <th></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="coord_body"></tbody>
+                                </table>
+                            </div>
+                            <div class="tbl-actions">
+                                <button class="btn-ghost btn-sm" id="btn_add_groove">▽ Wstaw rowek (podcięcie)</button>
+                                <button class="btn-ghost btn-sm" id="btn_load_demo">📄 Wczytaj przykład</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Output -->
+                    <div class="card">
+                        <div class="card-head">
+                            <div class="ico">📄</div>
+                            <div>
+                                <h2>Wygenerowany G-code</h2>
+                                <div class="sub">Haas ST-35Y · cykl G71 / G70</div>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div id="nc_output" class="output">Narysuj lub wpisz profil w tabeli, a następnie kliknij „Generuj G-code".</div>
+                            <div class="toolbar">
+                                <button class="btn-ok btn-sm" id="btn_copy">📋 Kopiuj</button>
+                                <button class="btn-ok btn-sm" id="btn_download">⬇ Pobierz .nc</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toasts"></div>
+
+    <script>
+        /* ============================================================
+           STAN APLIKACJI
+           profile[i] = { x: diameter, z: length, corner: 'none'|'C'|'R', cval: number, groove: bool }
+           ============================================================ */
+        let profile = [];
+        let simulationPath = [];
+        let animationId = null, simIndex = 0, currentSimPos = { x: 0, z: 0 }, isAnimating = false;
+
+        let scale = 4.0, originX = 230, originZ = 300;
+        let isDragging = false, startDragPos = { x: 0, y: 0 };
+        let currentMouseGrid = { x: 0, z: 0 };
+
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+        const ncOutput = document.getElementById('nc_output');
+
+        function opType()  { return document.querySelector('input[name="op_type"]:checked').value; }        // EXT / INT
+        function g71Type() { return document.querySelector('input[name="g71_type"]:checked').value; }        // 1 / 2
+        function cadTool() { return document.querySelector('input[name="cad_tool"]:checked').value; }        // SKETCH / GROOVE
+        function isInternal() { return opType() === 'INT'; }
+
+        /* ---------- Toasts ---------- */
+        function toast(msg, type = 'info') {
+            const t = document.createElement('div');
+            t.className = 'toast ' + type;
+            const icon = type === 'ok' ? '✓' : type === 'err' ? '⚠' : 'ℹ';
+            t.innerHTML = `<span class="i">${icon}</span><span>${msg}</span>`;
+            document.getElementById('toasts').appendChild(t);
+            setTimeout(() => { t.style.opacity = '0'; t.style.transform = 'translateX(20px)'; }, 2600);
+            setTimeout(() => t.remove(), 3000);
+        }
+        function showError(msg) {
+            const box = document.getElementById('error_box');
+            document.getElementById('error_txt').innerText = msg;
+            box.classList.add('show');
+            setTimeout(() => box.classList.remove('show'), 4200);
+        }
+
+        /* ---------- Demo profiles ---------- */
+        function demoExternal() {
+            return [
+                { x: 30, z: 0,   corner: 'C', cval: 1.5, groove: false },
+                { x: 30, z: -20, corner: 'none', cval: 0, groove: false },
+                { x: 50, z: -20, corner: 'R', cval: 2, groove: false },
+                { x: 50, z: -45, corner: 'none', cval: 0, groove: false },
+                { x: 72, z: -45, corner: 'none', cval: 0, groove: false },
+                { x: 72, z: -70, corner: 'none', cval: 0, groove: false }
+            ];
+        }
+        function demoInternal() {
+            return [
+                { x: 40, z: 0,   corner: 'C', cval: 1, groove: false },
+                { x: 40, z: -25, corner: 'none', cval: 0, groove: false },
+                { x: 28, z: -25, corner: 'none', cval: 0, groove: false },
+                { x: 28, z: -55, corner: 'none', cval: 0, groove: false }
+            ];
+        }
+
+        /* ============================================================
+           TABELA WYMIARÓW (nowe, wygodne wymiarowanie)
+           ============================================================ */
+        function renderTable() {
+            const body = document.getElementById('coord_body');
+            body.innerHTML = '';
+            profile.forEach((pt, i) => {
+                const tr = document.createElement('tr');
+                if (pt.groove) tr.className = 'grv';
+                tr.innerHTML = `
+                    <td class="idx">${i}${pt.groove ? ' ▽' : ''}</td>
+                    <td><input type="number" step="0.1" value="${fmt(pt.x)}" data-i="${i}" data-k="x"></td>
+                    <td><input type="number" step="0.1" value="${fmt(pt.z)}" data-i="${i}" data-k="z"></td>
+                    <td>
+                        <select data-i="${i}" data-k="corner">
+                            <option value="none"${pt.corner==='none'?' selected':''}>—</option>
+                            <option value="C"${pt.corner==='C'?' selected':''}>Faza C</option>
+                            <option value="R"${pt.corner==='R'?' selected':''}>Promień R</option>
+                        </select>
+                    </td>
+                    <td><input type="number" step="0.1" min="0" value="${fmt(pt.cval)}" data-i="${i}" data-k="cval" ${pt.corner==='none'?'disabled':''}></td>
+                    <td><button class="row-del" data-del="${i}" title="Usuń punkt">✕</button></td>
+                `;
+                body.appendChild(tr);
+            });
+
+            body.querySelectorAll('input, select').forEach(el => {
+                el.addEventListener('change', onTableEdit);
+            });
+            body.querySelectorAll('[data-del]').forEach(el => {
+                el.addEventListener('click', () => {
+                    const idx = parseInt(el.dataset.del);
+                    profile.splice(idx, 1);
+                    refreshAll();
+                });
+            });
+            document.getElementById('chip_pts').innerText = profile.length + ' punktów';
+        }
+
+        function fmt(v) { return (Math.round(v * 1000) / 1000).toString(); }
+
+        function onTableEdit(e) {
+            const i = parseInt(e.target.dataset.i);
+            const k = e.target.dataset.k;
+            if (!profile[i]) return;
+            if (k === 'corner') {
+                profile[i].corner = e.target.value;
+            } else {
+                let val = parseFloat(e.target.value);
+                if (isNaN(val)) val = 0;
+                if (k === 'x' && val < 0) val = 0;
+                if (k === 'cval' && val < 0) val = 0;
+                profile[i][k] = val;
+            }
+            syncBlank();
+            refreshAll();
+        }
+
+        function syncBlank() {
+            if (isInternal()) return;
+            const maxX = profile.length ? Math.max(...profile.map(p => p.x)) : 0;
+            const blankEl = document.getElementById('d_blank');
+            if (maxX >= parseFloat(blankEl.value)) blankEl.value = Math.ceil(maxX + 10);
+        }
+
+        function refreshAll() {
+            renderTable();
+            drawCAD();
+            if (profile.length >= 2) generateGcode();
+        }
+
+        /* ============================================================
+           MAPOWANIE WSPÓŁRZĘDNYCH
+           ============================================================ */
+        function setupCanvas() {
+            const rect = canvas.parentNode.getBoundingClientRect();
+            canvas.width = rect.width;
+            canvas.height = 460;
+            drawCAD();
+        }
+        function getXPix(diam) { return originX - (diam / 2) * scale; }
+        function getZPix(zVal) { return originZ + zVal * scale; }
+        function toMachineCoords(pixelX, pixelZ) {
+            return { x: ((originX - pixelX) / scale) * 2, z: (pixelZ - originZ) / scale };
+        }
+
+        function getMouseCoordinates(e) {
+            const rect = canvas.getBoundingClientRect();
+            let coords = toMachineCoords(e.clientY - rect.top, e.clientX - rect.left);
+            let zVal = Math.round(coords.z);
+            let xVal = Math.round(coords.x);
+            if (zVal > 0) zVal = 0;
+            if (xVal < 0) xVal = 0;
+
+            // orto/45° snap wg poprzedniego punktu (tylko szkic)
+            if (profile.length > 0 && !isAnimating && cadTool() === 'SKETCH') {
+                const last = profile[profile.length - 1];
+                const dZ = zVal - last.z;
+                const dX_rad = (xVal - last.x) / 2;
+                if (dZ !== 0 || dX_rad !== 0) {
+                    let deg = Math.atan2(dX_rad, dZ) * 180 / Math.PI;
+                    if (deg < 0) deg += 360;
+                    const th = 8;
+                    if (Math.abs(deg) < th || Math.abs(deg - 360) < th || Math.abs(deg - 180) < th) xVal = last.x;
+                    else if (Math.abs(deg - 90) < th || Math.abs(deg - 270) < th) zVal = last.z;
+                }
+            }
+            return { x: xVal, z: zVal };
+        }
+
+        /* ============================================================
+           MYSZ / RYSOWANIE PROFILU
+           ============================================================ */
+        canvas.addEventListener('mousedown', (e) => {
+            if (e.button === 1 || e.shiftKey) {
+                isDragging = true; startDragPos = { x: e.clientX, y: e.clientY };
+                canvas.style.cursor = 'grabbing'; return;
+            }
+            if (e.button !== 0 || isAnimating) return;
+
+            const pt = getMouseCoordinates(e);
+
+            if (cadTool() === 'GROOVE') {
+                addGrooveAt(pt.z);
+                return;
+            }
+
+            // SKETCH
+            const last = profile.length ? profile[profile.length - 1] : { x: isInternal() ? 20 : 0, z: 0 };
+            if (profile.length && pt.z > last.z) { showError('Nowy punkt musi iść w lewo (Z ≤ poprzedniemu).'); return; }
+            if (g71Type() === '1' && profile.length) {
+                if (!isInternal() && pt.x < last.x) { showError('Typ 1: średnica (X) nie może maleć. Użyj Typ 2 dla podcięć.'); return; }
+                if (isInternal() && pt.x > last.x) { showError('Typ 1 (wytaczanie): średnica otworu nie może rosnąć w głąb. Użyj Typ 2.'); return; }
+            }
+            if (profile.length && pt.x === last.x && pt.z === last.z) return;
+
+            profile.push({ x: pt.x, z: pt.z, corner: 'none', cval: 0, groove: false });
+            syncBlank();
+            refreshAll();
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                originZ += e.clientX - startDragPos.x;
+                originX += e.clientY - startDragPos.y;
+                startDragPos = { x: e.clientX, y: e.clientY };
+                drawCAD();
+            } else {
+                currentMouseGrid = getMouseCoordinates(e);
+                document.getElementById('badge_pos').innerHTML = `X <b>${currentMouseGrid.x}</b> &nbsp; Z <b>${currentMouseGrid.z}</b>`;
+                if (!isAnimating) drawCAD();
+            }
+        });
+        window.addEventListener('mouseup', () => { if (isDragging) { isDragging = false; canvas.style.cursor = 'crosshair'; } });
+
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const rect = canvas.getBoundingClientRect();
+            const mZ = e.clientX - rect.left, mX = e.clientY - rect.top;
+            const under = toMachineCoords(mX, mZ);
+            scale *= e.deltaY < 0 ? 1.12 : 1 / 1.12;
+            scale = Math.max(0.8, Math.min(60, scale));
+            originZ = mZ - under.z * scale;
+            originX = mX + (under.x / 2) * scale;
+            drawCAD();
+        });
+
+        /* ---------- Wstawianie rowka / podcięcia (G71 typ 2) ---------- */
+        function addGrooveAt(zCenter) {
+            if (profile.length < 2) { showError('Najpierw narysuj profil, potem wstaw rowek.'); return; }
+            // znajdź średnicę profilu w tym Z
+            const baseX = diameterAtZ(zCenter);
+            if (baseX == null) { showError('Kliknij w obrębie długości detalu.'); return; }
+            promptGroove(zCenter, baseX);
+        }
+
+        function promptGroove(zCenter, baseX) {
+            const wStr = prompt('Szerokość rowka (mm):', '4');
+            if (wStr === null) return;
+            const dStr = prompt('Głębokość rowka na średnicy (mm, spadek Ø):', '6');
+            if (dStr === null) return;
+            const w = parseFloat(wStr), depth = parseFloat(dStr);
+            if (isNaN(w) || isNaN(depth) || w <= 0 || depth <= 0) { showError('Podaj dodatnią szerokość i głębokość.'); return; }
+            insertGroove(zCenter, w, baseX, depth);
+        }
+
+        // Rowek: dla zewn. średnica maleje (kieszeń), dla wewn. rośnie (podcięcie w otworze)
+        function insertGroove(zCenter, width, baseX, depth) {
+            document.getElementById('g71_2').checked = true;
+            updateModeUI();
+
+            const zR = zCenter + width / 2;   // prawa krawędź (bliżej czoła)
+            const zL = zCenter - width / 2;   // lewa krawędź
+            const gx = isInternal() ? baseX + depth : baseX - depth;
+            if (!isInternal() && gx < 0) { showError('Rowek za głęboki — średnica poniżej zera.'); return; }
+
+            const grv = [
+                { x: baseX, z: zR, corner: 'none', cval: 0, groove: true },
+                { x: gx,    z: zR, corner: 'none', cval: 0, groove: true },
+                { x: gx,    z: zL, corner: 'none', cval: 0, groove: true },
+                { x: baseX, z: zL, corner: 'none', cval: 0, groove: true }
+            ];
+
+            // wstaw za pierwszym punktem, którego Z jest <= zR
+            let idx = profile.findIndex(p => p.z <= zR);
+            if (idx === -1) idx = profile.length;
+            profile.splice(idx, 0, ...grv);
+            toast('Wstawiono rowek / podcięcie (G71 typ 2).', 'ok');
+            refreshAll();
+        }
+
+        function diameterAtZ(z) {
+            if (profile.length < 2) return null;
+            const zs = profile.map(p => p.z);
+            const zMax = Math.max(...zs), zMin = Math.min(...zs);
+            if (z > zMax || z < zMin) return null;
+            for (let i = 1; i < profile.length; i++) {
+                const a = profile[i - 1], b = profile[i];
+                const hi = Math.max(a.z, b.z), lo = Math.min(a.z, b.z);
+                if (z <= hi && z >= lo) {
+                    if (Math.abs(a.z - b.z) < 1e-6) return Math.max(a.x, b.x);
+                    const t = (z - a.z) / (b.z - a.z);
+                    return a.x + t * (b.x - a.x);
+                }
+            }
+            return null;
+        }
+
+        /* ============================================================
+           RYSOWANIE
+           ============================================================ */
+        function drawCAD() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const dBlank = parseFloat(document.getElementById('d_blank').value) || 90;
+            const internal = isInternal();
+
+            // siatka
+            ctx.strokeStyle = 'rgba(148,163,184,0.06)';
+            ctx.lineWidth = 1;
+            const step = 10 * scale;
+            for (let zPix = originZ % step; zPix < canvas.width; zPix += step) {
+                ctx.beginPath(); ctx.moveTo(zPix, 0); ctx.lineTo(zPix, canvas.height); ctx.stroke();
+            }
+            for (let xPix = originX % (step / 2); xPix < canvas.height; xPix += step / 2) {
+                ctx.beginPath(); ctx.moveTo(0, xPix); ctx.lineTo(canvas.width, xPix); ctx.stroke();
+            }
+
+            // oś obrotu
+            ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 1.4; ctx.setLineDash([9, 5]);
+            ctx.beginPath(); ctx.moveTo(0, originX); ctx.lineTo(canvas.width, originX); ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.fillStyle = '#f59e0b'; ctx.font = '10px monospace';
+            ctx.fillText('OŚ  Z / CL', 8, originX - 6);
+
+            // etykiety osi
+            ctx.fillStyle = '#475569'; ctx.font = '10px monospace';
+            for (let z = 0; z >= -320; z -= 20) ctx.fillText(z + '', getZPix(z) - 8, originX + 16);
+            for (let x = 20; x <= 220; x += 20) ctx.fillText('Ø' + x, originZ + 6, getXPix(x) + 3);
+
+            // materiał
+            const zsProfile = profile.map(p => p.z);
+            const zMin = zsProfile.length ? Math.min(...zsProfile) : -60;
+            if (internal) {
+                // rura: OD blank, otwór wstępny; usuwany materiał między otworem a profilem
+                const dPilot = parseFloat(document.getElementById('d_pilot').value) || 20;
+                ctx.fillStyle = 'rgba(148,163,184,0.10)';
+                ctx.fillRect(getZPix(0), getXPix(dBlank), (getZPix(zMin) - getZPix(0)), originX - getXPix(dBlank));
+                ctx.strokeStyle = 'rgba(148,163,184,0.25)';
+                ctx.strokeRect(getZPix(0), getXPix(dBlank), (getZPix(zMin) - getZPix(0)), originX - getXPix(dBlank));
+                // otwór wstępny (linia)
+                ctx.strokeStyle = 'rgba(245,158,11,0.5)'; ctx.setLineDash([5, 4]); ctx.lineWidth = 1.2;
+                ctx.beginPath(); ctx.moveTo(getZPix(0), getXPix(dPilot)); ctx.lineTo(getZPix(zMin), getXPix(dPilot)); ctx.stroke();
+                ctx.setLineDash([]);
+            } else {
+                ctx.fillStyle = 'rgba(148,163,184,0.08)';
+                ctx.strokeStyle = 'rgba(148,163,184,0.2)';
+                ctx.fillRect(getZPix(0), getXPix(dBlank), (getZPix(zMin) - getZPix(0)), originX - getXPix(dBlank));
+                ctx.strokeRect(getZPix(0), getXPix(dBlank), (getZPix(zMin) - getZPix(0)), originX - getXPix(dBlank));
+            }
+
+            // symulacja
+            if (isAnimating && simulationPath.length) {
+                ctx.strokeStyle = 'rgba(239,68,68,0.4)'; ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.moveTo(getZPix(simulationPath[0].z), getXPix(simulationPath[0].x));
+                for (let i = 1; i <= simIndex && i < simulationPath.length; i++)
+                    ctx.lineTo(getZPix(simulationPath[i].z), getXPix(simulationPath[i].x));
+                ctx.stroke();
+                const pX = getXPix(currentSimPos.x), pZ = getZPix(currentSimPos.z);
+                ctx.fillStyle = '#ef4444';
+                ctx.beginPath();
+                if (internal) { ctx.moveTo(pZ, pX); ctx.lineTo(pZ - 12, pX + 8); ctx.lineTo(pZ - 4, pX + 12); }
+                else { ctx.moveTo(pZ, pX); ctx.lineTo(pZ - 12, pX - 8); ctx.lineTo(pZ - 4, pX - 12); }
+                ctx.closePath(); ctx.fill();
+            }
+
+            // profil (z fazami/promieniami)
+            if (profile.length) {
+                const render = buildRenderPath(profile);
+                // segmenty rowka innym kolorem
+                ctx.lineWidth = 3; ctx.lineJoin = 'round';
+                for (let i = 1; i < render.length; i++) {
+                    const a = render[i - 1], b = render[i];
+                    ctx.strokeStyle = (a.groove && b.groove) ? '#a855f7' : '#00b4e6';
+                    ctx.beginPath();
+                    ctx.moveTo(getZPix(a.z), getXPix(a.x));
+                    ctx.lineTo(getZPix(b.z), getXPix(b.x));
+                    ctx.stroke();
+                }
+                // węzły
+                profile.forEach((pt, i) => {
+                    ctx.fillStyle = pt.groove ? '#c084fc' : '#38bdf8';
+                    ctx.beginPath(); ctx.arc(getZPix(pt.z), getXPix(pt.x), 4, 0, 2 * Math.PI); ctx.fill();
+                    ctx.fillStyle = '#0b1120'; ctx.font = 'bold 9px monospace';
+                    ctx.fillText(i, getZPix(pt.z) - 3, getXPix(pt.x) + 3);
+                });
+
+                // auto-wymiary (odczyt z tabeli, rysowane lekko)
+                drawAutoDims();
+            }
+
+            // podgląd linii
+            if (!isAnimating && cadTool() === 'SKETCH' && profile.length) {
+                const last = profile[profile.length - 1];
+                if (currentMouseGrid.z <= last.z) {
+                    ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
+                    ctx.beginPath();
+                    ctx.moveTo(getZPix(last.z), getXPix(last.x));
+                    ctx.lineTo(getZPix(currentMouseGrid.z), getXPix(currentMouseGrid.x));
+                    ctx.stroke(); ctx.setLineDash([]);
+                    ctx.fillStyle = '#22c55e'; ctx.font = '11px monospace';
+                    ctx.fillText(`Ø${currentMouseGrid.x}  Z${currentMouseGrid.z}`,
+                        getZPix(currentMouseGrid.z) + 10, getXPix(currentMouseGrid.x) - 8);
+                }
+            }
+        }
+
+        // wymiary czytelnie, bez klikania (wartości wprost przy segmentach)
+        function drawAutoDims() {
+            ctx.font = '10px monospace';
+            for (let i = 1; i < profile.length; i++) {
+                const a = profile[i - 1], b = profile[i];
+                const midZ = (getZPix(a.z) + getZPix(b.z)) / 2;
+                const midX = (getXPix(a.x) + getXPix(b.x)) / 2;
+                if (Math.abs(a.z - b.z) < 0.1 && Math.abs(a.x - b.x) > 0.1) {
+                    // segment pionowy -> średnica
+                    ctx.fillStyle = b.groove ? '#c084fc' : '#7dd3fc';
+                    ctx.fillText('Ø' + fmt(b.x), midZ + 6, midX);
+                } else if (Math.abs(a.x - b.x) < 0.1 && Math.abs(a.z - b.z) > 0.1) {
+                    ctx.fillStyle = b.groove ? '#c084fc' : '#7dd3fc';
+                    ctx.fillText(fmt(Math.abs(b.z - a.z)), midZ - 6, midX - 6);
+                }
+            }
+        }
+
+        // rozwija fazy/promienie na segmenty do rysowania
+        function buildRenderPath(pts) {
+            if (pts.length < 3) return pts.map(p => ({ x: p.x, z: p.z, groove: p.groove }));
+            const out = [{ x: pts[0].x, z: pts[0].z, groove: pts[0].groove }];
+            for (let i = 1; i < pts.length - 1; i++) {
+                const p = pts[i];
+                if (p.corner === 'none' || !p.cval) { out.push({ x: p.x, z: p.z, groove: p.groove }); continue; }
+                const prev = pts[i - 1], next = pts[i + 1];
+                const c = Math.min(p.cval, 0.49 * segLen(prev, p), 0.49 * segLen(p, next));
+                const inA = unit(p, prev), outA = unit(p, next);
+                const pIn = { x: p.x + inA.x * c * 2, z: p.z + inA.z * c, groove: p.groove };
+                const pOut = { x: p.x + outA.x * c * 2, z: p.z + outA.z * c, groove: p.groove };
+                out.push(pIn);
+                if (p.corner === 'R') {
+                    // łuk aproksymowany
+                    for (let t = 0.25; t < 1; t += 0.25) {
+                        out.push({
+                            x: (1 - t) * (1 - t) * pIn.x + 2 * (1 - t) * t * p.x + t * t * pOut.x,
+                            z: (1 - t) * (1 - t) * pIn.z + 2 * (1 - t) * t * p.z + t * t * pOut.z,
+                            groove: p.groove
+                        });
+                    }
+                }
+                out.push(pOut);
+            }
+            out.push({ x: pts[pts.length - 1].x, z: pts[pts.length - 1].z, groove: pts[pts.length - 1].groove });
+            return out;
+        }
+        function segLen(a, b) { const dx = (a.x - b.x) / 2, dz = a.z - b.z; return Math.hypot(dx, dz); }
+        function unit(from, to) { const dx = (to.x - from.x) / 2, dz = to.z - from.z, l = Math.hypot(dx, dz) || 1; return { x: dx / l, z: dz / l }; }
+
+        /* ============================================================
+           GENEROWANIE G-CODE
+           ============================================================ */
+        function cornerTag(pt) {
+            if (pt.corner === 'C' && pt.cval > 0) return ` ,C${fmt(pt.cval)}`;
+            if (pt.corner === 'R' && pt.cval > 0) return ` ,R${fmt(pt.cval)}`;
+            return '';
+        }
+
+        function generateGcode() {
+            if (profile.length < 2) { showError('Za mało punktów profilu.'); return; }
+
+            const internal = isInternal();
+            const type2 = g71Type() === '2';
+            const dBlank = parseFloat(document.getElementById('d_blank').value);
+            const dPilot = parseFloat(document.getElementById('d_pilot').value) || 20;
+            const ap = parseFloat(document.getElementById('ap').value);
+            const isG96 = document.querySelector('input[name="spindle_mode"]:checked').value === 'G96';
+            const speed = parseFloat(document.getElementById('spindle_speed').value);
+            const g50 = parseFloat(document.getElementById('g50_limit').value);
+            const fRough = parseFloat(document.getElementById('feed_rough').value);
+            const fFin = parseFloat(document.getElementById('feed_finish').value);
+            const tool = document.getElementById('tool_no').value;
+            const allowX = parseFloat(document.getElementById('finish_allowance_x').value);
+            const allowZ = parseFloat(document.getElementById('finish_allowance_z').value);
+            const safeZ = parseFloat(document.getElementById('safe_z').value);
+
+            // walidacja typu 1
+            if (!type2) {
+                for (let i = 1; i < profile.length; i++) {
+                    if (!internal && profile[i].x < profile[i - 1].x - 1e-6) { showError('Typ 1: profil zewn. musi rosnąć. Przełącz na Typ 2.'); return; }
+                    if (internal && profile[i].x > profile[i - 1].x + 1e-6) { showError('Typ 1: otwór nie może rosnąć w głąb. Przełącz na Typ 2.'); return; }
+                }
+            }
+
+            const g = [];
+            const P = 10, Q = 20;
+            const zMin = Math.min(...profile.map(p => p.z));
+            const maxX = Math.max(...profile.map(p => p.x));
+            const minX = Math.min(...profile.map(p => p.x));
+
+            g.push('%');
+            g.push('O1002 (HAAS ST-35Y - ' + (internal ? 'WYTACZANIE WEWN.' : 'TOCZENIE ZEWN.') + ' - G71 TYP ' + (type2 ? '2' : '1') + ')');
+            g.push('G21 G18');
+            g.push('G40 G80 G99');
+            g.push('');
+            g.push('T' + tool + ' (' + (internal ? 'NOZ WYTACZAK' : 'NOZ ZEWNETRZNY') + ')');
+            if (isG96) { g.push('G50 S' + g50); g.push('G96 S' + Math.round(speed) + ' M03'); }
+            else { g.push('G97 S' + Math.round(speed) + ' M03'); }
+
+            // naddatek X: dla wytaczania ujemny (materiał zostaje na ściance otworu)
+            const Iout = internal ? -Math.abs(allowX) : Math.abs(allowX);
+            const approachX = internal ? Math.max(dPilot - 2, 1) : dBlank + 6;
+
+            g.push('G00 X' + fmt(approachX) + ' M08');
+            g.push('Z' + fmt(safeZ));
+
+            // cykl zgrubny G71
+            g.push('');
+            g.push('(--- ZGRUBNIE G71 ---)');
+            g.push(`G71 P${P} Q${Q} D${fmt(ap)} I${fmt(Iout)} K${fmt(allowZ)} F${fmt(fRough)}`);
+
+            // blok konturu P..Q
+            const first = profile[0];
+            if (type2) {
+                // Typ 2: pierwszy blok zawiera X i Z (kontrola wykrywa typ 2)
+                g.push(`N${P} G00 X${fmt(first.x)} Z${fmt(first.z)}${cornerTag(first)}`);
+            } else {
+                // Typ 1: pierwszy blok tylko X
+                g.push(`N${P} G00 X${fmt(first.x)}`);
+                g.push(`G01 Z${fmt(first.z)} F${fmt(fFin)}`);
+            }
+            for (let i = 1; i < profile.length; i++) {
+                const p = profile[i], prev = profile[i - 1];
+                const dx = Math.abs(p.x - prev.x) > 1e-6, dz = Math.abs(p.z - prev.z) > 1e-6;
+                let line = 'G01';
+                if (dx) line += ' X' + fmt(p.x);
+                if (dz) line += ' Z' + fmt(p.z);
+                line += cornerTag(p);
+                g.push(line);
+            }
+            g.push(`N${Q} G00 X${fmt(approachX)}`);
+
+            // cykl wykańczający
+            g.push('');
+            g.push('(--- WYKANCZANIE G70 ---)');
+            g.push(`G70 P${P} Q${Q} F${fmt(fFin)}`);
+
+            g.push('');
+            g.push('G00 Z' + fmt(safeZ) + ' M09');
+            g.push('G28 U0 W0 (POWROT DO PKT ZMIANY NARZ.)');
+            g.push('M05');
+            g.push('M30');
+            g.push('%');
+
+            ncOutput.innerText = g.join('\n');
+            buildSimPath(internal, dBlank, dPilot, ap, allowX, safeZ, approachX, zMin, maxX, minX);
+            if (!isAnimating && simulationPath.length) currentSimPos = { ...simulationPath[0] };
+        }
+
+        /* ============================================================
+           SYMULACJA ŚCIEŻKI (podgląd zgrubny + wykańczający)
+           ============================================================ */
+        function sampleProfile(nStep) {
+            // gęste próbki (z, x) wzdłuż konturu
+            const out = [];
+            const render = buildRenderPath(profile);
+            for (let i = 1; i < render.length; i++) {
+                const a = render[i - 1], b = render[i];
+                for (let t = 0; t <= 1; t += 0.05) {
+                    out.push({ z: a.z + (b.z - a.z) * t, x: a.x + (b.x - a.x) * t });
+                }
+            }
+            return out;
+        }
+
+        function stopZForPass(samples, dia, internal) {
+            // najbliższy czoła Z, gdzie profil styka się ze średnicą przejścia
+            let stop = null;
+            for (const s of samples) {
+                const hit = internal ? (s.x <= dia + 1e-6) : (s.x >= dia - 1e-6);
+                if (hit) { if (stop === null || s.z > stop) stop = s.z; }
+            }
+            return stop;
+        }
+
+        function buildSimPath(internal, dBlank, dPilot, ap, allowX, safeZ, approachX, zMin, maxX, minX) {
+            simulationPath = [];
+            const samples = sampleProfile();
+            simulationPath.push({ x: approachX, z: safeZ, type: 'G0' });
+
+            if (!internal) {
+                let d = dBlank;
+                const target = maxX + allowX * 2;
+                let guard = 0;
+                while (d > target + 0.01 && guard++ < 400) {
+                    d -= ap * 2;
+                    if (d < target) d = target;
+                    const stopZ = stopZForPass(samples, d, false);
+                    const zEnd = stopZ !== null ? stopZ : zMin;
+                    simulationPath.push({ x: approachX, z: safeZ, type: 'G0' });
+                    simulationPath.push({ x: d, z: safeZ, type: 'G0' });
+                    simulationPath.push({ x: d, z: zEnd, type: 'G1' });
+                    simulationPath.push({ x: d + 1.5, z: zEnd + 0.8, type: 'G1' });
+                    simulationPath.push({ x: d + 1.5, z: safeZ, type: 'G0' });
+                }
+            } else {
+                let d = dPilot;
+                const target = maxX - allowX * 2; // wytaczamy w górę do największej średnicy profilu
+                let guard = 0;
+                while (d < target - 0.01 && guard++ < 400) {
+                    d += ap * 2;
+                    if (d > target) d = target;
+                    const stopZ = stopZForPass(samples, d, true);
+                    const zEnd = stopZ !== null ? stopZ : zMin;
+                    simulationPath.push({ x: approachX, z: safeZ, type: 'G0' });
+                    simulationPath.push({ x: d, z: safeZ, type: 'G0' });
+                    simulationPath.push({ x: d, z: zEnd, type: 'G1' });
+                    simulationPath.push({ x: d - 1.5, z: zEnd + 0.8, type: 'G1' });
+                    simulationPath.push({ x: d - 1.5, z: safeZ, type: 'G0' });
+                }
+            }
+
+            // przejście wykańczające po konturze
+            simulationPath.push({ x: approachX, z: safeZ, type: 'G0' });
+            const render = buildRenderPath(profile);
+            render.forEach(p => simulationPath.push({ x: p.x, z: p.z, type: 'G1' }));
+            simulationPath.push({ x: approachX, z: zMin, type: 'G1' });
+            simulationPath.push({ x: approachX, z: safeZ, type: 'G0' });
+        }
+
+        function updateAnimation() {
+            if (simIndex >= simulationPath.length) { stopAnimation(); toast('Symulacja zakończona.', 'ok'); return; }
+            const t = simulationPath[simIndex];
+            const dx = t.x - currentSimPos.x, dz = t.z - currentSimPos.z;
+            const dist = Math.hypot(dx, dz);
+            const step = t.type === 'G0' ? 6 : 1.4;
+            if (dist <= step) { currentSimPos = { x: t.x, z: t.z }; simIndex++; }
+            else { currentSimPos.x += dx / dist * step; currentSimPos.z += dz / dist * step; }
+            drawCAD();
+            animationId = requestAnimationFrame(updateAnimation);
+        }
+        function stopAnimation() {
+            isAnimating = false;
+            if (animationId) cancelAnimationFrame(animationId);
+            animationId = null;
+            document.getElementById('cad_title').innerText = 'Szkicownik profilu 2D';
+            drawCAD();
+        }
+
+        /* ============================================================
+           UI: przełączniki, przyciski
+           ============================================================ */
+        function updateModeUI() {
+            const internal = isInternal();
+            document.getElementById('path_mode').innerText = internal ? 'Wytaczanie wewnętrzne' : 'Toczenie zewnętrzne';
+            document.getElementById('wrap_pilot').style.display = internal ? 'flex' : 'none';
+            document.getElementById('lbl_blank').innerText = internal ? 'Średnica zewn. detalu Ø (mm)' : 'Średnica surówki Ø (mm)';
+            document.getElementById('lbl_speed').innerText = document.querySelector('input[name="spindle_mode"]:checked').value === 'G96'
+                ? 'Prędkość Vc (m/min)' : 'Obroty n (obr/min)';
+            const t2 = g71Type() === '2';
+            document.getElementById('g71_hint').innerText = t2
+                ? 'Typ 2 aktywny: możesz tworzyć rowki i podcięcia (profil niemonotoniczny).'
+                : 'Typ 1: profil monotoniczny. Przełącz na Typ 2 dla rowków/podcięć.';
+            const badge = document.getElementById('badge_mode');
+            badge.innerHTML = cadTool() === 'GROOVE'
+                ? 'Tryb: <b>Rowek</b> — kliknij na profilu'
+                : 'Tryb: <b>Rysowanie</b>';
+            badge.className = cadTool() === 'GROOVE' ? 'badge mode-dim' : 'badge';
+        }
+
+        document.querySelectorAll('input[name="op_type"]').forEach(r => r.addEventListener('change', () => {
+            updateModeUI();
+            // Geometria zewn. i wewn. to różne operacje — jeśli bieżący profil jest niezgodny
+            // z nowym trybem, wczytaj dopasowany przykład, aby nie zostawić nieaktualnego kodu.
+            const internal = isInternal();
+            const incompatible = profile.length < 2 || (
+                g71Type() === '1' && profile.some((p, i) => i > 0 &&
+                    (internal ? p.x > profile[i - 1].x + 1e-6 : p.x < profile[i - 1].x - 1e-6))
+            );
+            if (incompatible) {
+                profile = internal ? demoInternal() : demoExternal();
+                toast(internal ? 'Wczytano przykład otworu do wytaczania.' : 'Wczytano przykład wałka.', 'info');
+            }
+            syncBlank();
+            refreshAll();
+        }));
+        document.querySelectorAll('input[name="g71_type"]').forEach(r => r.addEventListener('change', () => { updateModeUI(); if (profile.length >= 2) generateGcode(); }));
+        document.querySelectorAll('input[name="cad_tool"]').forEach(r => r.addEventListener('change', updateModeUI));
+        document.querySelectorAll('input[name="spindle_mode"]').forEach(r => r.addEventListener('change', updateModeUI));
+
+        // przeliczenie po zmianie parametrów technologicznych
+        ['d_blank', 'd_pilot', 'ap', 'spindle_speed', 'g50_limit', 'feed_rough', 'feed_finish',
+         'tool_no', 'finish_allowance_x', 'finish_allowance_z', 'safe_z'].forEach(id => {
+            document.getElementById(id).addEventListener('change', () => { if (profile.length >= 2) generateGcode(); drawCAD(); });
+        });
+
+        document.getElementById('btn_generate').addEventListener('click', () => {
+            if (profile.length < 2) { showError('Najpierw utwórz profil (min. 2 punkty).'); return; }
+            generateGcode(); toast('Wygenerowano G-code.', 'ok');
+        });
+
+        document.getElementById('btn_add_row').addEventListener('click', () => {
+            const last = profile.length ? profile[profile.length - 1] : { x: isInternal() ? 20 : 0, z: 0 };
+            profile.push({ x: last.x, z: last.z - 10, corner: 'none', cval: 0, groove: false });
+            refreshAll();
+        });
+        document.getElementById('btn_add_groove').addEventListener('click', () => {
+            if (profile.length < 2) { showError('Najpierw utwórz profil.'); return; }
+            const zStr = prompt('Pozycja środka rowka Z (mm, wartość ujemna):', '-30');
+            if (zStr === null) return;
+            const z = parseFloat(zStr);
+            const baseX = diameterAtZ(z);
+            if (baseX == null) { showError('Ta pozycja Z jest poza długością detalu.'); return; }
+            promptGroove(z, baseX);
+        });
+        document.getElementById('btn_load_demo').addEventListener('click', () => {
+            profile = isInternal() ? demoInternal() : demoExternal();
+            syncBlank(); refreshAll(); toast('Wczytano przykładowy profil.', 'info');
+        });
+
+        document.getElementById('btn_clear_cad').addEventListener('click', () => {
+            profile = []; simulationPath = []; stopAnimation();
+            renderTable(); drawCAD();
+            ncOutput.innerText = 'Narysuj lub wpisz profil w tabeli, a następnie kliknij „Generuj G-code".';
+            toast('Wyczyszczono profil.', 'info');
+        });
+        document.getElementById('btn_undo_cad').addEventListener('click', () => {
+            if (profile.length) profile.pop();
+            stopAnimation(); refreshAll();
+        });
+        document.getElementById('btn_reset_view').addEventListener('click', () => {
+            scale = 4.0; originX = 230; originZ = 300; drawCAD();
+        });
+        document.getElementById('btn_sim_start').addEventListener('click', () => {
+            if (profile.length < 2) { showError('Najpierw utwórz profil.'); return; }
+            stopAnimation(); generateGcode();
+            if (!simulationPath.length) return;
+            isAnimating = true;
+            document.getElementById('cad_title').innerText = 'Wizualizacja ścieżki narzędzia…';
+            simIndex = 0; currentSimPos = { ...simulationPath[0] };
+            updateAnimation();
+        });
+        document.getElementById('btn_sim_reset').addEventListener('click', () => {
+            stopAnimation(); if (simulationPath.length) currentSimPos = { ...simulationPath[0] }; drawCAD();
+        });
+
+        document.getElementById('btn_copy').addEventListener('click', () => {
+            const txt = ncOutput.innerText;
+            if (txt.includes('Narysuj')) return;
+            navigator.clipboard.writeText(txt).then(() => toast('Skopiowano G-code do schowka.', 'ok'));
+        });
+        document.getElementById('btn_download').addEventListener('click', () => {
+            const txt = ncOutput.innerText;
+            if (txt.includes('Narysuj')) return;
+            const blob = new Blob([txt], { type: 'text/plain' });
+            const a = document.createElement('a');
+            a.download = 'haas_st35y_' + (isInternal() ? 'wytaczanie' : 'toczenie') + '.nc';
+            a.href = URL.createObjectURL(blob); a.click();
+            toast('Pobrano plik .nc', 'ok');
+        });
+
+        // nawigacja boczna -> scroll do kart
+        document.getElementById('nav_sketch').addEventListener('click', () => document.getElementById('card_cad').scrollIntoView({ behavior: 'smooth' }));
+        document.getElementById('nav_table').addEventListener('click', () => document.getElementById('card_table').scrollIntoView({ behavior: 'smooth' }));
+        document.getElementById('nav_code').addEventListener('click', () => ncOutput.scrollIntoView({ behavior: 'smooth' }));
+        document.getElementById('nav_help').addEventListener('click', () => toast('Rysuj myszą, wpisuj wymiary w tabeli, wstawiaj rowki (Typ 2). Shift+przeciągnij = pan, kółko = zoom.', 'info'));
+
+        /* ---------- init ---------- */
+        window.addEventListener('load', () => {
+            profile = demoExternal();
+            updateModeUI();
+            setupCanvas();
+            renderTable();
+            generateGcode();
+        });
+        window.addEventListener('resize', () => {
+            const rect = canvas.parentNode.getBoundingClientRect();
+            canvas.width = rect.width; drawCAD();
+        });
+    </script>
+</body>
+</html>
