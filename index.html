@@ -868,6 +868,22 @@
             Mała pływająca wyszukiwarka zawsze na wierzchu. Skrót: Ctrl+Shift+Spacja.
           </div>
         </div>
+        <div class="set-sec">
+          <span class="set-label">Szukaj w nazwach folderów</span>
+          <div class="set-modes">
+            <button class="set-mode" data-foldersearch="on">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path></svg>
+              Włączone
+            </button>
+            <button class="set-mode" data-foldersearch="off">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 8h8v8H8z"></path></svg>
+              Wyłączone
+            </button>
+          </div>
+          <div style="font-size:.68rem;color:var(--mut);line-height:1.5">
+            Wyszukiwarka uwzględnia też nazwy folderów, w których leżą programy.
+          </div>
+        </div>
       </div>
     </div>
     <button class="btn btn-primary" id="btnNew">
@@ -1120,6 +1136,7 @@ let programs = [];
 let query = "";
 let queryTokens = [];    // słowa wyszukiwania po normalizacji (bez polskich znaków)
 let filter = "all";      // all | fav | tag:xxx
+let folderSearch = false; // czy szukać także w nazwach folderów (p.dir)
 let sortMode = localStorage.getItem("cncSort") || "modNew";
 let viewLimit = parseInt(localStorage.getItem("cncLimit"), 10);
 if (isNaN(viewLimit)) viewLimit = 20;   // ile kart pokazywać naraz (0 = wszystkie)
@@ -2001,12 +2018,15 @@ function toast(msg) {
 }
 
 /* ════════════════════ renderowanie ════════════════════ */
-/* buforowany tekst do wyszukiwania — liczony raz na program, aż do jego zmiany */
+/* buforowany tekst do wyszukiwania — liczony raz na program, aż do jego zmiany.
+   Gdy włączone „szukanie w nazwach folderów", dokłada nazwę podfolderu (p.dir). */
 function hayOf(p) {
   const c = hayCache.get(p.id);
   if (c && c.mod === p.modified) return c.hay;
-  const hay = fold([p.name, p.onum, p.detail, p.drawing, p.client, p.material,
-                    (p.tags || []).join(" "), p.note, p.code].join(" "));
+  const parts = [p.name, p.onum, p.detail, p.drawing, p.client, p.material,
+                 (p.tags || []).join(" "), p.note, p.code];
+  if (folderSearch) parts.push(p.dir || "");
+  const hay = fold(parts.join(" "));
   hayCache.set(p.id, { mod: p.modified, hay });
   return hay;
 }
@@ -2487,6 +2507,17 @@ function applyWidget(on) {
   if (window.native && window.native.toggleWidget) window.native.toggleWidget(on, widgetPayload());
   syncSettingsUI();
 }
+function applyFolderSearch(on) {
+  folderSearch = on;
+  localStorage.setItem("cncFolderSearch", on ? "on" : "off");
+  hayCache.clear();     // przebuduj tekst wyszukiwania z/bez nazw folderów
+  const s = document.getElementById("search");
+  if (s) s.placeholder = on
+    ? "Szukaj: nazwa, numer O, folder, klient, materiał, treść kodu…"
+    : "Szukaj: nazwa, numer O, klient, materiał, treść kodu…";
+  if (queryTokens.length) renderGrid();   // odśwież wyniki, gdy trwa wyszukiwanie
+  syncSettingsUI();
+}
 function syncSettingsUI() {
   const light = document.body.classList.contains("light");
   document.querySelectorAll(".set-mode[data-mode]").forEach(b =>
@@ -2499,6 +2530,8 @@ function syncSettingsUI() {
     b.classList.toggle("on", (b.dataset.motion === "on") === mon));
   document.querySelectorAll(".set-mode[data-widget]").forEach(b =>
     b.classList.toggle("on", (b.dataset.widget === "on") === widgetEnabled));
+  document.querySelectorAll(".set-mode[data-foldersearch]").forEach(b =>
+    b.classList.toggle("on", (b.dataset.foldersearch === "on") === folderSearch));
 }
 const settingsMenu = document.getElementById("settingsMenu");
 document.getElementById("btnSettings").addEventListener("click", e => {
@@ -2515,6 +2548,8 @@ settingsMenu.addEventListener("click", e => {
   if (mo) { applyMotion(mo.dataset.motion === "on"); return; }
   const w = e.target.closest("[data-widget]");
   if (w) { applyWidget(w.dataset.widget === "on"); return; }
+  const fs = e.target.closest("[data-foldersearch]");
+  if (fs) { applyFolderSearch(fs.dataset.foldersearch === "on"); return; }
 });
 /* zamknij menu ustawień kliknięciem poza nim */
 document.addEventListener("click", e => {
@@ -2525,6 +2560,7 @@ document.addEventListener("click", e => {
 if (localStorage.getItem("cncTheme") === "light") document.body.classList.add("light");
 applyAccent(localStorage.getItem("cncAccent") || "default");
 applyMotion(localStorage.getItem("cncMotion") !== "off");
+applyFolderSearch(localStorage.getItem("cncFolderSearch") === "on");   // domyślnie wyłączone
 /* widget wyszukiwania — przywróć stan (pokaż, jeśli był włączony) */
 widgetEnabled = localStorage.getItem("cncWidget") === "on";
 if (widgetEnabled && window.native && window.native.toggleWidget) window.native.toggleWidget(true, widgetPayload());
