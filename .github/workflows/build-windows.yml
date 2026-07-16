@@ -1,0 +1,53 @@
+name: Build Windows EXE
+
+# Buduje portable CNC-Manager.exe na runnerze Windows i publikuje go
+# jako zasób w release o tagu "windows-exe".
+
+on:
+  push:
+    branches:
+      - main
+      - claude/file-manager-ui-features-ur6z46
+    paths:
+      - 'index.html'
+      - 'main.js'
+      - 'package.json'
+      - '.github/workflows/build-windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build portable EXE
+        run: npm run dist
+
+      - name: List build output
+        run: dir dist
+        shell: cmd
+
+      - name: Publish to release (windows-exe)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: windows-exe
+          name: Windows EXE
+          body: |
+            Portable build aplikacji CNC Manager (Generator G-code Haas ST-35Y).
+            Pobierz `CNC-Manager.exe` i uruchom — instalacja nie jest wymagana.
+          files: dist/CNC-Manager.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

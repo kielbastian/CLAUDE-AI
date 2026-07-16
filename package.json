@@ -1,0 +1,41 @@
+{
+  "name": "cnc-manager",
+  "productName": "CNC Manager",
+  "version": "1.0.0",
+  "description": "Generator G-code Haas ST-35Y — CAM Studio (toczenie / wytaczanie, G71/G70)",
+  "author": "kielbastian",
+  "license": "MIT",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable -p never",
+    "dist:installer": "electron-builder --win nsis -p never"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.kielbastian.cncmanager",
+    "productName": "CNC Manager",
+    "files": [
+      "main.js",
+      "index.html"
+    ],
+    "win": {
+      "target": "portable",
+      "artifactName": "CNC-Manager.exe"
+    },
+    "portable": {
+      "artifactName": "CNC-Manager.exe"
+    },
+    "nsis": {
+      "artifactName": "CNC-Manager-Setup.exe",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "CNC Manager"
+    }
+  }
+}
