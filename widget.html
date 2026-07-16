@@ -47,6 +47,14 @@
   .go:hover{filter:brightness(1.1)}
   .go:active{transform:scale(.9)}
   .go svg{width:18px;height:18px;stroke:#fff;fill:none;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+  .cnt{
+    -webkit-app-region:no-drag;flex:none;min-width:28px;height:28px;padding:0 9px;
+    display:none;align-items:center;justify-content:center;border-radius:9px;
+    font-family:'Orbitron','Rajdhani',sans-serif;font-weight:700;font-size:.86rem;
+    background:rgba(var(--ac2-rgb),.16);border:1px solid rgba(var(--ac2-rgb),.5);color:var(--ac1);
+  }
+  .cnt.show{display:inline-flex}
+  .cnt.zero{background:rgba(248,113,113,.14);border-color:rgba(248,113,113,.45);color:#fca5a5}
   .x{width:28px;height:28px;background:transparent;color:var(--mut);font-size:1.02rem;line-height:1}
   .x:hover{background:rgba(255,255,255,.1);color:var(--txt)}
   body.light .x:hover{background:rgba(15,23,42,.08)}
@@ -56,12 +64,14 @@
   <div class="widget">
     <svg class="loupe" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3"></path></svg>
     <input id="q" type="text" autocomplete="off" spellcheck="false" placeholder="Szukaj szkicu / programu…">
-    <button class="go" id="go" title="Szukaj (Enter)"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></button>
+    <span class="cnt" id="cnt" title="Znalezione programy"></span>
+    <button class="go" id="go" title="Pokaż w aplikacji (Enter)"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></button>
     <button class="x" id="x" title="Ukryj widget (Esc)">&#10005;</button>
   </div>
 <script>
 "use strict";
 const q = document.getElementById("q");
+const cnt = document.getElementById("cnt");
 function applyTheme(d) {
   document.body.classList.remove("light", "theme-orange", "theme-green", "theme-red");
   if (d) {
@@ -70,12 +80,25 @@ function applyTheme(d) {
   }
   setTimeout(() => q.focus(), 30);   // każdorazowe pokazanie ustawia fokus w polu
 }
+/* pokazuje licznik znalezionych programów obok strzałki */
+function setCount(n) {
+  if (n == null || q.value.trim() === "") { cnt.classList.remove("show", "zero"); cnt.textContent = ""; return; }
+  cnt.textContent = n;
+  cnt.classList.add("show");
+  cnt.classList.toggle("zero", n === 0);
+}
 function submit() {
   const v = q.value.trim();
   if (!v) { q.focus(); return; }
-  window.native.widgetSubmit(v);   // proces główny pokaże aplikację i schowa widget
-  q.value = "";
+  window.native.widgetSubmit(v);   // aplikacja wychodzi na wierzch; widget ZOSTAJE
 }
+let liveTimer = null;
+q.addEventListener("input", () => {
+  const v = q.value.trim();
+  if (!v) { setCount(null); if (window.native.widgetQuery) window.native.widgetQuery(""); return; }
+  clearTimeout(liveTimer);
+  liveTimer = setTimeout(() => window.native.widgetQuery(v), 150);   // licznik na żywo
+});
 document.getElementById("go").addEventListener("click", submit);
 document.getElementById("x").addEventListener("click", () => window.native.widgetHide());
 q.addEventListener("keydown", e => {
@@ -83,6 +106,7 @@ q.addEventListener("keydown", e => {
   else if (e.key === "Escape") { e.preventDefault(); window.native.widgetHide(); }
 });
 if (window.native && window.native.onWidgetTheme) window.native.onWidgetTheme(applyTheme);
+if (window.native && window.native.onWidgetCount) window.native.onWidgetCount(setCount);
 (async () => {
   try { applyTheme(await window.native.getWidgetData()); } catch (e) { setTimeout(() => q.focus(), 30); }
 })();

@@ -22,11 +22,15 @@ contextBridge.exposeInMainWorld("native", {
   // widget szybkiego wyszukiwania — okno główne
   toggleWidget: (on, payload) => ipcRenderer.invoke("toggle-widget", { on, payload }),
   updateWidget: (payload) => ipcRenderer.send("update-widget", payload),
+  widgetResult: (n) => ipcRenderer.send("widget-result", n),
   onWidgetState: (cb) => ipcRenderer.on("widget-state", (e, on) => cb(on)),
-  onWidgetSearch: (cb) => ipcRenderer.on("widget-search", (e, q) => cb(q)),
+  onWidgetGo: (cb) => ipcRenderer.on("widget-go", (e, q) => cb(q)),
+  onWidgetLive: (cb) => ipcRenderer.on("widget-live", (e, q) => cb(q)),
   // widget szybkiego wyszukiwania — okno widgetu
   getWidgetData: () => ipcRenderer.invoke("get-widget-data"),
   widgetSubmit: (q) => ipcRenderer.send("widget-submit", q),
+  widgetQuery: (q) => ipcRenderer.send("widget-query", q),
   widgetHide: () => ipcRenderer.send("widget-close"),
-  onWidgetTheme: (cb) => ipcRenderer.on("widget-theme", (e, d) => cb(d))
+  onWidgetTheme: (cb) => ipcRenderer.on("widget-theme", (e, d) => cb(d)),
+  onWidgetCount: (cb) => ipcRenderer.on("widget-count", (e, n) => cb(n))
 });

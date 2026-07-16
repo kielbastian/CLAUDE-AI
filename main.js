@@ -319,15 +319,22 @@ ipcMain.on("update-widget", (e, payload) => {
   if (widgetWin && !widgetWin.isDestroyed() && widgetWin.isVisible()) widgetWin.webContents.send("widget-theme", widgetPayload);
 });
 ipcMain.handle("get-widget-data", () => widgetPayload);
+/* wpisywanie na żywo — tylko policz wyniki, bez wychodzenia na wierzch */
+ipcMain.on("widget-query", (e, query) => {
+  if (win && !win.isDestroyed()) win.webContents.send("widget-live", query);
+});
+/* zatwierdzenie — pokaż aplikację z wynikami; widget POZOSTAJE widoczny */
 ipcMain.on("widget-submit", (e, query) => {
   if (win && !win.isDestroyed()) {
     if (win.isMinimized()) win.restore();
     win.show();
     win.focus();
-    win.webContents.send("widget-search", query);
+    win.webContents.send("widget-go", query);
   }
-  hideWidget();
-  notifyWidgetState(false);   // widget zniknął — odznacz w ustawieniach
+});
+/* liczba znalezionych programów z okna głównego → do widgetu */
+ipcMain.on("widget-result", (e, count) => {
+  if (widgetWin && !widgetWin.isDestroyed()) widgetWin.webContents.send("widget-count", count);
 });
 ipcMain.on("widget-close", () => { hideWidget(); notifyWidgetState(false); });
 

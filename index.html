@@ -2535,14 +2535,31 @@ if (window.native && window.native.onWidgetState) window.native.onWidgetState(on
   localStorage.setItem("cncWidget", on ? "on" : "off");
   syncSettingsUI();
 });
-/* zapytanie wpisane w widgecie — pokaż w wyszukiwarce głównej */
-if (window.native && window.native.onWidgetSearch) window.native.onWidgetSearch(qv => {
+/* liczy pasujące programy (widok folderu + zapytanie) — bez zmiany UI */
+function widgetCount(qv) {
+  const q2 = (qv || "").trim();
+  const toks = q2 ? fold(q2).split(/\s+/).filter(Boolean) : [];
+  let n = 0;
+  for (const p of programs) {
+    if (!inView(p)) continue;
+    if (toks.length) { const hay = hayOf(p); if (!toks.every(w => hay.includes(w))) continue; }
+    n++;
+  }
+  return n;
+}
+/* wpisywanie na żywo w widgecie — odeślij tylko licznik */
+if (window.native && window.native.onWidgetLive) window.native.onWidgetLive(qv => {
+  if (window.native.widgetResult) window.native.widgetResult(widgetCount(qv));
+});
+/* zatwierdzenie z widgetu — pokaż wyniki w głównej wyszukiwarce + odeślij licznik */
+if (window.native && window.native.onWidgetGo) window.native.onWidgetGo(qv => {
   filter = "all";
   searchEl.value = qv;
   clearEl.style.display = qv ? "block" : "none";
   query = (qv || "").trim();
   queryTokens = query ? fold(query).split(/\s+/).filter(Boolean) : [];
   const prev = viewLimit; viewLimit = 0; renderGrid(); viewLimit = prev;
+  if (window.native.widgetResult) window.native.widgetResult(programs.filter(matches).length);
   document.getElementById("grid").scrollIntoView({ behavior: "smooth", block: "start" });
 });
 
