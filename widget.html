@@ -19,16 +19,17 @@
   *{box-sizing:border-box;margin:0;padding:0}
   html,body{background:transparent;height:100%;overflow:hidden;
     font-family:'Rajdhani','Segoe UI',system-ui,-apple-system,sans-serif;-webkit-user-select:none;user-select:none}
+  body{display:flex;align-items:center;padding:6px 10px}
   .widget{
     -webkit-app-region:drag;
-    height:100%;margin:9px 12px;padding:0 6px 0 14px;
+    flex:1;min-width:0;height:46px;padding:0 6px 0 14px;
     display:flex;align-items:center;gap:10px;
     background:var(--panel);backdrop-filter:blur(16px);
-    border:1px solid rgba(var(--ac2-rgb),.5);border-radius:15px;
-    box-shadow:0 12px 34px rgba(0,0,0,.5),0 0 24px rgba(var(--ac2-rgb),.25);
-    animation:pop .18s cubic-bezier(.3,1.4,.5,1) both;
+    border:1px solid rgba(var(--ac2-rgb),.55);border-radius:14px;
+    box-shadow:0 6px 20px rgba(0,0,0,.5),0 0 18px rgba(var(--ac2-rgb),.28);
+    animation:pop .16s cubic-bezier(.3,1.4,.5,1) both;
   }
-  @keyframes pop{from{opacity:0;transform:translateY(-8px) scale(.96)}to{opacity:1;transform:none}}
+  @keyframes pop{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:none}}
   .loupe{width:21px;height:21px;flex:none;stroke:var(--ac1);fill:none;stroke-width:2.2;stroke-linecap:round}
   #q{
     -webkit-app-region:no-drag;

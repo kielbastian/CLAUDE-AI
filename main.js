@@ -34,12 +34,13 @@ function createWindow() {
 /* ── pływający widget szybkiego wyszukiwania (zawsze na wierzchu) ── */
 function createWidgetWindow() {
   const wa = screen.getPrimaryDisplay().workArea;
-  const W = 400, H = 66;
+  const W = 400, H = 58;
   widgetWin = new BrowserWindow({
     width: W, height: H,
     x: Math.round(wa.x + (wa.width - W) / 2),
     y: wa.y + 48,
-    frame: false, transparent: true, resizable: false, movable: true,
+    useContentSize: true,
+    frame: false, titleBarStyle: "hidden", transparent: true, resizable: false, movable: true,
     minimizable: false, maximizable: false, fullscreenable: false,
     skipTaskbar: true, alwaysOnTop: true, hasShadow: false, show: false,
     title: "Szukaj — CNC Manager",
