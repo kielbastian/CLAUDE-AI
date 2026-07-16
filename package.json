@@ -20,10 +20,14 @@
     "productName": "CAM Generator",
     "files": [
       "main.js",
-      "index.html"
+      "preload.js",
+      "index.html",
+      "vendor/**",
+      "build/icon.png"
     ],
     "win": {
       "target": "portable",
+      "icon": "build/icon.ico",
       "artifactName": "CAM-Generator.exe"
     },
     "portable": {

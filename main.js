@@ -1,8 +1,6 @@
-// CAM Generator — proces główny Electron.
-// Opakowuje generator G-code (index.html) w okno aplikacji desktopowej Windows.
-const { app, BrowserWindow, Menu, shell, dialog } = require('electron');
+// CAM Generator — proces główny Electron (okno bezramkowe, własny pasek okna).
+const { app, BrowserWindow, ipcMain, Menu, shell, dialog } = require('electron');
 const path = require('path');
-const fs = require('fs');
 
 let mainWindow = null;
 
@@ -10,13 +8,16 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1500,
     height: 950,
-    minWidth: 1100,
-    minHeight: 700,
-    backgroundColor: '#0b1120',
-    title: 'CAM Generator — Generator G-code',
-    autoHideMenuBar: true,
+    minWidth: 1080,
+    minHeight: 680,
+    backgroundColor: '#0c1020',
+    title: 'CAM Generator',
+    frame: false,
+    titleBarStyle: 'hidden',
     show: false,
+    icon: path.join(__dirname, 'build', 'icon.png'),
     webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       spellcheck: false
@@ -24,21 +25,19 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
-
   mainWindow.once('ready-to-show', () => mainWindow.show());
 
-  // Linki zewnętrzne otwieraj w przeglądarce systemowej, nie w oknie aplikacji.
+  // Linki zewnętrzne w przeglądarce systemowej.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: 'deny' };
   });
 
-  // Zapis pliku .nc — pokaż okno "Zapisz jako" i zapisz zawartość bloba.
+  // Zapis pliku .nc przez natywne okno „Zapisz jako".
   mainWindow.webContents.session.on('will-download', (event, item) => {
-    const suggested = item.getFilename() || 'program.nc';
     const savePath = dialog.showSaveDialogSync(mainWindow, {
       title: 'Zapisz program NC',
-      defaultPath: suggested,
+      defaultPath: item.getFilename() || 'program.nc',
       filters: [
         { name: 'Program NC', extensions: ['nc', 'txt', 'cnc'] },
         { name: 'Wszystkie pliki', extensions: ['*'] }
@@ -46,66 +45,39 @@ function createWindow() {
     });
     if (savePath) {
       item.setSavePath(savePath);
-      item.once('done', (e, state) => {
-        if (state === 'completed') {
-          shell.showItemInFolder(savePath);
-        }
-      });
+      item.once('done', (e, state) => { if (state === 'completed') shell.showItemInFolder(savePath); });
     } else {
       item.cancel();
     }
   });
+
+  // Menu kontekstowe (kopiuj/wklej) w polach edycji.
+  mainWindow.webContents.on('context-menu', (e, params) => {
+    if (!params.isEditable && !params.selectionText) return;
+    const items = params.isEditable ? [
+      { role: 'cut', label: 'Wytnij', enabled: params.editFlags.canCut },
+      { role: 'copy', label: 'Kopiuj', enabled: params.editFlags.canCopy },
+      { role: 'paste', label: 'Wklej', enabled: params.editFlags.canPaste },
+      { type: 'separator' },
+      { role: 'selectAll', label: 'Zaznacz wszystko' }
+    ] : [{ role: 'copy', label: 'Kopiuj' }];
+    Menu.buildFromTemplate(items).popup();
+  });
 }
 
-// Minimalne menu (Alt pokazuje pasek). Skróty: przeładuj, zoom, pełny ekran, DevTools.
-function buildMenu() {
-  const template = [
-    {
-      label: 'Plik',
-      submenu: [
-        { role: 'quit', label: 'Zamknij' }
-      ]
-    },
-    {
-      label: 'Widok',
-      submenu: [
-        { role: 'reload', label: 'Przeładuj' },
-        { role: 'resetZoom', label: 'Zoom 100%' },
-        { role: 'zoomIn', label: 'Powiększ' },
-        { role: 'zoomOut', label: 'Pomniejsz' },
-        { type: 'separator' },
-        { role: 'togglefullscreen', label: 'Pełny ekran' },
-        { role: 'toggleDevTools', label: 'Narzędzia deweloperskie' }
-      ]
-    },
-    {
-      label: 'Pomoc',
-      submenu: [
-        {
-          label: 'O programie',
-          click: () => {
-            dialog.showMessageBox(mainWindow, {
-              type: 'info',
-              title: 'O programie',
-              message: 'CAM Generator',
-              detail: 'Generator G-code Haas ST-35Y — CAM Studio.\nToczenie zewnętrzne / wytaczanie, cykle G71 / G70,\nwymiarowanie tabelą, fazy i promienie, symulacja i tryb krokowy.'
-            });
-          }
-        }
-      ]
-    }
-  ];
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
-}
+// Sterowanie oknem z własnego paska tytułu.
+ipcMain.on('win-min', (e) => { const w = BrowserWindow.fromWebContents(e.sender); if (w) w.minimize(); });
+ipcMain.on('win-max', (e) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (!w) return;
+  w.isMaximized() ? w.unmaximize() : w.maximize();
+});
+ipcMain.on('win-close', (e) => { const w = BrowserWindow.fromWebContents(e.sender); if (w) w.close(); });
 
 app.whenReady().then(() => {
-  buildMenu();
+  Menu.setApplicationMenu(null);
   createWindow();
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
+  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

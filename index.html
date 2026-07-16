@@ -4,47 +4,121 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Generator G-code Haas ST-35Y | CAM Studio</title>
+    <link rel="stylesheet" href="vendor/fonts.css">
     <style>
         :root {
-            --bg: #0b1120;
-            --bg-2: #0f172a;
-            --surface: #131c2e;
-            --surface-2: #1a2438;
-            --surface-3: #223049;
-            --panel-border: rgba(148, 163, 184, 0.14);
-            --stroke: rgba(148, 163, 184, 0.22);
-            --brand: #009ad5;
-            --brand-2: #0076a3;
-            --brand-grad: linear-gradient(135deg, #0076a3 0%, #00b4e6 100%);
-            --accent: #a855f7;
-            --text: #f1f5f9;
-            --text-muted: #94a3b8;
+            /* akcent (zmieniany w ustawieniach) */
+            --ac1: #22d3ee; --ac1-rgb: 34,211,238;
+            --ac2: #6366f1; --ac2-rgb: 99,102,241;
+            --ac3: #a855f7; --ac3-rgb: 168,85,247;
+
+            --bg: #0c1020;
+            --bg-2: #141a2e;
+            --surface: rgba(255, 255, 255, 0.05);
+            --surface-2: rgba(255, 255, 255, 0.08);
+            --surface-3: rgba(255, 255, 255, 0.13);
+            --panel-glass: rgba(255, 255, 255, 0.055);
+            --panel-border: rgba(255, 255, 255, 0.11);
+            --stroke: rgba(255, 255, 255, 0.17);
+            --brand: var(--ac1);
+            --brand-2: var(--ac2);
+            --brand-grad: linear-gradient(135deg, var(--ac1), var(--ac2) 55%, var(--ac3));
+            --accent: var(--ac3);
+            --text: #e9edf7;
+            --text-muted: #9aa4bd;
+            --text-dim: #6b7690;
+            --ok: #34d399;
+            --ok-grad: linear-gradient(135deg, #16a34a 0%, #34d399 100%);
+            --warn: #fbbf24;
+            --danger: #f87171;
+            --code-bg: rgba(6, 9, 18, 0.72);
+            --code-text: #d7e0ee;
+            --radius: 16px;
+            --radius-sm: 10px;
+            --shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+            --glass-blur: 14px;
+        }
+
+        /* ── akcenty kolorystyczne ─────────────────────────────── */
+        body.accent-orange { --ac1:#fbbf24; --ac1-rgb:251,191,36; --ac2:#fb923c; --ac2-rgb:251,146,60; --ac3:#f97316; --ac3-rgb:249,115,22; }
+        body.accent-green  { --ac1:#4ade80; --ac1-rgb:74,222,128; --ac2:#22c55e; --ac2-rgb:34,197,94; --ac3:#16a34a; --ac3-rgb:22,163,74; }
+        body.accent-pink   { --ac1:#f472b6; --ac1-rgb:244,114,182; --ac2:#ec4899; --ac2-rgb:236,72,153; --ac3:#a855f7; --ac3-rgb:168,85,247; }
+        body.accent-red    { --ac1:#fb7185; --ac1-rgb:251,113,133; --ac2:#ef4444; --ac2-rgb:239,68,68; --ac3:#dc2626; --ac3-rgb:220,38,38; }
+
+        /* ── motyw jasny ───────────────────────────────────────── */
+        body.light {
+            --bg: #e6eaf3;
+            --bg-2: #f4f6fb;
+            --surface: rgba(255, 255, 255, 0.68);
+            --surface-2: rgba(255, 255, 255, 0.82);
+            --surface-3: rgba(255, 255, 255, 0.96);
+            --panel-glass: rgba(255, 255, 255, 0.62);
+            --panel-border: rgba(15, 23, 42, 0.12);
+            --stroke: rgba(15, 23, 42, 0.18);
+            --text: #111827;
+            --text-muted: #475569;
             --text-dim: #64748b;
-            --ok: #22c55e;
-            --ok-grad: linear-gradient(135deg, #16a34a 0%, #22c55e 100%);
-            --warn: #f59e0b;
-            --danger: #ef4444;
-            --code-bg: #080c15;
-            --radius: 14px;
-            --radius-sm: 9px;
-            --shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.6);
+            --code-bg: rgba(248, 250, 255, 0.9);
+            --code-text: #1e293b;
+            --shadow: 0 12px 30px rgba(30, 41, 59, 0.16);
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
         html, body {
             height: 100%;
-            font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: 'Rajdhani', 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
+            font-weight: 500;
         }
 
         body {
-            background:
-                radial-gradient(1100px 600px at 12% -8%, rgba(0, 154, 213, 0.14), transparent 60%),
-                radial-gradient(900px 500px at 100% 0%, rgba(168, 85, 247, 0.10), transparent 55%),
-                var(--bg);
+            background: var(--bg);
             color: var(--text);
             -webkit-font-smoothing: antialiased;
+            padding-top: 36px; /* miejsce na pasek okna */
         }
+
+        /* tło z gradientowymi poświatami */
+        .bg { position: fixed; inset: 0; z-index: -1; overflow: hidden;
+              background: linear-gradient(180deg, var(--bg-2), var(--bg) 62%); }
+        .glow { position: absolute; border-radius: 50%; pointer-events: none; will-change: transform; }
+        .glow.g1 { width: 1200px; height: 850px; top: -20%; right: -12%;
+            background: radial-gradient(closest-side, rgba(var(--ac3-rgb), 0.22), transparent 70%);
+            animation: drift1 20s ease-in-out infinite alternate; }
+        .glow.g2 { width: 1050px; height: 800px; top: 4%; left: -16%;
+            background: radial-gradient(closest-side, rgba(var(--ac1-rgb), 0.17), transparent 70%);
+            animation: drift2 24s ease-in-out infinite alternate; }
+        .glow.g3 { width: 1050px; height: 1050px; bottom: -34%; left: 34%;
+            background: radial-gradient(closest-side, rgba(var(--ac2-rgb), 0.20), transparent 70%);
+            animation: drift3 17s ease-in-out infinite alternate; }
+        @keyframes drift1 { 0%{transform:translate(0,0) scale(1)} 100%{transform:translate(-120px,220px) scale(1.1)} }
+        @keyframes drift2 { 0%{transform:translate(0,0) scale(1)} 100%{transform:translate(160px,-60px) scale(1.12)} }
+        @keyframes drift3 { 0%{transform:translate(0,0) scale(1)} 100%{transform:translate(-140px,-90px) scale(1.08)} }
+        @media (prefers-reduced-motion: reduce) { .glow { animation: none; } }
+
+        /* ── pasek okna (frameless) w kolorze aplikacji ────────── */
+        .win-ctrl {
+            position: fixed; top: 0; left: 0; right: 0; height: 36px; z-index: 1000;
+            display: flex; align-items: center; gap: 1px;
+            background: linear-gradient(90deg, rgba(var(--ac2-rgb), 0.30), rgba(var(--ac3-rgb), 0.18));
+            backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+            border-bottom: 1px solid var(--stroke);
+            -webkit-app-region: drag; user-select: none;
+        }
+        .win-ctrl .wc-ico { width: 20px; height: 20px; margin-left: 10px; border-radius: 5px; }
+        .win-ctrl .wc-title {
+            flex: 1; padding-left: 10px; font-family: 'Orbitron','Rajdhani',sans-serif;
+            font-size: 12px; font-weight: 700; letter-spacing: 0.12em; color: var(--text);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .win-ctrl .wc-btns { display: flex; -webkit-app-region: no-drag; height: 100%; }
+        .win-ctrl .wc-btn {
+            width: 46px; height: 36px; display: grid; place-items: center; cursor: pointer;
+            color: var(--text-muted); background: transparent; border: none; font-size: 14px;
+            transition: background 0.15s, color 0.15s;
+        }
+        .win-ctrl .wc-btn:hover { background: rgba(255,255,255,0.12); color: var(--text); }
+        .win-ctrl .wc-btn.close:hover { background: #ef4444; color: #fff; }
 
         /* ---------- App shell (file-manager style) ---------- */
         .app {
@@ -54,7 +128,8 @@
         }
 
         .sidebar {
-            background: linear-gradient(180deg, var(--surface) 0%, var(--bg-2) 100%);
+            background: var(--panel-glass);
+            backdrop-filter: blur(var(--glass-blur)); -webkit-backdrop-filter: blur(var(--glass-blur));
             border-right: 1px solid var(--panel-border);
             display: flex;
             flex-direction: column;
@@ -62,8 +137,8 @@
             gap: 8px;
             padding: 18px 0;
             position: sticky;
-            top: 0;
-            height: 100vh;
+            top: 36px;
+            height: calc(100vh - 36px);
         }
 
         .brand-badge {
@@ -71,8 +146,9 @@
             border-radius: 12px;
             background: var(--brand-grad);
             display: grid; place-items: center;
+            font-family: 'Orbitron', sans-serif;
             font-weight: 800; font-size: 18px; color: #fff;
-            box-shadow: 0 6px 18px rgba(0, 118, 163, 0.5);
+            box-shadow: 0 6px 18px rgba(var(--ac2-rgb), 0.5);
             margin-bottom: 14px;
         }
 
@@ -109,11 +185,11 @@
             display: flex; align-items: center; gap: 16px;
             padding: 16px 26px;
             border-bottom: 1px solid var(--panel-border);
-            background: rgba(15, 23, 42, 0.55);
-            backdrop-filter: blur(10px);
-            position: sticky; top: 0; z-index: 30;
+            background: var(--panel-glass);
+            backdrop-filter: blur(var(--glass-blur)); -webkit-backdrop-filter: blur(var(--glass-blur));
+            position: sticky; top: 36px; z-index: 30;
         }
-        .topbar h1 { font-size: 18px; font-weight: 700; letter-spacing: 0.2px; }
+        .topbar h1 { font-family: 'Orbitron','Rajdhani',sans-serif; font-size: 18px; font-weight: 700; letter-spacing: 0.04em; }
         .topbar .path {
             font-size: 12px; color: var(--text-dim); margin-top: 2px;
             display: flex; gap: 6px; align-items: center;
@@ -141,7 +217,8 @@
 
         /* ---------- Cards ---------- */
         .card {
-            background: linear-gradient(180deg, var(--surface) 0%, var(--bg-2) 130%);
+            background: var(--panel-glass);
+            backdrop-filter: blur(var(--glass-blur)); -webkit-backdrop-filter: blur(var(--glass-blur));
             border: 1px solid var(--panel-border);
             border-radius: var(--radius);
             box-shadow: var(--shadow);
@@ -158,10 +235,10 @@
         .card-head .ico {
             width: 30px; height: 30px; border-radius: 9px;
             display: grid; place-items: center; font-size: 15px;
-            background: rgba(0, 154, 213, 0.12); color: #38bdf8;
-            border: 1px solid rgba(0, 154, 213, 0.25);
+            background: rgba(var(--ac1-rgb), 0.14); color: var(--ac1);
+            border: 1px solid rgba(var(--ac1-rgb), 0.30);
         }
-        .card-head h2 { font-size: 13.5px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; }
+        .card-head h2 { font-family: 'Orbitron','Rajdhani',sans-serif; font-size: 12.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
         .card-head .sub { font-size: 11px; color: var(--text-dim); font-weight: 500; }
         .card-head .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
         .card-body { padding: 18px; display: flex; flex-direction: column; gap: 15px; }
@@ -275,7 +352,7 @@
 
         /* Output */
         .output {
-            background: var(--code-bg); color: #d7e0ee;
+            background: var(--code-bg); color: var(--code-text);
             font-family: 'Fira Code', 'JetBrains Mono', 'Courier New', monospace;
             padding: 16px; border-radius: 10px; height: 300px; overflow-y: auto;
             white-space: pre; font-size: 12.5px; line-height: 1.65;
@@ -346,14 +423,46 @@
         }
         .step-bar.show { display: flex; }
         .step-bar .info { font-size: 12px; color: var(--text-muted); font-family: 'Fira Code', monospace; }
-        .step-bar .info b { color: #38bdf8; }
+        .step-bar .info b { color: var(--ac1); }
+
+        /* ── ustawienia: motyw + akcent ────────────────────────── */
+        .settings { display: flex; align-items: center; gap: 8px; }
+        .icon-btn {
+            width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center;
+            background: var(--surface-2); border: 1px solid var(--stroke); color: var(--text-muted);
+            cursor: pointer; font-size: 15px; transition: all 0.15s;
+        }
+        .icon-btn:hover { background: var(--surface-3); color: var(--text); }
+        .swatches { display: flex; gap: 5px; padding: 4px 6px; border-radius: 999px;
+            background: var(--surface-2); border: 1px solid var(--stroke); }
+        .swatch { width: 18px; height: 18px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; transition: transform 0.12s; }
+        .swatch:hover { transform: scale(1.15); }
+        .swatch.active { border-color: var(--text); }
+        .swatch.cyan   { background: linear-gradient(135deg,#22d3ee,#6366f1); }
+        .swatch.orange { background: linear-gradient(135deg,#fbbf24,#f97316); }
+        .swatch.green  { background: linear-gradient(135deg,#4ade80,#16a34a); }
+        .swatch.pink   { background: linear-gradient(135deg,#f472b6,#a855f7); }
+        .swatch.red    { background: linear-gradient(135deg,#fb7185,#dc2626); }
     </style>
 </head>
 <body>
+    <div class="bg"><div class="glow g1"></div><div class="glow g2"></div><div class="glow g3"></div></div>
+
+    <!-- Pasek okna (frameless) w kolorze aplikacji -->
+    <div class="win-ctrl">
+        <img class="wc-ico" src="build/icon.png" alt="">
+        <div class="wc-title">CAM GENERATOR — GENERATOR G-CODE</div>
+        <div class="wc-btns">
+            <button class="wc-btn" id="win_min" title="Minimalizuj">—</button>
+            <button class="wc-btn" id="win_max" title="Maksymalizuj">▢</button>
+            <button class="wc-btn close" id="win_close" title="Zamknij">✕</button>
+        </div>
+    </div>
+
     <div class="app">
         <!-- Sidebar (file-manager style rail) -->
         <aside class="sidebar">
-            <div class="brand-badge">C</div>
+            <div class="brand-badge">G</div>
             <div class="nav-item active">🛠️<span class="tip">Projekt CAM</span></div>
             <div class="nav-item" id="nav_sketch">✏️<span class="tip">Szkicownik</span></div>
             <div class="nav-item" id="nav_table">📐<span class="tip">Wymiary</span></div>
@@ -369,8 +478,17 @@
                     <div class="path"><b>Projekt</b> ▸ Haas ST-35Y ▸ <span id="path_mode">Toczenie zewnętrzne</span></div>
                 </div>
                 <div class="topbar-right">
-                    <div class="chip"><span class="dot"></span> Haas ST-35Y</div>
                     <div class="chip" id="chip_pts">0 punktów</div>
+                    <div class="settings">
+                        <div class="swatches" id="swatches" title="Kolor akcentu">
+                            <span class="swatch cyan active" data-accent="cyan"></span>
+                            <span class="swatch orange" data-accent="orange"></span>
+                            <span class="swatch green" data-accent="green"></span>
+                            <span class="swatch pink" data-accent="pink"></span>
+                            <span class="swatch red" data-accent="red"></span>
+                        </div>
+                        <button class="icon-btn" id="btn_theme" title="Motyw jasny / ciemny">🌙</button>
+                    </div>
                 </div>
             </div>
 
@@ -550,17 +668,17 @@
                             </div>
                         </div>
                         <div class="card-body">
+                            <div class="toolbar">
+                                <button class="btn-ghost btn-sm" id="btn_step_mode">▷ Krok po kroku</button>
+                                <button class="btn-ok btn-sm" id="btn_copy">📋 Kopiuj</button>
+                                <button class="btn-ok btn-sm" id="btn_download">⬇ Pobierz .nc</button>
+                            </div>
                             <div class="step-bar" id="step_bar">
                                 <button class="btn-ghost btn-sm" id="btn_step_prev">◀ Poprzedni</button>
                                 <button class="btn-ghost btn-sm" id="btn_step_next">Następny ▶</button>
                                 <span class="info" id="step_info">Krok — / —</span>
                             </div>
                             <div id="nc_output" class="output">Narysuj lub wpisz profil w tabeli, a następnie kliknij „Generuj G-code".</div>
-                            <div class="toolbar">
-                                <button class="btn-ghost btn-sm" id="btn_step_mode">▷ Krok po kroku</button>
-                                <button class="btn-ok btn-sm" id="btn_copy">📋 Kopiuj</button>
-                                <button class="btn-ok btn-sm" id="btn_download">⬇ Pobierz .nc</button>
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -614,18 +732,18 @@
         /* ---------- Demo profiles ---------- */
         function demoExternal() {
             return [
-                { x: 30, z: 0,   corner: 'C', cval: 1.5, groove: false },
-                { x: 30, z: -20, corner: 'none', cval: 0, groove: false },
+                { x: 30, z: 0,   corner: 'none', cval: 0, groove: false },
+                { x: 30, z: -20, corner: 'C', cval: 1.5, groove: false },
                 { x: 50, z: -20, corner: 'R', cval: 2, groove: false },
                 { x: 50, z: -45, corner: 'none', cval: 0, groove: false },
-                { x: 72, z: -45, corner: 'none', cval: 0, groove: false },
+                { x: 72, z: -45, corner: 'R', cval: 3, groove: false },
                 { x: 72, z: -70, corner: 'none', cval: 0, groove: false }
             ];
         }
         function demoInternal() {
             return [
-                { x: 40, z: 0,   corner: 'C', cval: 1, groove: false },
-                { x: 40, z: -25, corner: 'none', cval: 0, groove: false },
+                { x: 40, z: 0,   corner: 'none', cval: 0, groove: false },
+                { x: 40, z: -25, corner: 'C', cval: 1, groove: false },
                 { x: 28, z: -25, corner: 'none', cval: 0, groove: false },
                 { x: 28, z: -55, corner: 'none', cval: 0, groove: false }
             ];
@@ -1020,7 +1138,8 @@
                 const p = pts[i];
                 if (p.corner === 'none' || !p.cval) { out.push({ x: p.x, z: p.z, groove: p.groove }); continue; }
                 const prev = pts[i - 1], next = pts[i + 1];
-                const c = Math.min(p.cval, 0.49 * segLen(prev, p), 0.49 * segLen(p, next));
+                let c = cornerTangent(prev, p, next, p.corner, p.cval);
+                c = Math.min(c, 0.49 * segLen(prev, p), 0.49 * segLen(p, next));
                 const inA = unit(p, prev), outA = unit(p, next);
                 const pIn = { x: p.x + inA.x * c * 2, z: p.z + inA.z * c, groove: p.groove };
                 const pOut = { x: p.x + outA.x * c * 2, z: p.z + outA.z * c, groove: p.groove };
@@ -1044,12 +1163,78 @@
         function unit(from, to) { const dx = (to.x - from.x) / 2, dz = to.z - from.z, l = Math.hypot(dx, dz) || 1; return { x: dx / l, z: dz / l }; }
 
         /* ============================================================
-           GENEROWANIE G-CODE
+           GEOMETRIA NAROŻY (faza / promień) -> jawne ruchy G-code
+           Fazy jako G01 X.. Z.., promienie jako G02/G03 X.. Z.. R..
            ============================================================ */
-        function cornerTag(pt) {
-            if (pt.corner === 'C' && pt.cval > 0) return ` ,C${fmtNC(pt.cval)}`;
-            if (pt.corner === 'R' && pt.cval > 0) return ` ,R${fmtNC(pt.cval)}`;
-            return '';
+        // punkt w odległości t od `from` w kierunku `toward` (w płaszczyźnie Z–promień)
+        function pointAlong(from, toward, t) {
+            const fr = from.x / 2, tr = toward.x / 2;
+            const dz = toward.z - from.z, dr = tr - fr;
+            const L = Math.hypot(dz, dr) || 1;
+            return { z: from.z + dz / L * t, x: (fr + dr / L * t) * 2 };
+        }
+        // długość styczności naroża: faza = ramię C; promień = R / tan(kąt/2)
+        function cornerTangent(prev, p, next, type, cval) {
+            if (type === 'C') return cval;
+            const v1z = prev.z - p.z, v1r = (prev.x - p.x) / 2;
+            const v2z = next.z - p.z, v2r = (next.x - p.x) / 2;
+            const a1 = Math.hypot(v1z, v1r) || 1, a2 = Math.hypot(v2z, v2r) || 1;
+            let cosang = (v1z * v2z + v1r * v2r) / (a1 * a2);
+            cosang = Math.max(-1, Math.min(1, cosang));
+            const ang = Math.acos(cosang);
+            const tt = Math.tan(ang / 2);
+            return Math.abs(tt) < 1e-6 ? cval : cval / tt;
+        }
+        // kierunek łuku: Z poziomo w prawo, promień pionowo w górę; CCW -> G03, CW -> G02
+        function arcDir(prev, p, next) {
+            const inz = p.z - prev.z, inr = (p.x - prev.x) / 2;
+            const outz = next.z - p.z, outr = (next.x - p.x) / 2;
+            const cross = inz * outr - inr * outz;
+            return cross > 0 ? 'G03' : 'G02';
+        }
+        // buduje listę ruchów konturu (z rozwinięciem faz i promieni)
+        function buildContourMoves(pts) {
+            const moves = [];
+            const n = pts.length;
+            for (let i = 1; i < n; i++) {
+                const p = pts[i], prev = pts[i - 1];
+                const interior = i < n - 1;
+                const hasCorner = interior && p.corner && p.corner !== 'none' && p.cval > 0;
+                if (!hasCorner) { moves.push({ g: 'G01', x: p.x, z: p.z }); continue; }
+                const next = pts[i + 1];
+                let t = cornerTangent(prev, p, next, p.corner, p.cval);
+                t = Math.min(t, 0.98 * segLen(prev, p), 0.98 * segLen(p, next));
+                if (t <= 1e-4) { moves.push({ g: 'G01', x: p.x, z: p.z }); continue; }
+                const pin = pointAlong(p, prev, t);
+                const pout = pointAlong(p, next, t);
+                moves.push({ g: 'G01', x: pin.x, z: pin.z });
+                if (p.corner === 'C') moves.push({ g: 'G01', x: pout.x, z: pout.z, chamfer: true });
+                else moves.push({ g: arcDir(prev, p, next), x: pout.x, z: pout.z, r: p.cval });
+            }
+            return moves;
+        }
+        function emitContour(g, first, type2, fFin, approachX, P, Q) {
+            if (type2) {
+                g.push(`N${P} G00 X${fmtNC(first.x)} Z${fmtNC(first.z)}`);
+            } else {
+                g.push(`N${P} G00 X${fmtNC(first.x)}`);
+                g.push(`G01 Z${fmtNC(first.z)} F${fmtNC(fFin)}`);
+            }
+            let curX = first.x, curZ = first.z;
+            for (const m of buildContourMoves(profile)) {
+                let line = m.g;
+                if (m.g === 'G02' || m.g === 'G03') {
+                    line += ' X' + fmtNC(m.x) + ' Z' + fmtNC(m.z) + ' R' + fmtNC(m.r);
+                } else if (m.chamfer) {
+                    line += ' X' + fmtNC(m.x) + ' Z' + fmtNC(m.z);   // jawna faza
+                } else {
+                    if (Math.abs(m.x - curX) > 1e-6) line += ' X' + fmtNC(m.x);
+                    if (Math.abs(m.z - curZ) > 1e-6) line += ' Z' + fmtNC(m.z);
+                }
+                g.push(line);
+                curX = m.x; curZ = m.z;
+            }
+            g.push(`N${Q} G00 X${fmtNC(approachX)}`);
         }
 
         function generateGcode() {
@@ -1104,26 +1289,8 @@
             g.push('');
             g.push(`G71 P${P} Q${Q} D${fmtNC(ap)} I${fmtNC(Iout)} K${fmtNC(allowZ)} F${fmtNC(fRough)}`);
 
-            // blok konturu P..Q
-            const first = profile[0];
-            if (type2) {
-                // Typ 2: pierwszy blok zawiera X i Z (kontrola wykrywa typ 2)
-                g.push(`N${P} G00 X${fmtNC(first.x)} Z${fmtNC(first.z)}${cornerTag(first)}`);
-            } else {
-                // Typ 1: pierwszy blok tylko X
-                g.push(`N${P} G00 X${fmtNC(first.x)}`);
-                g.push(`G01 Z${fmtNC(first.z)} F${fmtNC(fFin)}`);
-            }
-            for (let i = 1; i < profile.length; i++) {
-                const p = profile[i], prev = profile[i - 1];
-                const dx = Math.abs(p.x - prev.x) > 1e-6, dz = Math.abs(p.z - prev.z) > 1e-6;
-                let line = 'G01';
-                if (dx) line += ' X' + fmtNC(p.x);
-                if (dz) line += ' Z' + fmtNC(p.z);
-                line += cornerTag(p);
-                g.push(line);
-            }
-            g.push(`N${Q} G00 X${fmtNC(approachX)}`);
+            // blok konturu P..Q (z jawnymi fazami/łukami)
+            emitContour(g, profile[0], type2, fFin, approachX, P, Q);
 
             // cykl wykańczający
             g.push('');
@@ -1426,6 +1593,53 @@
         document.getElementById('nav_help').addEventListener('click', () => toast('Rysuj myszą, wpisuj wymiary w tabeli (zakładka), fazy/promienie klikając w naroże. Shift+przeciągnij = pan, kółko = zoom.', 'info'));
 
         /* ---------- init ---------- */
+        /* ---------- Pasek okna (Electron, frameless) ---------- */
+        function winApi() { return window.cam || null; }
+        document.getElementById('win_min').addEventListener('click', () => winApi() && winApi().minimize());
+        document.getElementById('win_max').addEventListener('click', () => winApi() && winApi().toggleMaximize());
+        document.getElementById('win_close').addEventListener('click', () => winApi() && winApi().close());
+
+        /* ---------- Motyw i kolor akcentu ---------- */
+        const ACCENTS = ['cyan', 'orange', 'green', 'pink', 'red'];
+        function applyAccent(name) {
+            ACCENTS.forEach(a => document.body.classList.remove('accent-' + a));
+            if (name && name !== 'cyan') document.body.classList.add('accent-' + name);
+            document.querySelectorAll('#swatches .swatch').forEach(s =>
+                s.classList.toggle('active', s.dataset.accent === name));
+            try { localStorage.setItem('cam_accent', name); } catch (e) {}
+            syncWindowBar();
+            drawCAD();
+        }
+        function applyTheme(light) {
+            document.body.classList.toggle('light', light);
+            document.getElementById('btn_theme').innerText = light ? '☀️' : '🌙';
+            try { localStorage.setItem('cam_theme', light ? 'light' : 'dark'); } catch (e) {}
+            syncWindowBar();
+            drawCAD();
+        }
+        // przekaż kolor paska okna do procesu głównego (nakładka tytułu, jeśli używana)
+        function syncWindowBar() {
+            const api = winApi();
+            if (api && api.setBarColor) {
+                const cs = getComputedStyle(document.body);
+                api.setBarColor(cs.getPropertyValue('--bg').trim(), cs.getPropertyValue('--text').trim());
+            }
+        }
+        document.querySelectorAll('#swatches .swatch').forEach(s =>
+            s.addEventListener('click', () => applyAccent(s.dataset.accent)));
+        document.getElementById('btn_theme').addEventListener('click', () =>
+            applyTheme(!document.body.classList.contains('light')));
+
+        (function initTheme() {
+            let accent = 'cyan', light = false;
+            try {
+                accent = localStorage.getItem('cam_accent') || 'cyan';
+                light = localStorage.getItem('cam_theme') === 'light';
+            } catch (e) {}
+            applyAccent(accent);
+            applyTheme(light);
+        })();
+
         window.addEventListener('load', () => {
             profile = demoExternal();
             updateModeUI();
