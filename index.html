@@ -2814,8 +2814,15 @@ document.getElementById("grid").addEventListener("click", e => {
   if (fav) {
     e.stopPropagation();
     const p = byId(fav.dataset.fav);
+    if (!p) return;
     p.fav = !p.fav;
-    save(); render();
+    save();
+    // aktualizacja w miejscu — bez przerysowywania całej siatki
+    fav.classList.toggle("on", p.fav);
+    const st = document.getElementById("stFav");
+    if (st) st.textContent = programs.filter(x => inView(x) && x.fav).length;
+    // gdy oglądamy tylko ulubione, a program przestał nim być — usuń jego kartę
+    if (filter === "fav" && !p.fav) { const c = fav.closest(".card"); if (c) c.remove(); }
     return;
   }
   const card = e.target.closest(".card");
