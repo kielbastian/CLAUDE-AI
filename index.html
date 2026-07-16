@@ -852,6 +852,22 @@
             </button>
           </div>
         </div>
+        <div class="set-sec">
+          <span class="set-label">Widget wyszukiwania</span>
+          <div class="set-modes">
+            <button class="set-mode" data-widget="on">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3"></path></svg>
+              Włączony
+            </button>
+            <button class="set-mode" data-widget="off">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 8h8v8H8z"></path></svg>
+              Wyłączony
+            </button>
+          </div>
+          <div style="font-size:.68rem;color:var(--mut);line-height:1.5">
+            Mała pływająca wyszukiwarka zawsze na wierzchu. Skrót: Ctrl+Shift+Spacja.
+          </div>
+        </div>
       </div>
     </div>
     <button class="btn btn-primary" id="btnNew">
@@ -2443,21 +2459,32 @@ const ACCENTS = ["default", "orange", "green", "red"];
 function currentAccent() {
   return ACCENTS.find(a => a !== "default" && document.body.classList.contains("theme-" + a)) || "default";
 }
+let widgetEnabled = false;
+function widgetPayload() { return { theme: document.body.classList.contains("light") ? "light" : "dark", accent: currentAccent(), motion: motionOn() }; }
+function refreshWidgetTheme() { if (widgetEnabled && window.native && window.native.updateWidget) window.native.updateWidget(widgetPayload()); }
 function applyMode(light) {
   document.body.classList.toggle("light", light);
   localStorage.setItem("cncTheme", light ? "light" : "dark");
+  refreshWidgetTheme();
   syncSettingsUI();
 }
 function applyAccent(name) {
   ACCENTS.forEach(a => document.body.classList.remove("theme-" + a));
   if (name && name !== "default") document.body.classList.add("theme-" + name);
   localStorage.setItem("cncAccent", name || "default");
+  refreshWidgetTheme();
   syncSettingsUI();
 }
 function motionOn() { return !document.body.classList.contains("no-motion"); }
 function applyMotion(on) {
   document.body.classList.toggle("no-motion", !on);
   localStorage.setItem("cncMotion", on ? "on" : "off");
+  syncSettingsUI();
+}
+function applyWidget(on) {
+  widgetEnabled = on;
+  localStorage.setItem("cncWidget", on ? "on" : "off");
+  if (window.native && window.native.toggleWidget) window.native.toggleWidget(on, widgetPayload());
   syncSettingsUI();
 }
 function syncSettingsUI() {
@@ -2467,9 +2494,11 @@ function syncSettingsUI() {
   const acc = currentAccent();
   document.querySelectorAll(".swatch").forEach(b =>
     b.classList.toggle("on", b.dataset.accent === acc));
-  const on = motionOn();
+  const mon = motionOn();
   document.querySelectorAll(".set-mode[data-motion]").forEach(b =>
-    b.classList.toggle("on", (b.dataset.motion === "on") === on));
+    b.classList.toggle("on", (b.dataset.motion === "on") === mon));
+  document.querySelectorAll(".set-mode[data-widget]").forEach(b =>
+    b.classList.toggle("on", (b.dataset.widget === "on") === widgetEnabled));
 }
 const settingsMenu = document.getElementById("settingsMenu");
 document.getElementById("btnSettings").addEventListener("click", e => {
@@ -2484,6 +2513,8 @@ settingsMenu.addEventListener("click", e => {
   if (a) { applyAccent(a.dataset.accent); return; }
   const mo = e.target.closest("[data-motion]");
   if (mo) { applyMotion(mo.dataset.motion === "on"); return; }
+  const w = e.target.closest("[data-widget]");
+  if (w) { applyWidget(w.dataset.widget === "on"); return; }
 });
 /* zamknij menu ustawień kliknięciem poza nim */
 document.addEventListener("click", e => {
@@ -2494,6 +2525,26 @@ document.addEventListener("click", e => {
 if (localStorage.getItem("cncTheme") === "light") document.body.classList.add("light");
 applyAccent(localStorage.getItem("cncAccent") || "default");
 applyMotion(localStorage.getItem("cncMotion") !== "off");
+/* widget wyszukiwania — przywróć stan (pokaż, jeśli był włączony) */
+widgetEnabled = localStorage.getItem("cncWidget") === "on";
+if (widgetEnabled && window.native && window.native.toggleWidget) window.native.toggleWidget(true, widgetPayload());
+syncSettingsUI();
+/* proces główny zgłasza zmianę widoczności widgetu (schowany po wyszukaniu / Esc / skrót) */
+if (window.native && window.native.onWidgetState) window.native.onWidgetState(on => {
+  widgetEnabled = !!on;
+  localStorage.setItem("cncWidget", on ? "on" : "off");
+  syncSettingsUI();
+});
+/* zapytanie wpisane w widgecie — pokaż w wyszukiwarce głównej */
+if (window.native && window.native.onWidgetSearch) window.native.onWidgetSearch(qv => {
+  filter = "all";
+  searchEl.value = qv;
+  clearEl.style.display = qv ? "block" : "none";
+  query = (qv || "").trim();
+  queryTokens = query ? fold(query).split(/\s+/).filter(Boolean) : [];
+  const prev = viewLimit; viewLimit = 0; renderGrid(); viewLimit = prev;
+  document.getElementById("grid").scrollIntoView({ behavior: "smooth", block: "start" });
+});
 
 /* otwiera folder rysunków PDF (albo konkretny szkic wpisany w polu) w Eksploratorze */
 document.getElementById("btnOpenPdfDir").addEventListener("click", async () => {

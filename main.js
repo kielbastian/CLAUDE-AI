@@ -1,10 +1,12 @@
-const { app, BrowserWindow, session, Menu, ipcMain, dialog, shell } = require("electron");
+const { app, BrowserWindow, session, Menu, ipcMain, dialog, shell, screen, globalShortcut } = require("electron");
 const path = require("path");
 const fs = require("fs/promises");
 
 const PROG_RE = /\.(txt|nc|cnc|tap|eia|prg|ngc)$/i;
 
 let win = null;
+let widgetWin = null;                // pływający widget szybkiego wyszukiwania
+let widgetPayload = { theme: "dark", accent: "default" };
 const detailPayloads = new Map();   // id okna podglądu -> dane programu
 
 function createWindow() {
@@ -26,7 +28,44 @@ function createWindow() {
   win.loadFile("index.html");
 
   attachContextMenu(win);
+  win.on("closed", () => { if (widgetWin && !widgetWin.isDestroyed()) widgetWin.destroy(); });
 }
+
+/* ── pływający widget szybkiego wyszukiwania (zawsze na wierzchu) ── */
+function createWidgetWindow() {
+  const wa = screen.getPrimaryDisplay().workArea;
+  const W = 400, H = 66;
+  widgetWin = new BrowserWindow({
+    width: W, height: H,
+    x: Math.round(wa.x + (wa.width - W) / 2),
+    y: wa.y + 48,
+    frame: false, transparent: true, resizable: false, movable: true,
+    minimizable: false, maximizable: false, fullscreenable: false,
+    skipTaskbar: true, alwaysOnTop: true, hasShadow: false, show: false,
+    title: "Szukaj — CNC Manager",
+    webPreferences: { preload: path.join(__dirname, "preload.js") }
+  });
+  widgetWin.setAlwaysOnTop(true, "screen-saver");
+  widgetWin.on("closed", () => { widgetWin = null; });
+  attachContextMenu(widgetWin);
+  widgetWin.loadFile("widget.html");
+  return widgetWin;
+}
+function showWidget(payload) {
+  if (payload) widgetPayload = payload;
+  if (!widgetWin || widgetWin.isDestroyed()) createWidgetWindow();
+  const doShow = () => {
+    widgetWin.show();
+    widgetWin.setAlwaysOnTop(true, "screen-saver");
+    widgetWin.focus();
+    widgetWin.webContents.send("widget-theme", widgetPayload);
+  };
+  if (widgetWin.webContents.isLoading()) widgetWin.webContents.once("did-finish-load", doShow);
+  else doShow();
+}
+function hideWidget() { if (widgetWin && !widgetWin.isDestroyed()) widgetWin.hide(); }
+function notifyWidgetState(on) { if (win && !win.isDestroyed()) win.webContents.send("widget-state", on); }
+function setWidget(on, payload) { if (on) showWidget(payload); else hideWidget(); notifyWidgetState(on); }
 
 /* menu pod prawym przyciskiem myszy w polach tekstowych */
 function attachContextMenu(w) {
@@ -272,8 +311,34 @@ ipcMain.on("detail-action", (e, msg) => {
   }
 });
 
+/* ── widget szybkiego wyszukiwania ── */
+ipcMain.handle("toggle-widget", (e, { on, payload }) => { setWidget(on, payload); return { ok: true }; });
+ipcMain.on("update-widget", (e, payload) => {
+  widgetPayload = payload || widgetPayload;
+  if (widgetWin && !widgetWin.isDestroyed() && widgetWin.isVisible()) widgetWin.webContents.send("widget-theme", widgetPayload);
+});
+ipcMain.handle("get-widget-data", () => widgetPayload);
+ipcMain.on("widget-submit", (e, query) => {
+  if (win && !win.isDestroyed()) {
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+    win.webContents.send("widget-search", query);
+  }
+  hideWidget();
+  notifyWidgetState(false);   // widget zniknął — odznacz w ustawieniach
+});
+ipcMain.on("widget-close", () => { hideWidget(); notifyWidgetState(false); });
+
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
+  // skrót globalny do przywołania widgetu (działa też, gdy aplikacja w tle)
+  try {
+    globalShortcut.register("CommandOrControl+Shift+Space", () => {
+      if (widgetWin && !widgetWin.isDestroyed() && widgetWin.isVisible()) setWidget(false);
+      else setWidget(true, widgetPayload);
+    });
+  } catch (e) {}
   // dostęp do folderów (File System Access API) — zezwól bez pytania,
   // wybór folderu i tak przechodzi przez systemowe okno dialogowe
   session.defaultSession.setPermissionRequestHandler((wc, permission, cb) => cb(true));
@@ -283,6 +348,8 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
+
+app.on("will-quit", () => { try { globalShortcut.unregisterAll(); } catch (e) {} });
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
