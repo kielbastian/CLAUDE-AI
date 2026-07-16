@@ -1,6 +1,6 @@
 {
-  "name": "cnc-manager",
-  "productName": "CNC Manager",
+  "name": "cam-generator-gcode",
+  "productName": "CAM Studio — Generator G-code",
   "version": "1.0.0",
   "description": "Generator G-code Haas ST-35Y — CAM Studio (toczenie / wytaczanie, G71/G70)",
   "author": "kielbastian",
@@ -16,26 +16,26 @@
     "electron-builder": "^24.13.3"
   },
   "build": {
-    "appId": "com.kielbastian.cncmanager",
-    "productName": "CNC Manager",
+    "appId": "com.kielbastian.camgenerator",
+    "productName": "CAM Generator",
     "files": [
       "main.js",
       "index.html"
     ],
     "win": {
       "target": "portable",
-      "artifactName": "CNC-Manager.exe"
+      "artifactName": "CAM-Generator.exe"
     },
     "portable": {
-      "artifactName": "CNC-Manager.exe"
+      "artifactName": "CAM-Generator.exe"
     },
     "nsis": {
-      "artifactName": "CNC-Manager-Setup.exe",
+      "artifactName": "CAM-Generator-Setup.exe",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "CNC Manager"
+      "shortcutName": "CAM Generator"
     }
   }
 }

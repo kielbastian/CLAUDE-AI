@@ -1,5 +1,5 @@
-// CNC Manager — proces główny Electron.
-// Opakowuje aplikację CAM (index.html) w okno aplikacji desktopowej Windows.
+// CAM Generator — proces główny Electron.
+// Opakowuje generator G-code (index.html) w okno aplikacji desktopowej Windows.
 const { app, BrowserWindow, Menu, shell, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -13,7 +13,7 @@ function createWindow() {
     minWidth: 1100,
     minHeight: 700,
     backgroundColor: '#0b1120',
-    title: 'CNC Manager',
+    title: 'CAM Generator — Generator G-code',
     autoHideMenuBar: true,
     show: false,
     webPreferences: {
@@ -87,7 +87,7 @@ function buildMenu() {
             dialog.showMessageBox(mainWindow, {
               type: 'info',
               title: 'O programie',
-              message: 'CNC Manager',
+              message: 'CAM Generator',
               detail: 'Generator G-code Haas ST-35Y — CAM Studio.\nToczenie zewnętrzne / wytaczanie, cykle G71 / G70,\nwymiarowanie tabelą, fazy i promienie, symulacja i tryb krokowy.'
             });
           }

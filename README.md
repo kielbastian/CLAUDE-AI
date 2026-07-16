@@ -1,9 +1,13 @@
-# CNC Manager
+# CAM Generator — Generator G-code
 
 Aplikacja desktopowa (Windows) — **Generator G-code Haas ST-35Y / CAM Studio**.
 
+> Uwaga: to osobna aplikacja od menedżera programów CNC (`CNC-Manager.exe`
+> w release `windows-exe`). Ten projekt buduje plik `CAM-Generator.exe`
+> i **nie nadpisuje** tamtego release.
+
 Rdzeń aplikacji (`index.html`) działa też samodzielnie w przeglądarce, a Electron
-opakowuje go w pojedynczy plik `CNC-Manager.exe`.
+opakowuje go w pojedynczy plik `CAM-Generator.exe`.
 
 ## Funkcje
 
@@ -25,13 +29,13 @@ npm start
 
 ```bash
 npm install
-npm run dist            # portable -> dist/CNC-Manager.exe
-npm run dist:installer  # instalator NSIS -> dist/CNC-Manager-Setup.exe
+npm run dist            # portable -> dist/CAM-Generator.exe
+npm run dist:installer  # instalator NSIS -> dist/CAM-Generator-Setup.exe
 ```
 
-## Publikacja
+## Build w CI
 
-Workflow GitHub Actions `.github/workflows/build-windows.yml` buduje
-`CNC-Manager.exe` na runnerze `windows-latest` i wgrywa go do release
-o tagu `windows-exe` (przy każdym pushu zmian lub ręcznie przez
-„Run workflow").
+Workflow `.github/workflows/build-windows.yml` buduje `CAM-Generator.exe`
+na runnerze `windows-latest` i udostępnia go jako **artefakt kompilacji**
+(uruchamiany ręcznie: Actions → „Build CAM Generator EXE" → Run workflow).
+Workflow nie publikuje niczego do release.
