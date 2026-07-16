@@ -36,6 +36,6 @@ npm run dist:installer  # instalator NSIS -> dist/CAM-Generator-Setup.exe
 ## Build w CI
 
 Workflow `.github/workflows/build-windows.yml` buduje `CAM-Generator.exe`
-na runnerze `windows-latest` i udostępnia go jako **artefakt kompilacji**
-(uruchamiany ręcznie: Actions → „Build CAM Generator EXE" → Run workflow).
-Workflow nie publikuje niczego do release.
+na runnerze `windows-latest` i publikuje go w **osobnym** release o tagu
+`cam-generator-exe`. Nie dotyka release `windows-exe`, który należy do
+osobnej aplikacji (menedżer programów CNC — `CNC-Manager.exe`).

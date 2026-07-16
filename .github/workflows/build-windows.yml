@@ -1,15 +1,23 @@
 name: Build CAM Generator EXE
 
 # Buduje portable CAM-Generator.exe (generator G-code) na runnerze Windows
-# i udostępnia go jako artefakt kompilacji.
-# UWAGA: ten workflow NIE publikuje do release "windows-exe" — ten release
-# należy do osobnej aplikacji (menedżer programów CNC).
+# i publikuje go w OSOBNYM release o tagu "cam-generator-exe".
+# NIE dotyka release "windows-exe" (tam jest osobna aplikacja — menedżer CNC).
 
 on:
+  push:
+    branches:
+      - main
+      - claude/file-manager-ui-features-ur6z46
+    paths:
+      - 'index.html'
+      - 'main.js'
+      - 'package.json'
+      - '.github/workflows/build-windows.yml'
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -29,8 +37,26 @@ jobs:
       - name: Build portable EXE
         run: npm run dist
 
+      - name: List build output
+        run: dir dist
+        shell: cmd
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: CAM-Generator-windows
           path: dist/CAM-Generator.exe
+
+      - name: Publish to separate release (cam-generator-exe)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: cam-generator-exe
+          name: CAM Generator — Generator G-code (exe)
+          body: |
+            Przenośna aplikacja Windows — **CAM Generator** (generator G-code Haas ST-35Y).
+            Pobierz `CAM-Generator.exe` i uruchom podwójnym kliknięciem — instalacja nie jest wymagana.
+
+            To osobna aplikacja od menedżera programów CNC (`CNC-Manager.exe` w release `windows-exe`).
+          files: dist/CAM-Generator.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
