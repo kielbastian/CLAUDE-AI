@@ -2033,7 +2033,9 @@ function hayOf(p) {
 }
 
 function matches(p) {
-  if (!inView(p)) return false;   // filtr aktywnego folderu
+  // filtr folderu obowiązuje przy przeglądaniu; przy aktywnym wyszukiwaniu
+  // szukamy we WSZYSTKICH folderach (żeby zawsze znaleźć program)
+  if (!queryTokens.length && !inView(p)) return false;
   if (filter === "fav" && !p.fav) return false;
   if (filter.startsWith("tag:") && !(p.tags || []).includes(filter.slice(4))) return false;
   if (!queryTokens.length) return true;
@@ -2576,11 +2578,11 @@ if (window.native && window.native.onWidgetState) window.native.onWidgetState(on
 function widgetCount(qv) {
   const q2 = (qv || "").trim();
   const toks = q2 ? fold(q2).split(/\s+/).filter(Boolean) : [];
+  if (!toks.length) return 0;
   let n = 0;
-  for (const p of programs) {
-    if (!inView(p)) continue;
-    if (toks.length) { const hay = hayOf(p); if (!toks.every(w => hay.includes(w))) continue; }
-    n++;
+  for (const p of programs) {   // widget szuka we wszystkich folderach
+    const hay = hayOf(p);
+    if (toks.every(w => hay.includes(w))) n++;
   }
   return n;
 }
