@@ -255,6 +255,16 @@
         table.coord td { padding: 5px 8px; border-bottom: 1px solid rgba(148,163,184,0.07); }
         table.coord tr:last-child td { border-bottom: none; }
         table.coord tr.grv td { background: rgba(168, 85, 247, 0.06); }
+        table.coord td { transition: background 0.15s; }
+        table.coord tr.active-row td {
+            background: rgba(0, 154, 213, 0.18);
+            box-shadow: inset 0 1px 0 rgba(0, 154, 213, 0.55), inset 0 -1px 0 rgba(0, 154, 213, 0.55);
+        }
+        table.coord tr.active-row .idx { color: #38bdf8; }
+        table.coord tr.grv.active-row td {
+            background: rgba(168, 85, 247, 0.20);
+            box-shadow: inset 0 1px 0 rgba(168, 85, 247, 0.55), inset 0 -1px 0 rgba(168, 85, 247, 0.55);
+        }
         table.coord input, table.coord select { padding: 7px 8px; font-size: 12.5px; }
         table.coord .idx { color: var(--text-dim); font-weight: 700; text-align: center; width: 34px; }
         table.coord .row-del {
@@ -542,6 +552,7 @@
         let animationId = null, simIndex = 0, currentSimPos = { x: 0, z: 0 }, isAnimating = false;
 
         let scale = 4.0, originX = 230, originZ = 300;
+        let activeRowIdx = null;
         let isDragging = false, startDragPos = { x: 0, y: 0 };
         let currentMouseGrid = { x: 0, z: 0 };
 
@@ -597,6 +608,7 @@
         function renderTable() {
             const body = document.getElementById('coord_body');
             body.innerHTML = '';
+            activeRowIdx = null;
             profile.forEach((pt, i) => {
                 const tr = document.createElement('tr');
                 if (pt.groove) tr.className = 'grv';
@@ -619,6 +631,8 @@
 
             body.querySelectorAll('input, select').forEach(el => {
                 el.addEventListener('change', onTableEdit);
+                el.addEventListener('focus', () => setActiveRow(parseInt(el.dataset.i)));
+                el.addEventListener('blur', () => setActiveRow(null));
             });
             body.querySelectorAll('[data-del]').forEach(el => {
                 el.addEventListener('click', () => {
@@ -631,6 +645,22 @@
         }
 
         function fmt(v) { return (Math.round(v * 1000) / 1000).toString(); }
+
+        // Format NC: wymiar zawsze z kropką dziesiętną (np. X25.0, Z5.)
+        function fmtNC(v) {
+            const r = Math.round(v * 1000) / 1000;
+            let s = r.toString();
+            if (!s.includes('.')) s += '.';
+            return s;
+        }
+
+        function setActiveRow(idx) {
+            activeRowIdx = idx;
+            document.querySelectorAll('#coord_body tr').forEach((tr, i) => {
+                tr.classList.toggle('active-row', i === idx);
+            });
+            drawCAD();
+        }
 
         function onTableEdit(e) {
             const i = parseInt(e.target.dataset.i);
@@ -902,10 +932,18 @@
                 }
                 // węzły
                 profile.forEach((pt, i) => {
+                    const px = getZPix(pt.z), py = getXPix(pt.x);
+                    if (i === activeRowIdx) {
+                        // punkt edytowany w tabeli — wyróżnienie
+                        ctx.strokeStyle = '#facc15'; ctx.lineWidth = 2;
+                        ctx.beginPath(); ctx.arc(px, py, 9, 0, 2 * Math.PI); ctx.stroke();
+                        ctx.fillStyle = 'rgba(250, 204, 21, 0.25)';
+                        ctx.beginPath(); ctx.arc(px, py, 9, 0, 2 * Math.PI); ctx.fill();
+                    }
                     ctx.fillStyle = pt.groove ? '#c084fc' : '#38bdf8';
-                    ctx.beginPath(); ctx.arc(getZPix(pt.z), getXPix(pt.x), 4, 0, 2 * Math.PI); ctx.fill();
+                    ctx.beginPath(); ctx.arc(px, py, 4, 0, 2 * Math.PI); ctx.fill();
                     ctx.fillStyle = '#0b1120'; ctx.font = 'bold 9px monospace';
-                    ctx.fillText(i, getZPix(pt.z) - 3, getXPix(pt.x) + 3);
+                    ctx.fillText(i, px - 3, py + 3);
                 });
 
                 // auto-wymiary (odczyt z tabeli, rysowane lekko)
@@ -981,8 +1019,8 @@
            GENEROWANIE G-CODE
            ============================================================ */
         function cornerTag(pt) {
-            if (pt.corner === 'C' && pt.cval > 0) return ` ,C${fmt(pt.cval)}`;
-            if (pt.corner === 'R' && pt.cval > 0) return ` ,R${fmt(pt.cval)}`;
+            if (pt.corner === 'C' && pt.cval > 0) return ` ,C${fmtNC(pt.cval)}`;
+            if (pt.corner === 'R' && pt.cval > 0) return ` ,R${fmtNC(pt.cval)}`;
             return '';
         }
 
@@ -1031,43 +1069,42 @@
             const Iout = internal ? -Math.abs(allowX) : Math.abs(allowX);
             const approachX = internal ? Math.max(dPilot - 2, 1) : dBlank + 6;
 
-            g.push('G00 X' + fmt(approachX) + ' M08');
-            g.push('Z' + fmt(safeZ));
+            g.push('G00 X' + fmtNC(approachX) + ' M08');
+            g.push('Z' + fmtNC(safeZ));
 
             // cykl zgrubny G71
             g.push('');
-            g.push('(--- ZGRUBNIE G71 ---)');
-            g.push(`G71 P${P} Q${Q} D${fmt(ap)} I${fmt(Iout)} K${fmt(allowZ)} F${fmt(fRough)}`);
+            g.push(`G71 P${P} Q${Q} D${fmtNC(ap)} I${fmtNC(Iout)} K${fmtNC(allowZ)} F${fmtNC(fRough)}`);
 
             // blok konturu P..Q
             const first = profile[0];
             if (type2) {
                 // Typ 2: pierwszy blok zawiera X i Z (kontrola wykrywa typ 2)
-                g.push(`N${P} G00 X${fmt(first.x)} Z${fmt(first.z)}${cornerTag(first)}`);
+                g.push(`N${P} G00 X${fmtNC(first.x)} Z${fmtNC(first.z)}${cornerTag(first)}`);
             } else {
                 // Typ 1: pierwszy blok tylko X
-                g.push(`N${P} G00 X${fmt(first.x)}`);
-                g.push(`G01 Z${fmt(first.z)} F${fmt(fFin)}`);
+                g.push(`N${P} G00 X${fmtNC(first.x)}`);
+                g.push(`G01 Z${fmtNC(first.z)} F${fmtNC(fFin)}`);
             }
             for (let i = 1; i < profile.length; i++) {
                 const p = profile[i], prev = profile[i - 1];
                 const dx = Math.abs(p.x - prev.x) > 1e-6, dz = Math.abs(p.z - prev.z) > 1e-6;
                 let line = 'G01';
-                if (dx) line += ' X' + fmt(p.x);
-                if (dz) line += ' Z' + fmt(p.z);
+                if (dx) line += ' X' + fmtNC(p.x);
+                if (dz) line += ' Z' + fmtNC(p.z);
                 line += cornerTag(p);
                 g.push(line);
             }
-            g.push(`N${Q} G00 X${fmt(approachX)}`);
+            g.push(`N${Q} G00 X${fmtNC(approachX)}`);
 
             // cykl wykańczający
             g.push('');
-            g.push('(--- WYKANCZANIE G70 ---)');
-            g.push(`G70 P${P} Q${Q} F${fmt(fFin)}`);
+            g.push(`G70 P${P} Q${Q} F${fmtNC(fFin)}`);
 
             g.push('');
-            g.push('G00 Z' + fmt(safeZ) + ' M09');
-            g.push('G28 U0 W0 (POWROT DO PKT ZMIANY NARZ.)');
+            g.push('G00 Z' + fmtNC(safeZ) + ' M09');
+            g.push('G00 G53 X0. Y0.');
+            g.push('G53 Z0.');
             g.push('M05');
             g.push('M30');
             g.push('%');
