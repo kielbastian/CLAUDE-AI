@@ -313,6 +313,40 @@
         .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 11px; color: var(--text-dim); }
         .legend span { display: flex; align-items: center; gap: 6px; }
         .legend i { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+
+        /* Tabs (Parametry / Wymiarowanie) */
+        .card-tabs {
+            display: flex; gap: 4px; padding: 8px 8px 0; border-bottom: 1px solid var(--panel-border);
+            background: rgba(255,255,255,0.015);
+        }
+        .card-tabs .tab {
+            flex: 1; background: transparent; color: var(--text-muted); border-radius: 10px 10px 0 0;
+            padding: 11px 10px; font-size: 12.5px; font-weight: 700; letter-spacing: 0.3px;
+            border: 1px solid transparent; border-bottom: none; position: relative; top: 1px;
+        }
+        .card-tabs .tab:hover { color: var(--text); background: var(--surface-2); }
+        .card-tabs .tab.active {
+            color: #38bdf8; background: var(--bg-2);
+            border-color: var(--panel-border); border-bottom: 1px solid var(--bg-2);
+        }
+        .tab-panel { display: none; }
+        .tab-panel.active { display: flex; flex-direction: column; gap: 15px; }
+
+        /* G-code output with per-line spans + step highlight */
+        .output .ln { display: block; padding: 0 4px; border-radius: 3px; min-height: 1.35em; }
+        .output .ln.cur {
+            background: rgba(250, 204, 21, 0.16);
+            box-shadow: inset 3px 0 0 #facc15;
+            color: #fde68a;
+        }
+        .step-bar {
+            display: none; align-items: center; gap: 8px; flex-wrap: wrap;
+            padding: 10px 12px; border-radius: 9px; margin-bottom: 4px;
+            background: var(--surface-2); border: 1px solid var(--stroke);
+        }
+        .step-bar.show { display: flex; }
+        .step-bar .info { font-size: 12px; color: var(--text-muted); font-family: 'Fira Code', monospace; }
+        .step-bar .info b { color: #38bdf8; }
     </style>
 </head>
 <body>
@@ -341,17 +375,14 @@
             </div>
 
             <div class="workspace">
-                <!-- LEFT: technology -->
+                <!-- LEFT: parametry + wymiarowanie (przełączane zakładki) -->
                 <div>
                     <div class="card">
-                        <div class="card-head">
-                            <div class="ico">⚙️</div>
-                            <div>
-                                <h2>Parametry technologiczne</h2>
-                                <div class="sub">Warunki skrawania i cykl G71 / G70</div>
-                            </div>
+                        <div class="card-tabs">
+                            <button class="tab active" data-tab="params">⚙️ Parametry</button>
+                            <button class="tab" data-tab="dims">📐 Wymiarowanie</button>
                         </div>
-                        <div class="card-body">
+                        <div class="card-body tab-panel active" id="tab_params">
 
                             <div class="field">
                                 <label>Rodzaj obróbki</label>
@@ -437,6 +468,32 @@
                             <div id="error_box" class="notice"><span>⚠️</span><span id="error_txt"></span></div>
                             <button class="btn-primary" id="btn_generate">⚡ Generuj G-code z modelu</button>
                         </div>
+
+                        <!-- ZAKŁADKA: Wymiarowanie (tabela współrzędnych) -->
+                        <div class="card-body tab-panel" id="tab_dims">
+                            <div class="sub" style="font-size:11px;color:var(--text-dim);">
+                                Wpisuj wartości bezpośrednio: Ø X, długość Z, faza/promień na narożu.
+                            </div>
+                            <div class="tbl-wrap">
+                                <table class="coord">
+                                    <thead>
+                                        <tr>
+                                            <th>#</th>
+                                            <th>Ø X (mm)</th>
+                                            <th>Z (mm)</th>
+                                            <th>Naroże</th>
+                                            <th>Wart. (mm)</th>
+                                            <th></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="coord_body"></tbody>
+                                </table>
+                            </div>
+                            <div class="tbl-actions">
+                                <button class="btn-ok btn-sm" id="btn_add_row">＋ Dodaj punkt</button>
+                                <button class="btn-ghost btn-sm" id="btn_load_demo">📄 Wczytaj przykład</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -454,8 +511,8 @@
                                 <div class="seg" id="seg_tool" style="padding:2px;">
                                     <input type="radio" id="tool_sketch" name="cad_tool" value="SKETCH" checked>
                                     <label for="tool_sketch" style="padding:7px 10px;">✏️ Rysuj</label>
-                                    <input type="radio" id="tool_groove" name="cad_tool" value="GROOVE">
-                                    <label for="tool_groove" style="padding:7px 10px;">▽ Rowek</label>
+                                    <input type="radio" id="tool_fillet" name="cad_tool" value="FILLET">
+                                    <label for="tool_fillet" style="padding:7px 10px;">◜ Faza / R</label>
                                 </div>
                             </div>
                         </div>
@@ -469,7 +526,7 @@
                             </div>
                             <div class="legend">
                                 <span><i style="background:#00b4e6"></i> Profil detalu</span>
-                                <span><i style="background:#a855f7"></i> Podcięcie / rowek</span>
+                                <span><i style="background:#facc15"></i> Naroże (faza / promień)</span>
                                 <span><i style="background:#22c55e"></i> Podgląd linii</span>
                                 <span><i style="background:#ef4444"></i> Ścieżka narzędzia</span>
                             </div>
@@ -479,41 +536,6 @@
                                 <button class="btn-ghost btn-sm" id="btn_reset_view">⛶ Reset widoku</button>
                                 <button class="btn-ok btn-sm" id="btn_sim_start">▶ Animuj obróbkę</button>
                                 <button class="btn-ghost btn-sm" id="btn_sim_reset">⏹ Reset animacji</button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Coordinate table (new dimensioning) -->
-                    <div class="card" id="card_table">
-                        <div class="card-head">
-                            <div class="ico">📐</div>
-                            <div>
-                                <h2>Wymiarowanie — tabela współrzędnych</h2>
-                                <div class="sub">Wpisuj wartości bezpośrednio: Ø X, długość Z, faza/promień na narożu</div>
-                            </div>
-                            <div class="right">
-                                <button class="btn-ok btn-sm" id="btn_add_row">＋ Dodaj punkt</button>
-                            </div>
-                        </div>
-                        <div class="card-body">
-                            <div class="tbl-wrap">
-                                <table class="coord">
-                                    <thead>
-                                        <tr>
-                                            <th>#</th>
-                                            <th>Ø X (mm)</th>
-                                            <th>Z (mm)</th>
-                                            <th>Naroże</th>
-                                            <th>Wart. (mm)</th>
-                                            <th></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="coord_body"></tbody>
-                                </table>
-                            </div>
-                            <div class="tbl-actions">
-                                <button class="btn-ghost btn-sm" id="btn_add_groove">▽ Wstaw rowek (podcięcie)</button>
-                                <button class="btn-ghost btn-sm" id="btn_load_demo">📄 Wczytaj przykład</button>
                             </div>
                         </div>
                     </div>
@@ -528,8 +550,14 @@
                             </div>
                         </div>
                         <div class="card-body">
+                            <div class="step-bar" id="step_bar">
+                                <button class="btn-ghost btn-sm" id="btn_step_prev">◀ Poprzedni</button>
+                                <button class="btn-ghost btn-sm" id="btn_step_next">Następny ▶</button>
+                                <span class="info" id="step_info">Krok — / —</span>
+                            </div>
                             <div id="nc_output" class="output">Narysuj lub wpisz profil w tabeli, a następnie kliknij „Generuj G-code".</div>
                             <div class="toolbar">
+                                <button class="btn-ghost btn-sm" id="btn_step_mode">▷ Krok po kroku</button>
                                 <button class="btn-ok btn-sm" id="btn_copy">📋 Kopiuj</button>
                                 <button class="btn-ok btn-sm" id="btn_download">⬇ Pobierz .nc</button>
                             </div>
@@ -555,6 +583,7 @@
         let activeRowIdx = null;
         let isDragging = false, startDragPos = { x: 0, y: 0 };
         let currentMouseGrid = { x: 0, z: 0 };
+        let mouseInCanvas = false;
 
         const canvas = document.getElementById('simCanvas');
         const ctx = canvas.getContext('2d');
@@ -741,12 +770,12 @@
             }
             if (e.button !== 0 || isAnimating) return;
 
-            const pt = getMouseCoordinates(e);
-
-            if (cadTool() === 'GROOVE') {
-                addGrooveAt(pt.z);
+            if (cadTool() === 'FILLET') {
+                applyCornerAt(e);
                 return;
             }
+
+            const pt = getMouseCoordinates(e);
 
             // SKETCH
             const last = profile.length ? profile[profile.length - 1] : { x: isInternal() ? 20 : 0, z: 0 };
@@ -776,6 +805,10 @@
         });
         window.addEventListener('mouseup', () => { if (isDragging) { isDragging = false; canvas.style.cursor = 'crosshair'; } });
 
+        // Podgląd kreskowanej linii tylko gdy kursor jest nad polem szkicu
+        canvas.addEventListener('mouseenter', () => { mouseInCanvas = true; });
+        canvas.addEventListener('mouseleave', () => { mouseInCanvas = false; if (!isAnimating) drawCAD(); });
+
         canvas.addEventListener('wheel', (e) => {
             e.preventDefault();
             const rect = canvas.getBoundingClientRect();
@@ -788,65 +821,47 @@
             drawCAD();
         });
 
-        /* ---------- Wstawianie rowka / podcięcia (G71 typ 2) ---------- */
-        function addGrooveAt(zCenter) {
-            if (profile.length < 2) { showError('Najpierw narysuj profil, potem wstaw rowek.'); return; }
-            // znajdź średnicę profilu w tym Z
-            const baseX = diameterAtZ(zCenter);
-            if (baseX == null) { showError('Kliknij w obrębie długości detalu.'); return; }
-            promptGroove(zCenter, baseX);
-        }
-
-        function promptGroove(zCenter, baseX) {
-            const wStr = prompt('Szerokość rowka (mm):', '4');
-            if (wStr === null) return;
-            const dStr = prompt('Głębokość rowka na średnicy (mm, spadek Ø):', '6');
-            if (dStr === null) return;
-            const w = parseFloat(wStr), depth = parseFloat(dStr);
-            if (isNaN(w) || isNaN(depth) || w <= 0 || depth <= 0) { showError('Podaj dodatnią szerokość i głębokość.'); return; }
-            insertGroove(zCenter, w, baseX, depth);
-        }
-
-        // Rowek: dla zewn. średnica maleje (kieszeń), dla wewn. rośnie (podcięcie w otworze)
-        function insertGroove(zCenter, width, baseX, depth) {
-            document.getElementById('g71_2').checked = true;
-            updateModeUI();
-
-            const zR = zCenter + width / 2;   // prawa krawędź (bliżej czoła)
-            const zL = zCenter - width / 2;   // lewa krawędź
-            const gx = isInternal() ? baseX + depth : baseX - depth;
-            if (!isInternal() && gx < 0) { showError('Rowek za głęboki — średnica poniżej zera.'); return; }
-
-            const grv = [
-                { x: baseX, z: zR, corner: 'none', cval: 0, groove: true },
-                { x: gx,    z: zR, corner: 'none', cval: 0, groove: true },
-                { x: gx,    z: zL, corner: 'none', cval: 0, groove: true },
-                { x: baseX, z: zL, corner: 'none', cval: 0, groove: true }
-            ];
-
-            // wstaw za pierwszym punktem, którego Z jest <= zR
-            let idx = profile.findIndex(p => p.z <= zR);
-            if (idx === -1) idx = profile.length;
-            profile.splice(idx, 0, ...grv);
-            toast('Wstawiono rowek / podcięcie (G71 typ 2).', 'ok');
-            refreshAll();
-        }
-
-        function diameterAtZ(z) {
-            if (profile.length < 2) return null;
-            const zs = profile.map(p => p.z);
-            const zMax = Math.max(...zs), zMin = Math.min(...zs);
-            if (z > zMax || z < zMin) return null;
-            for (let i = 1; i < profile.length; i++) {
-                const a = profile[i - 1], b = profile[i];
-                const hi = Math.max(a.z, b.z), lo = Math.min(a.z, b.z);
-                if (z <= hi && z >= lo) {
-                    if (Math.abs(a.z - b.z) < 1e-6) return Math.max(a.x, b.x);
-                    const t = (z - a.z) / (b.z - a.z);
-                    return a.x + t * (b.x - a.x);
-                }
+        /* ---------- Faza / promień na narożu (klik w styk linii) ---------- */
+        // Znajduje najbliższe naroże (wierzchołek wewnętrzny) do kliknięcia
+        function nearestCornerIndex(e) {
+            const rect = canvas.getBoundingClientRect();
+            const mZ = e.clientX - rect.left, mX = e.clientY - rect.top;
+            let best = -1, bestDist = 15; // próg w px
+            for (let i = 1; i < profile.length - 1; i++) {
+                const px = getZPix(profile[i].z), py = getXPix(profile[i].x);
+                const d = Math.hypot(px - mZ, py - mX);
+                if (d < bestDist) { bestDist = d; best = i; }
             }
-            return null;
+            return best;
+        }
+
+        function applyCornerAt(e) {
+            if (profile.length < 3) { showError('Najpierw narysuj profil — potrzebne są przynajmniej dwa styki linii.'); return; }
+            const idx = nearestCornerIndex(e);
+            if (idx < 0) { showError('Kliknij dokładnie na styk dwóch linii (naroże).'); return; }
+            openCornerDialog(idx);
+        }
+
+        function openCornerDialog(idx) {
+            const pt = profile[idx];
+            let kind = prompt('Naroże #' + idx + ' — wpisz rodzaj:\n  C = faza,  R = promień,  0 = usuń',
+                              pt.corner === 'none' ? 'C' : pt.corner);
+            if (kind === null) return;
+            kind = kind.trim().toUpperCase();
+            if (kind === '0' || kind === 'NONE' || kind === '') {
+                pt.corner = 'none'; pt.cval = 0;
+                toast('Usunięto fazę/promień na narożu #' + idx + '.', 'info');
+                refreshAll(); return;
+            }
+            if (kind !== 'C' && kind !== 'R') { showError('Wpisz C (faza), R (promień) lub 0.'); return; }
+            const vStr = prompt((kind === 'C' ? 'Faza C' : 'Promień R') + ' na narożu #' + idx + ' (mm):',
+                                pt.cval > 0 ? fmt(pt.cval) : '1');
+            if (vStr === null) return;
+            const v = parseFloat(vStr);
+            if (isNaN(v) || v <= 0) { showError('Podaj dodatnią wartość.'); return; }
+            pt.corner = kind; pt.cval = v;
+            toast((kind === 'C' ? 'Dodano fazę C' : 'Dodano promień R') + fmt(v) + ' na narożu #' + idx + '.', 'ok');
+            refreshAll();
         }
 
         /* ============================================================
@@ -917,6 +932,19 @@
                 ctx.closePath(); ctx.fill();
             }
 
+            // znacznik trybu krokowego (pozycja narzędzia bieżącej linii kodu)
+            if (stepMode && stepPos && !isAnimating) {
+                const pX = getXPix(stepPos.x), pZ = getZPix(stepPos.z);
+                ctx.strokeStyle = '#facc15'; ctx.lineWidth = 1.4; ctx.setLineDash([4, 3]);
+                ctx.beginPath(); ctx.moveTo(pZ, 0); ctx.lineTo(pZ, canvas.height);
+                ctx.moveTo(0, pX); ctx.lineTo(canvas.width, pX); ctx.stroke(); ctx.setLineDash([]);
+                ctx.fillStyle = '#facc15';
+                ctx.beginPath();
+                if (internal) { ctx.moveTo(pZ, pX); ctx.lineTo(pZ - 13, pX + 9); ctx.lineTo(pZ - 4, pX + 13); }
+                else { ctx.moveTo(pZ, pX); ctx.lineTo(pZ - 13, pX - 9); ctx.lineTo(pZ - 4, pX - 13); }
+                ctx.closePath(); ctx.fill();
+            }
+
             // profil (z fazami/promieniami)
             if (profile.length) {
                 const render = buildRenderPath(profile);
@@ -950,8 +978,8 @@
                 drawAutoDims();
             }
 
-            // podgląd linii
-            if (!isAnimating && cadTool() === 'SKETCH' && profile.length) {
+            // podgląd linii — tylko gdy kursor jest nad polem szkicu
+            if (!isAnimating && mouseInCanvas && cadTool() === 'SKETCH' && profile.length) {
                 const last = profile[profile.length - 1];
                 if (currentMouseGrid.z <= last.z) {
                     ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
@@ -1109,9 +1137,73 @@
             g.push('M30');
             g.push('%');
 
-            ncOutput.innerText = g.join('\n');
+            renderOutput(g);
             buildSimPath(internal, dBlank, dPilot, ap, allowX, safeZ, approachX, zMin, maxX, minX);
             if (!isAnimating && simulationPath.length) currentSimPos = { ...simulationPath[0] };
+        }
+
+        /* ============================================================
+           WYJŚCIE + GENEROWANIE KROK PO KROKU
+           ============================================================ */
+        let codeLines = [];      // { text, x, z, isMotion }
+        let stepMode = false;
+        let stepIndex = 0;
+        let stepPos = null;      // pozycja narzędzia w bieżącym kroku
+
+        function escapeHTML(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+        function renderOutput(lines) {
+            // zbuduj model kroków z modalnym X/Z (średnica)
+            codeLines = [];
+            let curX = null, curZ = null;
+            lines.forEach(text => {
+                const mX = text.match(/X(-?\d+\.?\d*)/);
+                const mZ = text.match(/Z(-?\d+\.?\d*)/);
+                if (mX) curX = parseFloat(mX[1]);
+                if (mZ) curZ = parseFloat(mZ[1]);
+                const isMotion = /\bG0?[0-3]\b/.test(text) && (mX || mZ);
+                codeLines.push({ text, x: curX, z: curZ, isMotion });
+            });
+            // wyrenderuj każdą linię jako span (do podświetlania w trybie krokowym)
+            ncOutput.innerHTML = codeLines
+                .map((l, i) => `<span class="ln" data-ln="${i}">${escapeHTML(l.text)}</span>`)
+                .join('');
+            if (stepMode) { stepIndex = Math.min(stepIndex, codeLines.length - 1); highlightStep(); }
+        }
+
+        function setStepMode(on) {
+            stepMode = on;
+            document.getElementById('step_bar').classList.toggle('show', on);
+            document.getElementById('btn_step_mode').innerText = on ? '■ Zakończ tryb krokowy' : '▷ Krok po kroku';
+            if (on) {
+                if (!codeLines.length) { showError('Najpierw wygeneruj G-code.'); setStepMode(false); return; }
+                stepIndex = 0; highlightStep();
+            } else {
+                stepPos = null;
+                ncOutput.querySelectorAll('.ln.cur').forEach(el => el.classList.remove('cur'));
+                drawCAD();
+            }
+        }
+
+        function stepGo(dir) {
+            if (!stepMode || !codeLines.length) return;
+            stepIndex = Math.max(0, Math.min(codeLines.length - 1, stepIndex + dir));
+            highlightStep();
+        }
+
+        function highlightStep() {
+            ncOutput.querySelectorAll('.ln').forEach(el => {
+                el.classList.toggle('cur', parseInt(el.dataset.ln) === stepIndex);
+            });
+            const cur = ncOutput.querySelector('.ln.cur');
+            if (cur) cur.scrollIntoView({ block: 'nearest' });
+            const l = codeLines[stepIndex];
+            document.getElementById('step_info').innerHTML =
+                `Krok <b>${stepIndex + 1}</b> / ${codeLines.length}` +
+                (l && l.isMotion && l.x != null ? ` &nbsp;→&nbsp; X<b>${fmt(l.x)}</b> Z<b>${l.z != null ? fmt(l.z) : '—'}</b>` : '');
+            // pozycja narzędzia dla bieżącej linii ruchu
+            if (l && l.x != null && l.z != null) stepPos = { x: l.x, z: l.z };
+            drawCAD();
         }
 
         /* ============================================================
@@ -1216,13 +1308,15 @@
                 ? 'Prędkość Vc (m/min)' : 'Obroty n (obr/min)';
             const t2 = g71Type() === '2';
             document.getElementById('g71_hint').innerText = t2
-                ? 'Typ 2 aktywny: możesz tworzyć rowki i podcięcia (profil niemonotoniczny).'
-                : 'Typ 1: profil monotoniczny. Przełącz na Typ 2 dla rowków/podcięć.';
+                ? 'Typ 2 aktywny: profil może być niemonotoniczny (podcięcia).'
+                : 'Typ 1: profil monotoniczny. Przełącz na Typ 2 dla podcięć.';
+            const fillet = cadTool() === 'FILLET';
             const badge = document.getElementById('badge_mode');
-            badge.innerHTML = cadTool() === 'GROOVE'
-                ? 'Tryb: <b>Rowek</b> — kliknij na profilu'
+            badge.innerHTML = fillet
+                ? 'Tryb: <b>Faza / Promień</b> — kliknij na styk linii'
                 : 'Tryb: <b>Rysowanie</b>';
-            badge.className = cadTool() === 'GROOVE' ? 'badge mode-dim' : 'badge';
+            badge.className = fillet ? 'badge mode-dim' : 'badge';
+            canvas.style.cursor = fillet ? 'pointer' : 'crosshair';
         }
 
         document.querySelectorAll('input[name="op_type"]').forEach(r => r.addEventListener('change', () => {
@@ -1261,22 +1355,14 @@
             profile.push({ x: last.x, z: last.z - 10, corner: 'none', cval: 0, groove: false });
             refreshAll();
         });
-        document.getElementById('btn_add_groove').addEventListener('click', () => {
-            if (profile.length < 2) { showError('Najpierw utwórz profil.'); return; }
-            const zStr = prompt('Pozycja środka rowka Z (mm, wartość ujemna):', '-30');
-            if (zStr === null) return;
-            const z = parseFloat(zStr);
-            const baseX = diameterAtZ(z);
-            if (baseX == null) { showError('Ta pozycja Z jest poza długością detalu.'); return; }
-            promptGroove(z, baseX);
-        });
         document.getElementById('btn_load_demo').addEventListener('click', () => {
             profile = isInternal() ? demoInternal() : demoExternal();
             syncBlank(); refreshAll(); toast('Wczytano przykładowy profil.', 'info');
         });
 
         document.getElementById('btn_clear_cad').addEventListener('click', () => {
-            profile = []; simulationPath = []; stopAnimation();
+            profile = []; simulationPath = []; codeLines = []; stopAnimation();
+            if (stepMode) setStepMode(false);
             renderTable(); drawCAD();
             ncOutput.innerText = 'Narysuj lub wpisz profil w tabeli, a następnie kliknij „Generuj G-code".';
             toast('Wyczyszczono profil.', 'info');
@@ -1301,14 +1387,18 @@
             stopAnimation(); if (simulationPath.length) currentSimPos = { ...simulationPath[0] }; drawCAD();
         });
 
+        function currentCodeText() {
+            return codeLines.length ? codeLines.map(l => l.text).join('\n') : '';
+        }
+
         document.getElementById('btn_copy').addEventListener('click', () => {
-            const txt = ncOutput.innerText;
-            if (txt.includes('Narysuj')) return;
+            const txt = currentCodeText();
+            if (!txt) { showError('Najpierw wygeneruj G-code.'); return; }
             navigator.clipboard.writeText(txt).then(() => toast('Skopiowano G-code do schowka.', 'ok'));
         });
         document.getElementById('btn_download').addEventListener('click', () => {
-            const txt = ncOutput.innerText;
-            if (txt.includes('Narysuj')) return;
+            const txt = currentCodeText();
+            if (!txt) { showError('Najpierw wygeneruj G-code.'); return; }
             const blob = new Blob([txt], { type: 'text/plain' });
             const a = document.createElement('a');
             a.download = 'haas_st35y_' + (isInternal() ? 'wytaczanie' : 'toczenie') + '.nc';
@@ -1316,11 +1406,24 @@
             toast('Pobrano plik .nc', 'ok');
         });
 
-        // nawigacja boczna -> scroll do kart
+        // Zakładki: Parametry / Wymiarowanie
+        function switchTab(name) {
+            document.querySelectorAll('.card-tabs .tab').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+            document.getElementById('tab_params').classList.toggle('active', name === 'params');
+            document.getElementById('tab_dims').classList.toggle('active', name === 'dims');
+        }
+        document.querySelectorAll('.card-tabs .tab').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
+
+        // Tryb krokowy
+        document.getElementById('btn_step_mode').addEventListener('click', () => setStepMode(!stepMode));
+        document.getElementById('btn_step_prev').addEventListener('click', () => stepGo(-1));
+        document.getElementById('btn_step_next').addEventListener('click', () => stepGo(1));
+
+        // nawigacja boczna
         document.getElementById('nav_sketch').addEventListener('click', () => document.getElementById('card_cad').scrollIntoView({ behavior: 'smooth' }));
-        document.getElementById('nav_table').addEventListener('click', () => document.getElementById('card_table').scrollIntoView({ behavior: 'smooth' }));
+        document.getElementById('nav_table').addEventListener('click', () => switchTab('dims'));
         document.getElementById('nav_code').addEventListener('click', () => ncOutput.scrollIntoView({ behavior: 'smooth' }));
-        document.getElementById('nav_help').addEventListener('click', () => toast('Rysuj myszą, wpisuj wymiary w tabeli, wstawiaj rowki (Typ 2). Shift+przeciągnij = pan, kółko = zoom.', 'info'));
+        document.getElementById('nav_help').addEventListener('click', () => toast('Rysuj myszą, wpisuj wymiary w tabeli (zakładka), fazy/promienie klikając w naroże. Shift+przeciągnij = pan, kółko = zoom.', 'info'));
 
         /* ---------- init ---------- */
         window.addEventListener('load', () => {
