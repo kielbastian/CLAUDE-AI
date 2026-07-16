@@ -1491,10 +1491,10 @@ function mergeScanFolder(folder, found) {
     const p = byId(id);
     if (!p) {
       const meta = parseGcodeMeta(x.code);
-      // gdy w pliku .nc nie ma nazwy detalu — użyj nazwy folderu programu
+      // gdy w pliku .nc nie ma nazwy detalu — użyj nazwy folderu programu (najgłębszego)
       programs.push({
         id, source: "disk", root: key, dir: x.dir, file: x.file,
-        name: meta.name || collapse(x.dir) || x.file.replace(/\.[^.]+$/, ""),
+        name: meta.name || collapse((x.dir || "").split("/").pop()) || x.file.replace(/\.[^.]+$/, ""),
         onum: meta.onum || "", detail: meta.detail || "",
         drawing: meta.drawing || "", client: "", material: "", tags: [], note: "",
         fav: false, versions: [], code: x.code, created: x.mtime, modified: x.mtime,

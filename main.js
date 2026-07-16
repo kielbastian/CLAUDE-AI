@@ -124,35 +124,28 @@ ipcMain.handle("exists", async (e, p) => {
   try { await fs.access(p); return true; } catch { return false; }
 });
 
-/* skanuje podfoldery z plikami programów oraz pliki luzem — BEZ automatycznego pobierania PDF */
+/* skanuje REKURENCYJNIE całe drzewo folderu z plikami programów (bez PDF).
+   dir = ścieżka względna podfolderu (np. "1 0 214 761 WKRETKA 25 18"
+   albo zagnieżdżona "2024/WKRETKA"); pliki luzem w korzeniu → dir "". */
 ipcMain.handle("scan-programs", async (e, root) => {
   const found = [];
-  const entries = await fs.readdir(root, { withFileTypes: true });
-  for (const ent of entries) {
-    if (ent.isDirectory()) {
-      const dirPath = path.join(root, ent.name);
-      const progs = [];
-      try {
-        for (const f of await fs.readdir(dirPath, { withFileTypes: true })) {
-          if (!f.isFile()) continue;
-          if (PROG_RE.test(f.name)) progs.push(f.name);
-        }
-      } catch {}
-      for (const fn of progs) {
+  async function walk(dir, rel, depth) {
+    if (depth > 8) return;
+    let entries;
+    try { entries = await fs.readdir(dir, { withFileTypes: true }); } catch { return; }
+    for (const ent of entries) {
+      const abs = path.join(dir, ent.name);
+      if (ent.isDirectory()) {
+        await walk(abs, rel ? rel + "/" + ent.name : ent.name, depth + 1);
+      } else if (ent.isFile() && PROG_RE.test(ent.name)) {
         try {
-          const fp = path.join(dirPath, fn);
-          const st = await fs.stat(fp);
-          found.push({ dir: ent.name, file: fn, code: await fs.readFile(fp, "utf8"), mtime: st.mtimeMs });
+          const st = await fs.stat(abs);
+          found.push({ dir: rel, file: ent.name, code: await fs.readFile(abs, "utf8"), mtime: st.mtimeMs });
         } catch {}
       }
-    } else if (ent.isFile() && PROG_RE.test(ent.name)) {
-      try {
-        const fp = path.join(root, ent.name);
-        const st = await fs.stat(fp);
-        found.push({ dir: "", file: ent.name, code: await fs.readFile(fp, "utf8"), mtime: st.mtimeMs });
-      } catch {}
     }
   }
+  await walk(root, "", 0);
   return found;
 });
 
