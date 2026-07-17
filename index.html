@@ -277,6 +277,16 @@
     background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent;
   }
   .stat span{font-size:.68rem;color:var(--mut);letter-spacing:.05em}
+  /* klikalne kafelki: przełączanie widoku (programy/foldery) i aktywnego folderu */
+  .stat-btn{cursor:pointer;font-family:inherit;transition:border-color .15s,background .15s,box-shadow .15s;-webkit-tap-highlight-color:transparent}
+  .stat-btn:hover{border-color:var(--stroke-hi);background:rgba(255,255,255,.06)}
+  .stat-btn:active{transform:scale(.97)}
+  .stat-btn.active{
+    border-color:rgba(var(--ac2-rgb),.6);background:var(--grad-soft);
+    box-shadow:0 0 14px rgba(var(--ac2-rgb),.2) inset;
+  }
+  .stat-folder b{font-size:.92rem;line-height:1.25;padding:5px 0;word-break:break-word}
+  body.light .stat-btn:hover{background:rgba(15,23,42,.05)}
   .sortsel{
     width:100%;padding:10px 12px;border-radius:11px;cursor:pointer;
     background:rgba(255,255,255,.05);border:1px solid var(--stroke);
@@ -925,9 +935,9 @@
     <div class="panel">
       <h3>Statystyki</h3>
       <div class="stats">
-        <div class="stat"><b id="stProg">0</b><span>programy nc/txt</span></div>
-        <div class="stat"><b id="stFolders">0</b><span>foldery</span></div>
-        <div class="stat"><b id="stVer">0</b><span>wersje</span></div>
+        <button class="stat stat-btn" id="statProg" title="Pokaż programy (nc/txt)"><b id="stProg">0</b><span>programy nc/txt</span></button>
+        <button class="stat stat-btn" id="statFolders" title="Pokaż foldery"><b id="stFolders">0</b><span>foldery</span></button>
+        <button class="stat stat-btn stat-folder" id="statSwitch" title="Przełącz aktywny folder główny"><b id="stActiveFolder">—</b><span>folder ⇄</span></button>
         <div class="stat"><b id="stFav">0</b><span>ulubione</span></div>
       </div>
     </div>
@@ -2216,12 +2226,18 @@ function renderSidebar() {
   document.getElementById("filters").innerHTML = chips.map(c =>
     `<button class="chip ${filter === c.key ? "on" : ""}" data-filter="${esc(c.key)}">${esc(c.label)}</button>`).join("");
 
-  // statystyki: programy (nc/txt) i foldery
+  // statystyki: programy (nc/txt), foldery, przełącznik folderu głównego, ulubione
   document.getElementById("stProg").textContent = vis.length;
   document.getElementById("stFolders").textContent =
     new Set(vis.filter(p => p.source === "disk" && p.dir).map(p => (p.root || "") + " " + p.dir)).size;
-  document.getElementById("stVer").textContent = vis.reduce((s, p) => s + (p.versions || []).length + 1, 0);
   document.getElementById("stFav").textContent = vis.filter(p => p.fav).length;
+  // klikalne kafelki widoku — podświetl aktywny
+  document.getElementById("statProg").classList.toggle("active", !folderSearch);
+  document.getElementById("statFolders").classList.toggle("active", folderSearch);
+  // kafelek przełącznika folderu głównego
+  const af = folderView === "all" ? "Wszystkie" : ((folderOf(folderView) || {}).name || "—");
+  document.getElementById("stActiveFolder").textContent = folders.length ? af : "—";
+  document.getElementById("statSwitch").style.opacity = folders.length > 1 ? "1" : ".55";
 
   // numery O
   const counts = {};
@@ -2498,6 +2514,18 @@ folderMenu.addEventListener("click", async e => {
 document.addEventListener("click", e => {
   if (folderMenu.classList.contains("open") && !e.target.closest(".folder-wrap")) folderMenu.classList.remove("open");
 });
+
+/* klikalne kafelki statystyk: widok programy/foldery + przełącznik folderu głównego */
+document.getElementById("statProg").addEventListener("click", () => { if (folderSearch) applyFolderSearch(false); });
+document.getElementById("statFolders").addEventListener("click", () => { if (!folderSearch) applyFolderSearch(true); });
+function cycleFolder() {
+  if (folders.length < 2) return;   // nie ma czego przełączać
+  const order = folders.map(f => f.key);
+  order.push("all");                // ...i widok wszystkich folderów
+  const idx = order.indexOf(folderView);
+  switchFolder(order[(idx + 1) % order.length]);
+}
+document.getElementById("statSwitch").addEventListener("click", cycleFolder);
 
 document.getElementById("btnPdf").addEventListener("click", async () => {
   if (!pdfRoot) { await connectPdfFolder(); return; }
