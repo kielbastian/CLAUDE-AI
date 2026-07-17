@@ -352,6 +352,11 @@
     box-shadow:0 0 14px rgba(var(--ac2-rgb),.20);
   }
   .badge-o.big{font-size:1.4rem;padding:9px 18px;border-radius:12px;box-shadow:0 0 22px rgba(var(--ac2-rgb),.30)}
+  /* ── karty folderów (tryb „Szukaj w nazwach folderów") ── */
+  .folder-card .card-top{align-items:center}
+  .folder-card .folder-ico{font-size:1.5rem;line-height:1;flex:none;filter:drop-shadow(0 0 8px rgba(var(--ac2-rgb),.35))}
+  .folder-card h2{text-transform:none}
+  .folder-card:hover{border-color:rgba(var(--ac1-rgb),.5)}
   .fav-btn{
     flex:none;width:30px;height:30px;border-radius:9px;border:none;cursor:pointer;
     background:transparent;display:grid;place-items:center;
@@ -881,7 +886,7 @@
             </button>
           </div>
           <div style="font-size:.68rem;color:var(--mut);line-height:1.5">
-            Wyszukiwarka uwzględnia też nazwy folderów, w których leżą programy.
+            Widok pokazuje foldery zamiast programów. Kliknięcie folderu otwiera go w Eksploratorze.
           </div>
         </div>
       </div>
@@ -920,10 +925,10 @@
     <div class="panel">
       <h3>Statystyki</h3>
       <div class="stats">
-        <div class="stat"><b id="stProg">0</b><span>programy</span></div>
+        <div class="stat"><b id="stProg">0</b><span>programy nc/txt</span></div>
+        <div class="stat"><b id="stFolders">0</b><span>foldery</span></div>
         <div class="stat"><b id="stVer">0</b><span>wersje</span></div>
         <div class="stat"><b id="stFav">0</b><span>ulubione</span></div>
-        <div class="stat"><b id="stCli">0</b><span>klienci</span></div>
       </div>
     </div>
     <div class="panel">
@@ -2020,16 +2025,32 @@ function toast(msg) {
 
 /* ════════════════════ renderowanie ════════════════════ */
 /* buforowany tekst do wyszukiwania — liczony raz na program, aż do jego zmiany.
-   Gdy włączone „szukanie w nazwach folderów", dokłada nazwę podfolderu (p.dir). */
+   Zawsze zawiera nazwę podfolderu (p.dir), by program był wyszukiwalny po folderze. */
+const lastSeg = s => String(s || "").split("/").pop();
 function hayOf(p) {
   const c = hayCache.get(p.id);
   if (c && c.mod === p.modified) return c.hay;
-  const parts = [p.name, p.onum, p.detail, p.drawing, p.client, p.material,
-                 (p.tags || []).join(" "), p.note, p.code];
-  if (folderSearch) parts.push(p.dir || "");
-  const hay = fold(parts.join(" "));
+  const hay = fold([p.name, p.onum, p.detail, p.drawing, p.client, p.material,
+                    (p.tags || []).join(" "), p.note, p.code, p.dir || ""].join(" "));
   hayCache.set(p.id, { mod: p.modified, hay });
   return hay;
+}
+
+/* unikalne foldery (dir) programów — do widoku folderów i statystyk.
+   Przy aktywnym wyszukiwaniu filtruje po nazwie folderu we wszystkich folderach. */
+function currentFolders() {
+  const map = new Map();
+  const searching = queryTokens.length > 0;
+  for (const p of programs) {
+    if (p.source !== "disk" || !p.dir) continue;
+    if (!searching && !inView(p)) continue;
+    if (searching) { const hay = fold(p.dir); if (!queryTokens.every(w => hay.includes(w))) continue; }
+    const k = (p.root || "") + " " + p.dir;
+    let e = map.get(k);
+    if (!e) { e = { dir: p.dir, root: p.root, count: 0 }; map.set(k, e); }
+    e.count++;
+  }
+  return [...map.values()];
 }
 
 function matches(p) {
@@ -2057,7 +2078,50 @@ function sortPrograms(list) {
 
 function render() { renderGrid(); renderSidebar(); }
 
+/* widok folderów (gdy włączone „Szukaj w nazwach folderów") */
+let folderCards = [];
+function renderFolderGrid() {
+  const grid = document.getElementById("grid");
+  folderCards = currentFolders().sort((a, b) => lastSeg(a.dir).localeCompare(lastSeg(b.dir), "pl"));
+  const list = viewLimit > 0 ? folderCards.slice(0, viewLimit) : folderCards;
+  const moreCount = folderCards.length - list.length;
+  if (!folderCards.length) {
+    grid.innerHTML = `<div class="empty">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path>
+      </svg>
+      <p>${queryTokens.length ? "Brak folderów pasujących do wyszukiwania." : "Brak folderów w bibliotece — połącz folder z programami."}</p>
+    </div>`;
+    return;
+  }
+  grid.innerHTML = list.map((f, i) => `
+    <article class="card folder-card" data-folder="${i}" title="${esc(f.dir)} — kliknij, aby otworzyć folder">
+      <div class="card-top">
+        <span class="folder-ico">📁</span>
+        <h2>${esc(lastSeg(f.dir))}</h2>
+        <span class="badge-o">${f.count}</span>
+      </div>
+      ${f.dir.includes("/") ? `<div class="card-sub">${esc(f.dir)}</div>` : ""}
+      <div class="card-foot"><span>${f.count} ${f.count === 1 ? "program" : "programów"} · kliknij, aby otworzyć folder</span></div>
+    </article>`).join("");
+  if (moreCount > 0) {
+    grid.innerHTML += `<div class="more-bar">Pokazano ${list.length} z ${folderCards.length} folderów
+      <button class="btn btn-sm" id="btnShowAll">Pokaż wszystkie</button></div>`;
+  }
+}
+
+/* otwiera folder z widoku folderów w Eksploratorze */
+function openFolderCard(i) {
+  const f = folderCards[i]; if (!f) return;
+  const fo = folderOf(f.root);
+  const rootPath = (fo && fo.path) || (fsRoot && fsRoot.path);
+  if (window.native && rootPath) {
+    window.native.showInFolder(rootPath + "/" + f.dir).then(r => { if (r && !r.ok) toast("Nie udało się otworzyć folderu"); });
+  } else toast("Otwieranie folderu działa w aplikacji na Windows");
+}
+
 function renderGrid() {
+  if (folderSearch) { renderFolderGrid(); return; }
   const grid = document.getElementById("grid");
   const full = sortPrograms(programs.filter(matches));
   const list = viewLimit > 0 ? full.slice(0, viewLimit) : full;
@@ -2152,11 +2216,12 @@ function renderSidebar() {
   document.getElementById("filters").innerHTML = chips.map(c =>
     `<button class="chip ${filter === c.key ? "on" : ""}" data-filter="${esc(c.key)}">${esc(c.label)}</button>`).join("");
 
-  // statystyki
+  // statystyki: programy (nc/txt) i foldery
   document.getElementById("stProg").textContent = vis.length;
+  document.getElementById("stFolders").textContent =
+    new Set(vis.filter(p => p.source === "disk" && p.dir).map(p => (p.root || "") + " " + p.dir)).size;
   document.getElementById("stVer").textContent = vis.reduce((s, p) => s + (p.versions || []).length + 1, 0);
   document.getElementById("stFav").textContent = vis.filter(p => p.fav).length;
-  document.getElementById("stCli").textContent = new Set(vis.map(p => (p.client || "").trim().toLowerCase()).filter(Boolean)).size;
 
   // numery O
   const counts = {};
@@ -2511,14 +2576,13 @@ function applyWidget(on) {
   syncSettingsUI();
 }
 function applyFolderSearch(on) {
-  folderSearch = on;
-  localStorage.setItem("cncDirSearch", on ? "on" : "off");
-  hayCache.clear();     // przebuduj tekst wyszukiwania z/bez nazw folderów
+  folderSearch = on;   // on = widok folderów; off = widok programów
+  localStorage.setItem("cncFolderMode", on ? "on" : "off");
   const s = document.getElementById("search");
   if (s) s.placeholder = on
-    ? "Szukaj: nazwa, numer O, folder, klient, materiał, treść kodu…"
+    ? "Szukaj folderu po nazwie…"
     : "Szukaj: nazwa, numer O, klient, materiał, treść kodu…";
-  if (queryTokens.length) renderGrid();   // odśwież wyniki, gdy trwa wyszukiwanie
+  render();   // przełącz widok programy ↔ foldery
   syncSettingsUI();
 }
 function syncSettingsUI() {
@@ -2563,7 +2627,7 @@ document.addEventListener("click", e => {
 if (localStorage.getItem("cncTheme") === "light") document.body.classList.add("light");
 applyAccent(localStorage.getItem("cncAccent") || "default");
 applyMotion(localStorage.getItem("cncMotion") !== "off");
-applyFolderSearch(localStorage.getItem("cncDirSearch") !== "off");   // domyślnie włączone
+applyFolderSearch(localStorage.getItem("cncFolderMode") === "on");   // domyślnie wyłączone (widok programów)
 /* widget wyszukiwania — przywróć stan (pokaż, jeśli był włączony) */
 widgetEnabled = localStorage.getItem("cncWidget") === "on";
 if (widgetEnabled && window.native && window.native.toggleWidget) window.native.toggleWidget(true, widgetPayload());
@@ -2574,11 +2638,20 @@ if (window.native && window.native.onWidgetState) window.native.onWidgetState(on
   localStorage.setItem("cncWidget", on ? "on" : "off");
   syncSettingsUI();
 });
-/* liczy pasujące programy (widok folderu + zapytanie) — bez zmiany UI */
+/* liczy pasujące elementy (programy albo foldery — zależnie od trybu) — bez zmiany UI */
 function widgetCount(qv) {
   const q2 = (qv || "").trim();
   const toks = q2 ? fold(q2).split(/\s+/).filter(Boolean) : [];
   if (!toks.length) return 0;
+  if (folderSearch) {
+    const set = new Set();
+    for (const p of programs) {
+      if (p.source !== "disk" || !p.dir) continue;
+      const hay = fold(p.dir);
+      if (toks.every(w => hay.includes(w))) set.add((p.root || "") + " " + p.dir);
+    }
+    return set.size;
+  }
   let n = 0;
   for (const p of programs) {   // widget szuka we wszystkich folderach
     const hay = hayOf(p);
@@ -2598,7 +2671,7 @@ if (window.native && window.native.onWidgetGo) window.native.onWidgetGo(qv => {
   query = (qv || "").trim();
   queryTokens = query ? fold(query).split(/\s+/).filter(Boolean) : [];
   const prev = viewLimit; viewLimit = 0; renderGrid(); viewLimit = prev;
-  if (window.native.widgetResult) window.native.widgetResult(programs.filter(matches).length);
+  if (window.native.widgetResult) window.native.widgetResult(folderSearch ? currentFolders().length : programs.filter(matches).length);
   document.getElementById("grid").scrollIntoView({ behavior: "smooth", block: "start" });
 });
 
@@ -2864,6 +2937,8 @@ document.getElementById("grid").addEventListener("click", e => {
     if (filter === "fav" && !p.fav) { const c = fav.closest(".card"); if (c) c.remove(); }
     return;
   }
+  const fcard = e.target.closest(".folder-card");
+  if (fcard) { openFolderCard(+fcard.dataset.folder); return; }
   const card = e.target.closest(".card");
   if (card) openView(card.dataset.id);
 });
