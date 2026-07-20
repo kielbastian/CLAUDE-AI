@@ -1363,43 +1363,23 @@
         }
 
         // Tryb "blok po bloku": jawne przejścia zgrubne (bez G71) + osobny przejazd wykańczający (bez G70)
-        function emitRoughBlocks(g, internal, dBlank, dPilot, ap, allowX, fRough, approachX, safeZ, zMin, maxX) {
-            const samples = sampleProfile();
-            let passNum = 0;
-            if (!internal) {
-                let d = dBlank;
-                const target = maxX + allowX * 2;
-                let guard = 0;
-                while (d > target + 0.01 && guard++ < 400) {
-                    d -= ap * 2;
-                    if (d < target) d = target;
-                    const stopZ = stopZForPass(samples, d, false);
-                    const zEnd = stopZ !== null ? stopZ : zMin;
-                    passNum++;
-                    g.push(`(PRZEJSCIE ZGRUBNE ${passNum} - Fi${fmt(d)})`);
-                    g.push(`G00 X${fmtNC(d)}`);
-                    g.push(`G01 Z${fmtNC(zEnd)}${passNum === 1 ? ' F' + fmtNC(fRough) : ''}`);
-                    g.push(`X${fmtNC(d + allowX + 1.0)}`);
-                    g.push(`G00 Z${fmtNC(safeZ)}`);
-                }
-            } else {
-                let d = dPilot;
-                const target = maxX - allowX * 2;
-                let guard = 0;
-                while (d < target - 0.01 && guard++ < 400) {
-                    d += ap * 2;
-                    if (d > target) d = target;
-                    const stopZ = stopZForPass(samples, d, true);
-                    const zEnd = stopZ !== null ? stopZ : zMin;
-                    passNum++;
-                    g.push(`(PRZEJSCIE ZGRUBNE ${passNum} - Fi${fmt(d)})`);
-                    g.push(`G00 X${fmtNC(d)}`);
-                    g.push(`G01 Z${fmtNC(zEnd)}${passNum === 1 ? ' F' + fmtNC(fRough) : ''}`);
-                    g.push(`X${fmtNC(d - allowX - 1.0)}`);
-                    g.push(`G00 Z${fmtNC(safeZ)}`);
+        function emitRoughBlocks(g, internal, dBlank, dPilot, ap, allowX, fRough, approachX, safeZ, minX, maxX) {
+            const passes = computeRoughPasses(internal, dBlank, dPilot, ap, allowX, minX, maxX);
+            let passNum = 0, firstCut = true;
+            for (const pass of passes) {
+                passNum++;
+                g.push(`(PRZEJSCIE ZGRUBNE ${passNum} - Fi${fmt(pass.d)})`);
+                for (const iv of pass.intervals) {
+                    // dojazd przez bezpieczną średnicę podejścia — bezpieczne nawet gdy
+                    // pomiędzy odcinkami zostaje nieobrobiona "wysepka" (naddatek)
+                    g.push(`G00 Z${fmtNC(iv.zStart)}`);
+                    g.push(`G00 X${fmtNC(pass.d)}`);
+                    g.push(`G01 Z${fmtNC(iv.zEnd)}${firstCut ? ' F' + fmtNC(fRough) : ''}`);
+                    firstCut = false;
+                    g.push(`G00 X${fmtNC(approachX)}`);
                 }
             }
-            g.push(`G00 X${fmtNC(approachX)}`);
+            g.push(`G00 Z${fmtNC(safeZ)}`);
         }
 
         function emitFinishBlock(g, first, fFin, approachX) {
@@ -1472,7 +1452,7 @@
             } else {
                 // blok po bloku: jawne przejścia zgrubne + osobny przejazd wykańczający
                 g.push('');
-                emitRoughBlocks(g, internal, dBlank, dPilot, ap, allowX, fRough, approachX, safeZ, zMin, maxX);
+                emitRoughBlocks(g, internal, dBlank, dPilot, ap, allowX, fRough, approachX, safeZ, minX, maxX);
                 g.push('');
                 emitFinishBlock(g, profile[0], fFin, approachX);
             }
@@ -1570,52 +1550,66 @@
             return out;
         }
 
-        function stopZForPass(samples, dia, internal) {
-            // najbliższy czoła Z, gdzie profil styka się ze średnicą przejścia
-            let stop = null;
-            for (const s of samples) {
-                const hit = internal ? (s.x <= dia + 1e-6) : (s.x >= dia - 1e-6);
-                if (hit) { if (stop === null || s.z > stop) stop = s.z; }
+        // Wyznacza listę przejść zgrubnych z uwzględnieniem lokalnego profilu (rowki / podcięcia).
+        // Każde przejście na średnicy d może obejmować KILKA rozłącznych odcinków Z, jeśli
+        // pomiędzy nimi profil ma "wysepkę" (naddatek grubszy niż d) — np. dno rowka wymaga
+        // dalszego zbliżania się średnicy d już po tym, jak sąsiednie płaskie odcinki są gotowe.
+        function computeRoughPasses(internal, dBlank, dPilot, ap, allowX, minX, maxX) {
+            const sorted = sampleProfile().sort((a, b) => b.z - a.z); // Z: 0 -> najbardziej ujemne
+            const eps = 1e-6;
+
+            function intervalsForDiameter(d) {
+                const out = [];
+                let start = null, lastZ = null;
+                for (const s of sorted) {
+                    const hit = internal ? (s.x - allowX * 2) > d + eps : (s.x + allowX * 2) < d - eps;
+                    if (hit && start === null) start = s.z;
+                    if (!hit && start !== null) { out.push({ zStart: start, zEnd: lastZ }); start = null; }
+                    lastZ = s.z;
+                }
+                if (start !== null) out.push({ zStart: start, zEnd: lastZ });
+                return out.filter(iv => iv.zStart - iv.zEnd > 0.1);
             }
-            return stop;
+
+            const passes = [];
+            if (!internal) {
+                let d = dBlank;
+                const target = minX + allowX * 2; // najgłębszy lokalny cel (np. dno rowka)
+                let guard = 0;
+                while (d > target + 0.01 && guard++ < 600) {
+                    d -= ap * 2;
+                    if (d < target) d = target;
+                    const intervals = intervalsForDiameter(d);
+                    if (intervals.length) passes.push({ d, intervals });
+                }
+            } else {
+                let d = dPilot;
+                const target = maxX - allowX * 2; // najszersze lokalne rozszerzenie (np. kieszeń w otworze)
+                let guard = 0;
+                while (d < target - 0.01 && guard++ < 600) {
+                    d += ap * 2;
+                    if (d > target) d = target;
+                    const intervals = intervalsForDiameter(d);
+                    if (intervals.length) passes.push({ d, intervals });
+                }
+            }
+            return passes;
         }
 
         function buildSimPath(internal, dBlank, dPilot, ap, allowX, safeZ, approachX, zMin, maxX, minX) {
             simulationPath = [];
-            const samples = sampleProfile();
             simulationPath.push({ x: approachX, z: safeZ, type: 'G0' });
 
-            if (!internal) {
-                let d = dBlank;
-                const target = maxX + allowX * 2;
-                let guard = 0;
-                while (d > target + 0.01 && guard++ < 400) {
-                    d -= ap * 2;
-                    if (d < target) d = target;
-                    const stopZ = stopZForPass(samples, d, false);
-                    const zEnd = stopZ !== null ? stopZ : zMin;
-                    simulationPath.push({ x: approachX, z: safeZ, type: 'G0' });
-                    simulationPath.push({ x: d, z: safeZ, type: 'G0' });
-                    simulationPath.push({ x: d, z: zEnd, type: 'G1' });
-                    simulationPath.push({ x: d + 1.5, z: zEnd + 0.8, type: 'G1' });
-                    simulationPath.push({ x: d + 1.5, z: safeZ, type: 'G0' });
-                }
-            } else {
-                let d = dPilot;
-                const target = maxX - allowX * 2; // wytaczamy w górę do największej średnicy profilu
-                let guard = 0;
-                while (d < target - 0.01 && guard++ < 400) {
-                    d += ap * 2;
-                    if (d > target) d = target;
-                    const stopZ = stopZForPass(samples, d, true);
-                    const zEnd = stopZ !== null ? stopZ : zMin;
-                    simulationPath.push({ x: approachX, z: safeZ, type: 'G0' });
-                    simulationPath.push({ x: d, z: safeZ, type: 'G0' });
-                    simulationPath.push({ x: d, z: zEnd, type: 'G1' });
-                    simulationPath.push({ x: d - 1.5, z: zEnd + 0.8, type: 'G1' });
-                    simulationPath.push({ x: d - 1.5, z: safeZ, type: 'G0' });
+            const passes = computeRoughPasses(internal, dBlank, dPilot, ap, allowX, minX, maxX);
+            for (const pass of passes) {
+                for (const iv of pass.intervals) {
+                    simulationPath.push({ x: approachX, z: iv.zStart, type: 'G0' });
+                    simulationPath.push({ x: pass.d, z: iv.zStart, type: 'G0' });
+                    simulationPath.push({ x: pass.d, z: iv.zEnd, type: 'G1' });
+                    simulationPath.push({ x: approachX, z: iv.zEnd, type: 'G1' });
                 }
             }
+            simulationPath.push({ x: approachX, z: safeZ, type: 'G0' });
 
             // przejście wykańczające po konturze
             simulationPath.push({ x: approachX, z: safeZ, type: 'G0' });
