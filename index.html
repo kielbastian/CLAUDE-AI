@@ -310,6 +310,7 @@
         }
         .badge b { color: #38bdf8; }
         .badge.mode-dim b { color: #c084fc; }
+        .badge.mode-freehand b { color: #22c55e; }
 
         /* Coordinate table */
         .tbl-wrap { overflow-x: auto; border: 1px solid var(--panel-border); border-radius: 10px; }
@@ -495,6 +496,17 @@
                             </div>
 
                             <div class="field">
+                                <label>Sposób generowania kodu</label>
+                                <div class="seg" id="seg_codemode">
+                                    <input type="radio" id="code_cycle" name="code_mode" value="CYCLE" checked>
+                                    <label for="code_cycle">Cykl G71 / G70</label>
+                                    <input type="radio" id="code_blocks" name="code_mode" value="BLOCKS">
+                                    <label for="code_blocks">Blok po bloku</label>
+                                </div>
+                                <span class="hint" id="codemode_hint">Cykl: zwarty kod z G71 (zgrubnie) + G70 (wykańczanie). Blok po bloku: pełny, jawny kod — każde przejście osobno, bez cykli.</span>
+                            </div>
+
+                            <div class="field" id="wrap_g71type">
                                 <label>Typ cyklu G71 (podcięcia / rowki)</label>
                                 <div class="seg accent" id="seg_g71">
                                     <input type="radio" id="g71_1" name="g71_type" value="1" checked>
@@ -611,6 +623,8 @@
                                 <div class="seg" id="seg_tool" style="padding:2px;">
                                     <input type="radio" id="tool_sketch" name="cad_tool" value="SKETCH" checked>
                                     <label for="tool_sketch" style="padding:7px 10px;">✏️ Rysuj</label>
+                                    <input type="radio" id="tool_freehand" name="cad_tool" value="FREEHAND">
+                                    <label for="tool_freehand" style="padding:7px 10px;">🖊️ Odręcznie</label>
                                     <input type="radio" id="tool_fillet" name="cad_tool" value="FILLET">
                                     <label for="tool_fillet" style="padding:7px 10px;">◜ Faza / R</label>
                                 </div>
@@ -684,6 +698,8 @@
         let isDragging = false, startDragPos = { x: 0, y: 0 };
         let currentMouseGrid = { x: 0, z: 0 };
         let mouseInCanvas = false;
+        let isFreehandDrawing = false;
+        let freehandRaw = [];
 
         const canvas = document.getElementById('simCanvas');
         const ctx = canvas.getContext('2d');
@@ -691,7 +707,8 @@
 
         function opType()  { return document.querySelector('input[name="op_type"]:checked').value; }        // EXT / INT
         function g71Type() { return document.querySelector('input[name="g71_type"]:checked').value; }        // 1 / 2
-        function cadTool() { return document.querySelector('input[name="cad_tool"]:checked').value; }        // SKETCH / GROOVE
+        function cadTool() { return document.querySelector('input[name="cad_tool"]:checked').value; }        // SKETCH / FREEHAND / FILLET
+        function codeMode() { return document.querySelector('input[name="code_mode"]:checked').value; }      // CYCLE / BLOCKS
         function isInternal() { return opType() === 'INT'; }
 
         /* ---------- Toasts ---------- */
@@ -906,6 +923,54 @@
             return { x: xVal, z: zVal };
         }
 
+        // Surowa pozycja (bez snapowania) — do rysowania odręcznego
+        function getRawMachineCoords(e) {
+            const rect = canvas.getBoundingClientRect();
+            const coords = toMachineCoords(e.clientY - rect.top, e.clientX - rect.left);
+            let z = coords.z, x = coords.x;
+            if (z > 0) z = 0;
+            if (x < 0) x = 0;
+            return { x, z };
+        }
+
+        // Uproszczenie Douglasa-Peuckera odręcznej kreski do rozsądnej liczby punktów profilu.
+        // Odległości liczone w płaszczyźnie Z / promień (x/2), spójnie z resztą geometrii.
+        function rdpSimplify(points, epsilon) {
+            if (points.length < 3) return points.slice();
+            function distToSeg(p, a, b) {
+                const az = a.z, ar = a.x / 2, bz = b.z, br = b.x / 2, pz = p.z, pr = p.x / 2;
+                const dz = bz - az, dr = br - ar;
+                const len2 = dz * dz + dr * dr;
+                if (len2 < 1e-9) return Math.hypot(pz - az, pr - ar);
+                let t = ((pz - az) * dz + (pr - ar) * dr) / len2;
+                t = Math.max(0, Math.min(1, t));
+                return Math.hypot(pz - (az + t * dz), pr - (ar + t * dr));
+            }
+            let maxD = 0, idx = 0;
+            for (let i = 1; i < points.length - 1; i++) {
+                const d = distToSeg(points[i], points[0], points[points.length - 1]);
+                if (d > maxD) { maxD = d; idx = i; }
+            }
+            if (maxD > epsilon) {
+                const left = rdpSimplify(points.slice(0, idx + 1), epsilon);
+                const right = rdpSimplify(points.slice(idx), epsilon);
+                return left.slice(0, -1).concat(right);
+            }
+            return [points[0], points[points.length - 1]];
+        }
+
+        function finishFreehandStroke() {
+            const raw = freehandRaw;
+            freehandRaw = [];
+            if (raw.length < 2) { drawCAD(); return; }
+            const simplified = rdpSimplify(raw, 0.6);
+            if (simplified.length < 2) { drawCAD(); return; }
+            profile = simplified.map(p => ({ x: p.x, z: p.z, corner: 'none', cval: 0, groove: false }));
+            syncBlank();
+            refreshAll();
+            toast('Wygenerowano profil z odręcznego rysunku (' + profile.length + ' punktów).', 'ok');
+        }
+
         /* ============================================================
            MYSZ / RYSOWANIE PROFILU
            ============================================================ */
@@ -921,12 +986,18 @@
                 return;
             }
 
+            if (cadTool() === 'FREEHAND') {
+                isFreehandDrawing = true;
+                freehandRaw = [getRawMachineCoords(e)];
+                return;
+            }
+
             const pt = getMouseCoordinates(e);
 
             // SKETCH
             const last = profile.length ? profile[profile.length - 1] : { x: isInternal() ? 20 : 0, z: 0 };
             if (profile.length && pt.z > last.z) { showError('Nowy punkt musi iść w lewo (Z ≤ poprzedniemu).'); return; }
-            if (g71Type() === '1' && profile.length) {
+            if (codeMode() === 'CYCLE' && g71Type() === '1' && profile.length) {
                 if (!isInternal() && pt.x < last.x) { showError('Typ 1: średnica (X) nie może maleć. Użyj Typ 2 dla podcięć.'); return; }
                 if (isInternal() && pt.x > last.x) { showError('Typ 1 (wytaczanie): średnica otworu nie może rosnąć w głąb. Użyj Typ 2.'); return; }
             }
@@ -943,13 +1014,23 @@
                 originX += e.clientY - startDragPos.y;
                 startDragPos = { x: e.clientX, y: e.clientY };
                 drawCAD();
+            } else if (isFreehandDrawing) {
+                const pt = getRawMachineCoords(e);
+                const last = freehandRaw[freehandRaw.length - 1];
+                const dz = pt.z - last.z, dr = (pt.x - last.x) / 2;
+                if (Math.hypot(dz, dr) > 0.4) freehandRaw.push(pt);
+                document.getElementById('badge_pos').innerHTML = `X <b>${fmt(pt.x)}</b> &nbsp; Z <b>${fmt(pt.z)}</b>`;
+                drawCAD();
             } else {
                 currentMouseGrid = getMouseCoordinates(e);
                 document.getElementById('badge_pos').innerHTML = `X <b>${currentMouseGrid.x}</b> &nbsp; Z <b>${currentMouseGrid.z}</b>`;
                 if (!isAnimating) drawCAD();
             }
         });
-        window.addEventListener('mouseup', () => { if (isDragging) { isDragging = false; canvas.style.cursor = 'crosshair'; } });
+        window.addEventListener('mouseup', () => {
+            if (isDragging) { isDragging = false; canvas.style.cursor = 'crosshair'; }
+            if (isFreehandDrawing) { isFreehandDrawing = false; finishFreehandStroke(); }
+        });
 
         // Podgląd kreskowanej linii tylko gdy kursor jest nad polem szkicu
         canvas.addEventListener('mouseenter', () => { mouseInCanvas = true; });
@@ -1138,6 +1219,17 @@
                         getZPix(currentMouseGrid.z) + 10, getXPix(currentMouseGrid.x) - 8);
                 }
             }
+
+            // podgląd rysowania odręcznego (flamaster)
+            if (isFreehandDrawing && freehandRaw.length > 1) {
+                ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 2.5; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+                ctx.beginPath();
+                ctx.moveTo(getZPix(freehandRaw[0].z), getXPix(freehandRaw[0].x));
+                for (let i = 1; i < freehandRaw.length; i++) {
+                    ctx.lineTo(getZPix(freehandRaw[i].z), getXPix(freehandRaw[i].x));
+                }
+                ctx.stroke();
+            }
         }
 
         // wymiary czytelnie, bez klikania (wartości wprost przy segmentach)
@@ -1241,15 +1333,10 @@
             }
             return moves;
         }
-        function emitContour(g, first, type2, fFin, approachX, P, Q) {
-            if (type2) {
-                g.push(`N${P} G00 X${fmtNC(first.x)} Z${fmtNC(first.z)}`);
-            } else {
-                g.push(`N${P} G00 X${fmtNC(first.x)}`);
-                g.push(`G01 Z${fmtNC(first.z)} F${fmtNC(fFin)}`);
-            }
-            let curX = first.x, curZ = first.z;
-            for (const m of buildContourMoves(profile)) {
+        // wspólna emisja ruchów konturu (używana i przez cykl G71/G70, i przez tryb blokowy)
+        function emitMoveLines(g, moves, startX, startZ) {
+            let curX = startX, curZ = startZ;
+            for (const m of moves) {
                 let line = m.g;
                 if (m.g === 'G02' || m.g === 'G03') {
                     line += ' X' + fmtNC(m.x) + ' Z' + fmtNC(m.z) + ' R' + fmtNC(m.r);
@@ -1262,13 +1349,72 @@
                 g.push(line);
                 curX = m.x; curZ = m.z;
             }
+        }
+
+        function emitContour(g, first, type2, fFin, approachX, P, Q) {
+            if (type2) {
+                g.push(`N${P} G00 X${fmtNC(first.x)} Z${fmtNC(first.z)}`);
+            } else {
+                g.push(`N${P} G00 X${fmtNC(first.x)}`);
+                g.push(`G01 Z${fmtNC(first.z)} F${fmtNC(fFin)}`);
+            }
+            emitMoveLines(g, buildContourMoves(profile), first.x, first.z);
             g.push(`N${Q} G00 X${fmtNC(approachX)}`);
+        }
+
+        // Tryb "blok po bloku": jawne przejścia zgrubne (bez G71) + osobny przejazd wykańczający (bez G70)
+        function emitRoughBlocks(g, internal, dBlank, dPilot, ap, allowX, fRough, approachX, safeZ, zMin, maxX) {
+            const samples = sampleProfile();
+            let passNum = 0;
+            if (!internal) {
+                let d = dBlank;
+                const target = maxX + allowX * 2;
+                let guard = 0;
+                while (d > target + 0.01 && guard++ < 400) {
+                    d -= ap * 2;
+                    if (d < target) d = target;
+                    const stopZ = stopZForPass(samples, d, false);
+                    const zEnd = stopZ !== null ? stopZ : zMin;
+                    passNum++;
+                    g.push(`(PRZEJSCIE ZGRUBNE ${passNum} - Fi${fmt(d)})`);
+                    g.push(`G00 X${fmtNC(d)}`);
+                    g.push(`G01 Z${fmtNC(zEnd)}${passNum === 1 ? ' F' + fmtNC(fRough) : ''}`);
+                    g.push(`X${fmtNC(d + allowX + 1.0)}`);
+                    g.push(`G00 Z${fmtNC(safeZ)}`);
+                }
+            } else {
+                let d = dPilot;
+                const target = maxX - allowX * 2;
+                let guard = 0;
+                while (d < target - 0.01 && guard++ < 400) {
+                    d += ap * 2;
+                    if (d > target) d = target;
+                    const stopZ = stopZForPass(samples, d, true);
+                    const zEnd = stopZ !== null ? stopZ : zMin;
+                    passNum++;
+                    g.push(`(PRZEJSCIE ZGRUBNE ${passNum} - Fi${fmt(d)})`);
+                    g.push(`G00 X${fmtNC(d)}`);
+                    g.push(`G01 Z${fmtNC(zEnd)}${passNum === 1 ? ' F' + fmtNC(fRough) : ''}`);
+                    g.push(`X${fmtNC(d - allowX - 1.0)}`);
+                    g.push(`G00 Z${fmtNC(safeZ)}`);
+                }
+            }
+            g.push(`G00 X${fmtNC(approachX)}`);
+        }
+
+        function emitFinishBlock(g, first, fFin, approachX) {
+            g.push('(PRZEJSCIE WYKANCZAJACE)');
+            g.push(`G00 X${fmtNC(first.x)}`);
+            g.push(`G01 Z${fmtNC(first.z)} F${fmtNC(fFin)}`);
+            emitMoveLines(g, buildContourMoves(profile), first.x, first.z);
+            g.push(`G00 X${fmtNC(approachX)}`);
         }
 
         function generateGcode() {
             if (profile.length < 2) { showError('Za mało punktów profilu.'); return; }
 
             const internal = isInternal();
+            const mode = codeMode();               // CYCLE / BLOCKS
             const type2 = g71Type() === '2';
             const dBlank = parseFloat(document.getElementById('d_blank').value);
             const dPilot = parseFloat(document.getElementById('d_pilot').value) || 20;
@@ -1283,11 +1429,11 @@
             const allowZ = parseFloat(document.getElementById('finish_allowance_z').value);
             const safeZ = parseFloat(document.getElementById('safe_z').value);
 
-            // walidacja typu 1
-            if (!type2) {
+            // walidacja typu 1 -- tylko dla cyklu G71 (blok po bloku nie ma tego ograniczenia)
+            if (mode === 'CYCLE' && !type2) {
                 for (let i = 1; i < profile.length; i++) {
-                    if (!internal && profile[i].x < profile[i - 1].x - 1e-6) { showError('Typ 1: profil zewn. musi rosnąć. Przełącz na Typ 2.'); return; }
-                    if (internal && profile[i].x > profile[i - 1].x + 1e-6) { showError('Typ 1: otwór nie może rosnąć w głąb. Przełącz na Typ 2.'); return; }
+                    if (!internal && profile[i].x < profile[i - 1].x - 1e-6) { showError('Typ 1: profil zewn. musi rosnąć. Przełącz na Typ 2 lub na "Blok po bloku".'); return; }
+                    if (internal && profile[i].x > profile[i - 1].x + 1e-6) { showError('Typ 1: otwór nie może rosnąć w głąb. Przełącz na Typ 2 lub na "Blok po bloku".'); return; }
                 }
             }
 
@@ -1297,8 +1443,9 @@
             const maxX = Math.max(...profile.map(p => p.x));
             const minX = Math.min(...profile.map(p => p.x));
 
+            const modeTag = mode === 'CYCLE' ? ('G71 TYP ' + (type2 ? '2' : '1')) : 'BLOK PO BLOKU';
             g.push('%');
-            g.push('O1002 (HAAS ST-35Y - ' + (internal ? 'WYTACZANIE WEWN.' : 'TOCZENIE ZEWN.') + ' - G71 TYP ' + (type2 ? '2' : '1') + ')');
+            g.push('O1002 (HAAS ST-35Y - ' + (internal ? 'WYTACZANIE WEWN.' : 'TOCZENIE ZEWN.') + ' - ' + modeTag + ')');
             g.push('G21 G18');
             g.push('G40 G80 G99');
             g.push('');
@@ -1313,16 +1460,22 @@
             g.push('G00 X' + fmtNC(approachX) + ' M08');
             g.push('Z' + fmtNC(safeZ));
 
-            // cykl zgrubny G71
-            g.push('');
-            g.push(`G71 P${P} Q${Q} D${fmtNC(ap)} I${fmtNC(Iout)} K${fmtNC(allowZ)} F${fmtNC(fRough)}`);
-
-            // blok konturu P..Q (z jawnymi fazami/łukami)
-            emitContour(g, profile[0], type2, fFin, approachX, P, Q);
-
-            // cykl wykańczający
-            g.push('');
-            g.push(`G70 P${P} Q${Q} F${fmtNC(fFin)}`);
+            if (mode === 'CYCLE') {
+                // cykl zgrubny G71
+                g.push('');
+                g.push(`G71 P${P} Q${Q} D${fmtNC(ap)} I${fmtNC(Iout)} K${fmtNC(allowZ)} F${fmtNC(fRough)}`);
+                // blok konturu P..Q (z jawnymi fazami/łukami)
+                emitContour(g, profile[0], type2, fFin, approachX, P, Q);
+                // cykl wykańczający
+                g.push('');
+                g.push(`G70 P${P} Q${Q} F${fmtNC(fFin)}`);
+            } else {
+                // blok po bloku: jawne przejścia zgrubne + osobny przejazd wykańczający
+                g.push('');
+                emitRoughBlocks(g, internal, dBlank, dPilot, ap, allowX, fRough, approachX, safeZ, zMin, maxX);
+                g.push('');
+                emitFinishBlock(g, profile[0], fFin, approachX);
+            }
 
             g.push('');
             g.push('G00 Z' + fmtNC(safeZ) + ' M09');
@@ -1501,17 +1654,35 @@
             document.getElementById('lbl_blank').innerText = internal ? 'Średnica zewn. detalu Ø (mm)' : 'Średnica surówki Ø (mm)';
             document.getElementById('lbl_speed').innerText = document.querySelector('input[name="spindle_mode"]:checked').value === 'G96'
                 ? 'Prędkość Vc (m/min)' : 'Obroty n (obr/min)';
+            const blocks = codeMode() === 'BLOCKS';
+            document.getElementById('codemode_hint').innerText = blocks
+                ? 'Blok po bloku: pełny, jawny kod — każde przejście zgrubne osobno, bez cykli G71/G70.'
+                : 'Cykl: zwarty kod z G71 (zgrubnie) + G70 (wykańczanie).';
+            const wrapG71 = document.getElementById('wrap_g71type');
+            wrapG71.style.opacity = blocks ? '0.45' : '1';
+            document.querySelectorAll('input[name="g71_type"]').forEach(r => r.disabled = blocks);
+
             const t2 = g71Type() === '2';
-            document.getElementById('g71_hint').innerText = t2
-                ? 'Typ 2 aktywny: profil może być niemonotoniczny (podcięcia).'
-                : 'Typ 1: profil monotoniczny. Przełącz na Typ 2 dla podcięć.';
-            const fillet = cadTool() === 'FILLET';
+            document.getElementById('g71_hint').innerText = blocks
+                ? 'Nieużywane w trybie „Blok po bloku" — profil może być dowolny.'
+                : (t2 ? 'Typ 2 aktywny: profil może być niemonotoniczny (podcięcia).'
+                      : 'Typ 1: profil monotoniczny. Przełącz na Typ 2 dla podcięć.');
+
+            const tool = cadTool();
             const badge = document.getElementById('badge_mode');
-            badge.innerHTML = fillet
-                ? 'Tryb: <b>Faza / Promień</b> — kliknij na styk linii'
-                : 'Tryb: <b>Rysowanie</b>';
-            badge.className = fillet ? 'badge mode-dim' : 'badge';
-            canvas.style.cursor = fillet ? 'pointer' : 'crosshair';
+            if (tool === 'FILLET') {
+                badge.innerHTML = 'Tryb: <b>Faza / Promień</b> — kliknij na styk linii';
+                badge.className = 'badge mode-dim';
+                canvas.style.cursor = 'pointer';
+            } else if (tool === 'FREEHAND') {
+                badge.innerHTML = 'Tryb: <b>Odręcznie</b> — przeciągnij, aby narysować profil';
+                badge.className = 'badge mode-freehand';
+                canvas.style.cursor = 'crosshair';
+            } else {
+                badge.innerHTML = 'Tryb: <b>Rysowanie</b>';
+                badge.className = 'badge';
+                canvas.style.cursor = 'crosshair';
+            }
         }
 
         document.querySelectorAll('input[name="op_type"]').forEach(r => r.addEventListener('change', () => {
@@ -1531,6 +1702,7 @@
             refreshAll();
         }));
         document.querySelectorAll('input[name="g71_type"]').forEach(r => r.addEventListener('change', () => { updateModeUI(); if (profile.length >= 2) generateGcode(); }));
+        document.querySelectorAll('input[name="code_mode"]').forEach(r => r.addEventListener('change', () => { updateModeUI(); if (profile.length >= 2) generateGcode(); }));
         document.querySelectorAll('input[name="cad_tool"]').forEach(r => r.addEventListener('change', updateModeUI));
         document.querySelectorAll('input[name="spindle_mode"]').forEach(r => r.addEventListener('change', updateModeUI));
 
