@@ -746,7 +746,7 @@
                             <div class="ico">✏️</div>
                             <div>
                                 <h2 id="cad_title">Szkicownik profilu 2D</h2>
-                                <div class="sub">PPM (lub Shift+LPM) = przesuwanie, kółko = zoom. Najedź na punkt, aby zobaczyć wymiar.</div>
+                                <div class="sub">PPM (lub Shift+LPM) = przesuwanie, kółko = zoom. Najedź na punkt lub linię, aby zobaczyć wymiar. Siatka w realnych mm — węzły na 0.1 / 0.5 / 1 mm (gęstsza przy przybliżeniu).</div>
                             </div>
                             <div class="right">
                                 <div class="seg" id="seg_tool" style="padding:2px;">
@@ -754,6 +754,8 @@
                                     <label for="tool_sketch" style="padding:7px 10px;">✏️ Rysuj</label>
                                     <input type="radio" id="tool_freehand" name="cad_tool" value="FREEHAND">
                                     <label for="tool_freehand" style="padding:7px 10px;">🖊️ Odręcznie</label>
+                                    <input type="radio" id="tool_insert" name="cad_tool" value="INSERT">
+                                    <label for="tool_insert" style="padding:7px 10px;">➕ Wstaw punkt</label>
                                     <input type="radio" id="tool_fillet" name="cad_tool" value="FILLET">
                                     <label for="tool_fillet" style="padding:7px 10px;">◜ Faza / R</label>
                                 </div>
@@ -830,6 +832,7 @@
         let isFreehandDrawing = false;
         let freehandRaw = [];
         let hoverPointIdx = -1;            // podświetlony/przyciągany punkt profilu pod kursorem
+        let hoverSegIdx = -1;              // linia (segment) pod kursorem — pokazuje wymiar / miejsce wstawienia
 
         const canvas = document.getElementById('simCanvas');
         const ctx = canvas.getContext('2d');
@@ -1033,11 +1036,28 @@
             return { x: ((originX - pixelX) / scale) * 2, z: (pixelZ - originZ) / scale };
         }
 
+        // Ciąg "ładnych" kroków siatki [mm] — oczka zawsze wypadają na wartościach realnych
+        const NICE = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500];
+        // Podstawowy (drobny) krok siatki [mm] tak, by oczko miało ~targetPx pikseli
+        function gridMinorMm(targetPx) {
+            const raw = targetPx / scale;
+            let best = NICE[0];
+            for (const c of NICE) if (c <= raw) best = c; // największy krok <= raw
+            return best;
+        }
+        // Krok drobnej siatki [px] — gęsta siatka (~13 px na oczko)
+        function gridStepMm() { return Math.max(0.01, gridMinorMm(13)); }
+        // Krok przyciągania [mm] = krok drobnej siatki — rysunek trafia dokładnie
+        // w węzły widocznej siatki (od 0.01 mm przy dużym przybliżeniu).
+        function snapMm() { return gridStepMm(); }
+        function snapVal(v, step) { return Math.round(Math.round(v / step) * step * 1000) / 1000; }
+
         function getMouseCoordinates(e) {
             const rect = canvas.getBoundingClientRect();
             let coords = toMachineCoords(e.clientY - rect.top, e.clientX - rect.left);
-            let zVal = Math.round(coords.z);
-            let xVal = Math.round(coords.x);
+            const s = snapMm();
+            let zVal = snapVal(coords.z, s);
+            let xVal = snapVal(coords.x, s);
             if (zVal > 0) zVal = 0;
             if (xVal < 0) xVal = 0;
 
@@ -1127,6 +1147,48 @@
             return best;
         }
 
+        // Odległość punktu (px) od odcinka (px)
+        function distPointToSegPx(px, py, ax, ay, bx, by) {
+            const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
+            if (len2 < 1e-6) return Math.hypot(px - ax, py - ay);
+            let t = ((px - ax) * dx + (py - ay) * dy) / len2;
+            t = Math.max(0, Math.min(1, t));
+            return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+        }
+
+        // Najbliższy segment profilu pod kursorem — zwraca i (odcinek profile[i-1]..profile[i])
+        function nearestSegmentIndex(e) {
+            if (profile.length < 2) return -1;
+            const rect = canvas.getBoundingClientRect();
+            const mZ = e.clientX - rect.left, mX = e.clientY - rect.top;
+            let best = -1, bestD = 10; // próg [px]
+            for (let i = 1; i < profile.length; i++) {
+                const a = profile[i - 1], b = profile[i];
+                const d = distPointToSegPx(mZ, mX, getZPix(a.z), getXPix(a.x), getZPix(b.z), getXPix(b.x));
+                if (d < bestD) { bestD = d; best = i; }
+            }
+            return best;
+        }
+
+        // Wstawia punkt na istniejącej linii (np. w połowie — do zrobienia wcięcia/podcięcia)
+        function insertPointOnSegment(e) {
+            if (profile.length < 2) { showError('Najpierw narysuj profil — potrzebna jest linia.'); return; }
+            const si = nearestSegmentIndex(e);
+            if (si < 1) { showError('Najedź na istniejącą linię, aby wstawić punkt.'); return; }
+            const a = profile[si - 1], b = profile[si];
+            const pt = getMouseCoordinates(e);
+            // utrzymaj kolejność Z (malejąco) w obrębie odcinka
+            const zHi = Math.max(a.z, b.z), zLo = Math.min(a.z, b.z);
+            let z = Math.min(zHi, Math.max(zLo, pt.z));
+            let x = Math.max(0, pt.x);
+            profile.splice(si, 0, { x, z, corner: 'none', cval: 0, groove: false });
+            hoverSegIdx = -1;
+            syncBlank();
+            activeRowIdx = si;
+            refreshAll();
+            toast('Dodano punkt na linii — zmień jego Ø/Z w tabeli, aby zrobić wcięcie.', 'ok');
+        }
+
         canvas.addEventListener('mousedown', (e) => {
             // Przesuwanie pola roboczego: PPM, środkowy przycisk lub Shift+LPM
             if (e.button === 2 || e.button === 1 || (e.button === 0 && e.shiftKey)) {
@@ -1136,6 +1198,8 @@
             if (e.button !== 0 || isAnimating) return;
 
             if (cadTool() === 'FILLET') { applyCornerAt(e); return; }
+
+            if (cadTool() === 'INSERT') { insertPointOnSegment(e); return; }
 
             if (cadTool() === 'FREEHAND') {
                 isFreehandDrawing = true;
@@ -1178,8 +1242,11 @@
             } else {
                 currentMouseGrid = getMouseCoordinates(e);
                 hoverPointIdx = mouseInCanvas ? nearestProfilePoint(e) : -1;
-                canvas.style.cursor = hoverPointIdx >= 0 ? 'pointer' : (cadTool() === 'FILLET' ? 'pointer' : 'crosshair');
-                document.getElementById('badge_pos').innerHTML = `X <b>${currentMouseGrid.x}</b> &nbsp; Z <b>${currentMouseGrid.z}</b>`;
+                hoverSegIdx = (mouseInCanvas && hoverPointIdx < 0) ? nearestSegmentIndex(e) : -1;
+                canvas.style.cursor = hoverPointIdx >= 0 ? 'pointer'
+                    : (cadTool() === 'INSERT' && hoverSegIdx >= 0) ? 'copy'
+                    : (cadTool() === 'FILLET' || hoverSegIdx >= 0) ? 'pointer' : 'crosshair';
+                document.getElementById('badge_pos').innerHTML = `X <b>${fmt(currentMouseGrid.x)}</b> &nbsp; Z <b>${fmt(currentMouseGrid.z)}</b>`;
                 if (!isAnimating) drawCAD();
             }
         });
@@ -1190,7 +1257,7 @@
 
         // Podgląd kreskowanej linii tylko gdy kursor jest nad polem szkicu
         canvas.addEventListener('mouseenter', () => { mouseInCanvas = true; });
-        canvas.addEventListener('mouseleave', () => { mouseInCanvas = false; hoverPointIdx = -1; if (!isAnimating) drawCAD(); });
+        canvas.addEventListener('mouseleave', () => { mouseInCanvas = false; hoverPointIdx = -1; hoverSegIdx = -1; if (!isAnimating) drawCAD(); });
 
         canvas.addEventListener('wheel', (e) => {
             e.preventDefault();
@@ -1198,7 +1265,7 @@
             const mZ = e.clientX - rect.left, mX = e.clientY - rect.top;
             const under = toMachineCoords(mX, mZ);
             scale *= e.deltaY < 0 ? 1.12 : 1 / 1.12;
-            scale = Math.max(0.8, Math.min(60, scale));
+            scale = Math.max(0.8, Math.min(240, scale)); // duży zoom -> siatka i przyciąganie do 0.05 mm
             originZ = mZ - under.z * scale;
             originX = mX + (under.x / 2) * scale;
             drawCAD();
@@ -1255,22 +1322,32 @@
             const dBlank = parseFloat(document.getElementById('d_blank').value) || 90;
             const internal = isInternal();
 
-            // siatka — kwadratowe oczka o stałym rozmiarze w px (nie zagęszcza się przy zoomie)
-            const cell = 26;          // rozmiar oczka [px]
-            const major = cell * 4;   // mocniejsza linia co 4 oczka
-            ctx.lineWidth = 1;
-            ctx.strokeStyle = 'rgba(148,163,184,0.05)';
-            for (let zPix = originZ % cell; zPix < canvas.width; zPix += cell) {
+            // Siatka realnych milimetrów — węzły zawsze na "ładnych" wartościach (…0.05, 0.1, 0.5, 1 mm…).
+            // Ten sam krok mm w kierunku Z i promienia -> oczka są kwadratowe w px (krok = step*scale).
+            const step = gridStepMm();          // drobny krok [mm]
+            const majEvery = 5;                 // mocniejsza linia co 5 oczek
+            const stepPx = step * scale;
+            // zakres widocznych współrzędnych
+            const zL = (0 - originZ) / scale, zR = (canvas.width - originZ) / scale;   // [mm] w osi Z
+            const rTop = (originX - 0) / scale, rBot = (originX - canvas.height) / scale; // promień [mm]
+            const eps = 1e-6;
+
+            // pionowe linie (stała wartość Z)
+            let kz0 = Math.ceil(zL / step - eps), kz1 = Math.floor(zR / step + eps);
+            for (let k = kz0; k <= kz1; k++) {
+                const zPix = originZ + k * step * scale;
+                const isMajor = (((k % majEvery) + majEvery) % majEvery) === 0;
+                ctx.lineWidth = 1;
+                ctx.strokeStyle = isMajor ? 'rgba(148,163,184,0.16)' : 'rgba(148,163,184,0.055)';
                 ctx.beginPath(); ctx.moveTo(zPix, 0); ctx.lineTo(zPix, canvas.height); ctx.stroke();
             }
-            for (let xPix = originX % cell; xPix < canvas.height; xPix += cell) {
-                ctx.beginPath(); ctx.moveTo(0, xPix); ctx.lineTo(canvas.width, xPix); ctx.stroke();
-            }
-            ctx.strokeStyle = 'rgba(148,163,184,0.12)';
-            for (let zPix = originZ % major; zPix < canvas.width; zPix += major) {
-                ctx.beginPath(); ctx.moveTo(zPix, 0); ctx.lineTo(zPix, canvas.height); ctx.stroke();
-            }
-            for (let xPix = originX % major; xPix < canvas.height; xPix += major) {
+            // poziome linie (stały promień -> średnica = 2*promień)
+            let kr0 = Math.ceil(rBot / step - eps), kr1 = Math.floor(rTop / step + eps);
+            for (let k = kr0; k <= kr1; k++) {
+                const xPix = originX - k * step * scale;
+                const isMajor = (((k % majEvery) + majEvery) % majEvery) === 0;
+                ctx.lineWidth = 1;
+                ctx.strokeStyle = isMajor ? 'rgba(148,163,184,0.16)' : 'rgba(148,163,184,0.055)';
                 ctx.beginPath(); ctx.moveTo(0, xPix); ctx.lineTo(canvas.width, xPix); ctx.stroke();
             }
 
@@ -1281,10 +1358,21 @@
             ctx.fillStyle = '#f59e0b'; ctx.font = '10px monospace';
             ctx.fillText('OŚ  Z / CL', 8, originX - 6);
 
-            // etykiety osi
-            ctx.fillStyle = '#475569'; ctx.font = '10px monospace';
-            for (let z = 0; z >= -320; z -= 20) ctx.fillText(z + '', getZPix(z) - 8, originX + 16);
-            for (let x = 20; x <= 220; x += 20) ctx.fillText('Ø' + x, originZ + 6, getXPix(x) + 3);
+            // etykiety osi na liniach głównych (realne mm)
+            const majStep = step * majEvery;
+            ctx.fillStyle = '#64748b'; ctx.font = '10px monospace';
+            for (let k = kz0; k <= kz1; k++) {
+                if ((((k % majEvery) + majEvery) % majEvery) !== 0) continue;
+                const zVal = Math.round(k * step * 1000) / 1000;
+                if (zVal > eps) continue; // profil: Z ≤ 0
+                ctx.fillText(fmt(zVal), originZ + k * step * scale - 8, originX + 16);
+            }
+            for (let k = kr0; k <= kr1; k++) {
+                if ((((k % majEvery) + majEvery) % majEvery) !== 0) continue;
+                const diam = Math.round(k * step * 2 * 1000) / 1000;
+                if (diam <= eps) continue; // pomiń oś (Ø0)
+                ctx.fillText('Ø' + fmt(diam), originZ + 6, originX - k * step * scale + 3);
+            }
 
             // materiał
             const zsProfile = profile.map(p => p.z);
@@ -1385,8 +1473,11 @@
                         const ang = Math.atan2(Math.abs(dr), Math.abs(dz)) * 180 / Math.PI;
                         angTxt = '  ∠' + (Math.round(ang * 10) / 10) + '°';
                     }
+                    // długość rysowanej linii
+                    const segL = Math.hypot(dz, dr);
+                    const lenTxt = segL > 0.05 ? '  L' + fmt(Math.round(segL * 100) / 100) : '';
                     ctx.fillStyle = '#22c55e'; ctx.font = '11px monospace';
-                    ctx.fillText(`Ø${currentMouseGrid.x}  Z${currentMouseGrid.z}${angTxt}`,
+                    ctx.fillText(`Ø${fmt(currentMouseGrid.x)}  Z${fmt(currentMouseGrid.z)}${angTxt}${lenTxt}`,
                         getZPix(currentMouseGrid.z) + 10, getXPix(currentMouseGrid.x) - 8);
                 }
             }
@@ -1410,6 +1501,32 @@
                 ctx.strokeRect(px + 12, py - 24, w, 20);
                 ctx.fillStyle = '#67e8f9';
                 ctx.fillText(lbl, px + 18, py - 10);
+            }
+
+            // wymiar linii (segmentu) pod kursorem — długość / wysokość
+            if (!isAnimating && hoverPointIdx < 0 && hoverSegIdx >= 1 && hoverSegIdx < profile.length) {
+                const a = profile[hoverSegIdx - 1], b = profile[hoverSegIdx];
+                const ax = getZPix(a.z), ay = getXPix(a.x), bx = getZPix(b.z), by = getXPix(b.x);
+                const insertMode = cadTool() === 'INSERT';
+                ctx.strokeStyle = insertMode ? '#f472b6' : '#22d3ee';
+                ctx.lineWidth = 3.5; ctx.lineCap = 'round';
+                ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+                ctx.lineCap = 'butt';
+                const dz = b.z - a.z, dDiam = b.x - a.x, dr = dDiam / 2;
+                const L = Math.round(Math.hypot(dz, dr) * 100) / 100;
+                const parts = ['L' + fmt(L)];
+                if (Math.abs(dz) > 0.005) parts.push('ΔZ' + fmt(Math.round(Math.abs(dz) * 100) / 100));
+                if (Math.abs(dDiam) > 0.005) parts.push('ΔØ' + fmt(Math.round(Math.abs(dDiam) * 100) / 100));
+                const lbl = parts.join('  ');
+                const mx = (ax + bx) / 2, my = (ay + by) / 2;
+                ctx.font = 'bold 12px monospace';
+                const w = ctx.measureText(lbl).width + 12;
+                ctx.fillStyle = 'rgba(9,14,25,0.92)';
+                ctx.fillRect(mx + 12, my - 26, w, 20);
+                ctx.strokeStyle = insertMode ? 'rgba(244,114,182,0.6)' : 'rgba(34,211,238,0.5)'; ctx.lineWidth = 1;
+                ctx.strokeRect(mx + 12, my - 26, w, 20);
+                ctx.fillStyle = insertMode ? '#fbcfe8' : '#67e8f9';
+                ctx.fillText(lbl, mx + 18, my - 12);
             }
 
             // podgląd rysowania odręcznego (flamaster)
@@ -2188,6 +2305,10 @@
                 badge.innerHTML = 'Tryb: <b>Faza / Promień</b> — kliknij na styk linii';
                 badge.className = 'badge mode-dim';
                 canvas.style.cursor = 'pointer';
+            } else if (tool === 'INSERT') {
+                badge.innerHTML = 'Tryb: <b>Wstaw punkt</b> — kliknij na linię, aby dodać punkt (wcięcie)';
+                badge.className = 'badge mode-dim';
+                canvas.style.cursor = 'copy';
             } else if (tool === 'FREEHAND') {
                 badge.innerHTML = 'Tryb: <b>Odręcznie</b> — przeciągnij, aby narysować profil';
                 badge.className = 'badge mode-freehand';
