@@ -162,12 +162,12 @@
 
         .workspace {
             display: grid;
-            grid-template-columns: minmax(460px, 1fr) 780px;
+            grid-template-columns: 1fr 1fr;
             gap: 22px;
             padding: 22px 26px 40px;
             align-items: start;
         }
-        @media (max-width: 1300px) {
+        @media (max-width: 1200px) {
             .workspace { grid-template-columns: 1fr; }
         }
 
@@ -422,6 +422,25 @@
         .tab-panel { display: none; }
         .tab-panel.active { display: flex; flex-direction: column; gap: 15px; }
 
+        /* Parametry i Gwint: pola jednej wielkości, zwarte (nie za długie), zawijane */
+        #tab_params.active, #tab_thread.active {
+            display: flex; flex-direction: row; flex-wrap: wrap; gap: 12px 14px; align-content: start;
+        }
+        #tab_params .grid-2, #tab_thread .grid-2 { display: contents; }
+        #tab_params > .field, #tab_params .grid-2 > .field,
+        #tab_thread > .field, #tab_thread .grid-2 > .field {
+            flex: 0 0 158px; width: 158px;
+        }
+        /* elementy pełnej szerokości */
+        #tab_params > .field:has(.seg), #tab_thread .field:has(.seg),
+        #tab_thread .field:has(#thread_dd),
+        #tab_params > .sub, #tab_thread > .sub,
+        #btn_generate, #btn_gen_thread, #error_box, .combine-check, .thread-info,
+        #thread_custom_wrap {
+            flex: 1 1 100%; width: 100%;
+        }
+        #thread_custom_wrap > .field { flex: 0 0 158px; width: 158px; }
+
         /* G-code output with per-line spans + step highlight */
         .output .ln { display: block; padding: 0 4px; border-radius: 3px; min-height: 1.35em; }
         .output .ln.cur {
@@ -528,16 +547,6 @@
                                 <span class="hint" id="codemode_hint">Cykl: zwarty kod z G71 (zgrubnie) + G70 (wykańczanie). Blok po bloku: pełny, jawny kod — każde przejście osobno, bez cykli.</span>
                             </div>
 
-                            <div class="field" id="wrap_g71type">
-                                <label>Typ cyklu G71 (podcięcia / rowki)</label>
-                                <div class="seg accent" id="seg_g71">
-                                    <input type="radio" id="g71_1" name="g71_type" value="1" checked>
-                                    <label for="g71_1">Typ 1 — profil rosnący</label>
-                                    <input type="radio" id="g71_2" name="g71_type" value="2">
-                                    <label for="g71_2">Typ 2 — z podcięciami</label>
-                                </div>
-                                <span class="hint" id="g71_hint">Typ 1: profil monotoniczny. Typ 2: dozwolone rowki/podcięcia (kieszenie).</span>
-                            </div>
 
                             <div class="grid-2">
                                 <div class="field">
@@ -827,7 +836,7 @@
         const ncOutput = document.getElementById('nc_output');
 
         function opType()  { return document.querySelector('input[name="op_type"]:checked').value; }        // EXT / INT
-        function g71Type() { return document.querySelector('input[name="g71_type"]:checked').value; }        // 1 / 2
+        function g71Type() { return '2'; }        // zawsze Typ 2 (dowolny profil, podcięcia)
         function cadTool() { return document.querySelector('input[name="cad_tool"]:checked').value; }        // SKETCH / FREEHAND / FILLET
         function codeMode() { return document.querySelector('input[name="code_mode"]:checked').value; }      // CYCLE / BLOCKS
         function isInternal() { return opType() === 'INT'; }
@@ -1246,22 +1255,22 @@
             const dBlank = parseFloat(document.getElementById('d_blank').value) || 90;
             const internal = isInternal();
 
-            // siatka — gęstsza: drobna linia co 5 mm, mocniejsza co 10 mm
-            const fine = 5 * scale;   // Z co 5 mm; oś X (promień) co 2.5 mm
+            // siatka — kwadratowe oczka o stałym rozmiarze w px (nie zagęszcza się przy zoomie)
+            const cell = 26;          // rozmiar oczka [px]
+            const major = cell * 4;   // mocniejsza linia co 4 oczka
             ctx.lineWidth = 1;
-            ctx.strokeStyle = 'rgba(148,163,184,0.045)';
-            for (let zPix = originZ % fine; zPix < canvas.width; zPix += fine) {
+            ctx.strokeStyle = 'rgba(148,163,184,0.05)';
+            for (let zPix = originZ % cell; zPix < canvas.width; zPix += cell) {
                 ctx.beginPath(); ctx.moveTo(zPix, 0); ctx.lineTo(zPix, canvas.height); ctx.stroke();
             }
-            for (let xPix = originX % (fine / 2); xPix < canvas.height; xPix += fine / 2) {
+            for (let xPix = originX % cell; xPix < canvas.height; xPix += cell) {
                 ctx.beginPath(); ctx.moveTo(0, xPix); ctx.lineTo(canvas.width, xPix); ctx.stroke();
             }
-            const coarse = 10 * scale;
-            ctx.strokeStyle = 'rgba(148,163,184,0.11)';
-            for (let zPix = originZ % coarse; zPix < canvas.width; zPix += coarse) {
+            ctx.strokeStyle = 'rgba(148,163,184,0.12)';
+            for (let zPix = originZ % major; zPix < canvas.width; zPix += major) {
                 ctx.beginPath(); ctx.moveTo(zPix, 0); ctx.lineTo(zPix, canvas.height); ctx.stroke();
             }
-            for (let xPix = originX % (coarse / 2); xPix < canvas.height; xPix += coarse / 2) {
+            for (let xPix = originX % major; xPix < canvas.height; xPix += major) {
                 ctx.beginPath(); ctx.moveTo(0, xPix); ctx.lineTo(canvas.width, xPix); ctx.stroke();
             }
 
@@ -1615,8 +1624,8 @@
             const Iout = internal ? -Math.abs(allowX) : Math.abs(allowX);
             const approachX = internal ? Math.max(dPilot - 2, 1) : dBlank + 6;
 
-            g.push('G00 X' + fmtNC(approachX) + ' M08');
-            g.push('Z' + fmtNC(safeZ));
+            g.push('G00 Z' + fmtNC(safeZ) + ' M08');
+            g.push('G00 X' + fmtNC(approachX));
 
             if (mode === 'CYCLE') {
                 g.push('');
@@ -2172,15 +2181,6 @@
             document.getElementById('codemode_hint').innerText = blocks
                 ? 'Blok po bloku: pełny, jawny kod — każde przejście zgrubne osobno, bez cykli G71/G70.'
                 : 'Cykl: zwarty kod z G71 (zgrubnie) + G70 (wykańczanie).';
-            const wrapG71 = document.getElementById('wrap_g71type');
-            wrapG71.style.opacity = blocks ? '0.45' : '1';
-            document.querySelectorAll('input[name="g71_type"]').forEach(r => r.disabled = blocks);
-
-            const t2 = g71Type() === '2';
-            document.getElementById('g71_hint').innerText = blocks
-                ? 'Nieużywane w trybie „Blok po bloku" — profil może być dowolny.'
-                : (t2 ? 'Typ 2 aktywny: profil może być niemonotoniczny (podcięcia).'
-                      : 'Typ 1: profil monotoniczny. Przełącz na Typ 2 dla podcięć.');
 
             const tool = cadTool();
             const badge = document.getElementById('badge_mode');
@@ -2204,18 +2204,13 @@
             // Geometria zewn. i wewn. to różne operacje — jeśli bieżący profil jest niezgodny
             // z nowym trybem, wczytaj dopasowany przykład, aby nie zostawić nieaktualnego kodu.
             const internal = isInternal();
-            const incompatible = profile.length < 2 || (
-                g71Type() === '1' && profile.some((p, i) => i > 0 &&
-                    (internal ? p.x > profile[i - 1].x + 1e-6 : p.x < profile[i - 1].x - 1e-6))
-            );
-            if (incompatible) {
+            if (profile.length < 2) {
                 profile = internal ? demoInternal() : demoExternal();
                 toast(internal ? 'Wczytano przykład otworu do wytaczania.' : 'Wczytano przykład wałka.', 'info');
             }
             syncBlank();
             refreshAll();
         }));
-        document.querySelectorAll('input[name="g71_type"]').forEach(r => r.addEventListener('change', () => { updateModeUI(); if (profile.length >= 2) generateGcode(); }));
         document.querySelectorAll('input[name="code_mode"]').forEach(r => r.addEventListener('change', () => { updateModeUI(); if (profile.length >= 2) generateGcode(); }));
         document.querySelectorAll('input[name="cad_tool"]').forEach(r => r.addEventListener('change', updateModeUI));
         document.querySelectorAll('input[name="spindle_mode"]').forEach(r => r.addEventListener('change', updateModeUI));
