@@ -164,11 +164,17 @@
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 22px;
-            padding: 22px 26px 40px;
-            align-items: start;
+            padding: 22px 26px 26px;
+            align-items: stretch;
+            min-height: calc(100vh - 116px);
         }
+        /* obie kolumny (parametry i szkicownik) wypełniają całą wysokość strony */
+        .workspace > div { display: flex; flex-direction: column; min-width: 0; }
+        .workspace > div > .card { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+        .workspace > div > .card > .card-body { flex: 1 1 auto; min-height: 0; }
+        #card_cad:not(.maximized) .canvas-wrap { flex: 1 1 auto; height: auto; min-height: 380px; }
         @media (max-width: 1200px) {
-            .workspace { grid-template-columns: 1fr; }
+            .workspace { grid-template-columns: 1fr; min-height: 0; }
         }
 
         /* ---------- Cards ---------- */
@@ -1075,13 +1081,21 @@
         /* ============================================================
            MAPOWANIE WSPÓŁRZĘDNYCH
            ============================================================ */
+        let cadInited = false;
+        // Wyśrodkuj widok wg rozmiaru płótna: Z=0 przy prawej krawędzi, oś obrotu nisko.
+        function centerView() {
+            scale = 4.0;
+            originZ = Math.max(200, canvas.width - 130);
+            originX = Math.max(160, canvas.height - 90);
+        }
         function setupCanvas() {
             const rect = canvas.parentNode.getBoundingClientRect();
             const prevW = canvas.width, prevH = canvas.height;
             canvas.width = rect.width;
             canvas.height = Math.round(rect.height) || 460;
-            // utrzymaj środek widoku przy zmianie rozmiaru płótna
-            if (prevW && prevH) {
+            if (!cadInited) { cadInited = true; centerView(); }
+            else if (prevW && prevH) {
+                // utrzymaj środek widoku przy zmianie rozmiaru płótna
                 originZ += (canvas.width - prevW) / 2;
                 originX += (canvas.height - prevH) / 2;
             }
@@ -2499,7 +2513,7 @@
             stopAnimation(); refreshAll();
         });
         document.getElementById('btn_reset_view').addEventListener('click', () => {
-            scale = 4.0; originX = 230; originZ = 300; drawCAD();
+            centerView(); drawCAD();
         });
 
         // Powiększ szkicownik na całe okno / przywróć
