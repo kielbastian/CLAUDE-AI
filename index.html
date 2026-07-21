@@ -1089,10 +1089,10 @@
             originX = Math.max(160, canvas.height - 90);
         }
         function setupCanvas() {
-            const rect = canvas.parentNode.getBoundingClientRect();
+            const wrap = canvas.parentNode;
             const prevW = canvas.width, prevH = canvas.height;
-            canvas.width = rect.width;
-            canvas.height = Math.round(rect.height) || 460;
+            canvas.width = wrap.clientWidth || 800;
+            canvas.height = wrap.clientHeight || 460;
             if (!cadInited) { cadInited = true; centerView(); }
             else if (prevW && prevH) {
                 // utrzymaj środek widoku przy zmianie rozmiaru płótna
@@ -1123,9 +1123,18 @@
         function snapMm() { return gridStepMm(); }
         function snapVal(v, step) { return Math.round(Math.round(v / step) * step * 1000) / 1000; }
 
-        function getMouseCoordinates(e) {
+        // Pozycja kursora w pikselach BITMAPY płótna (uwzględnia różnicę CSS↔bitmapa,
+        // np. gdy szkicownik jest na cały ekran) — spójna z getZPix/getXPix.
+        function canvasPx(e) {
             const rect = canvas.getBoundingClientRect();
-            let coords = toMachineCoords(e.clientY - rect.top, e.clientX - rect.left);
+            const sx = rect.width ? canvas.width / rect.width : 1;
+            const sy = rect.height ? canvas.height / rect.height : 1;
+            return { mZ: (e.clientX - rect.left) * sx, mX: (e.clientY - rect.top) * sy };
+        }
+
+        function getMouseCoordinates(e) {
+            const { mZ, mX } = canvasPx(e);
+            let coords = toMachineCoords(mX, mZ);
             const s = snapMm();
             let zVal = snapVal(coords.z, s);
             let xVal = snapVal(coords.x, s);
@@ -1160,8 +1169,8 @@
         // Zupełnie surowa pozycja, bez żadnego przycinania — do kalibracji podkładu
         // (kliknięcia kalibracyjne mogą wypaść poza zakresem Z<=0 / X>=0 profilu).
         function getUnclampedMachineCoords(e) {
-            const rect = canvas.getBoundingClientRect();
-            return toMachineCoords(e.clientY - rect.top, e.clientX - rect.left);
+            const { mZ, mX } = canvasPx(e);
+            return toMachineCoords(mX, mZ);
         }
 
         // Uproszczenie Douglasa-Peuckera odręcznej kreski do rozsądnej liczby punktów profilu.
@@ -1208,8 +1217,7 @@
         // Znajduje najbliższy punkt profilu pod kursorem (do przyciągania i pokazywania wymiaru)
         function nearestProfilePoint(e) {
             if (!profile.length) return -1;
-            const rect = canvas.getBoundingClientRect();
-            const mZ = e.clientX - rect.left, mX = e.clientY - rect.top;
+            const { mZ, mX } = canvasPx(e);
             let best = -1, bestD = 12;
             for (let i = 0; i < profile.length; i++) {
                 const d = Math.hypot(getZPix(profile[i].z) - mZ, getXPix(profile[i].x) - mX);
@@ -1230,8 +1238,7 @@
         // Najbliższy segment profilu pod kursorem — zwraca i (odcinek profile[i-1]..profile[i])
         function nearestSegmentIndex(e) {
             if (profile.length < 2) return -1;
-            const rect = canvas.getBoundingClientRect();
-            const mZ = e.clientX - rect.left, mX = e.clientY - rect.top;
+            const { mZ, mX } = canvasPx(e);
             let best = -1, bestD = 10; // próg [px]
             for (let i = 1; i < profile.length; i++) {
                 const a = profile[i - 1], b = profile[i];
@@ -1299,8 +1306,11 @@
 
         window.addEventListener('mousemove', (e) => {
             if (isDragging) {
-                originZ += e.clientX - startDragPos.x;
-                originX += e.clientY - startDragPos.y;
+                const rect = canvas.getBoundingClientRect();
+                const sx = rect.width ? canvas.width / rect.width : 1;
+                const sy = rect.height ? canvas.height / rect.height : 1;
+                originZ += (e.clientX - startDragPos.x) * sx;
+                originX += (e.clientY - startDragPos.y) * sy;
                 startDragPos = { x: e.clientX, y: e.clientY };
                 drawCAD();
             } else if (isFreehandDrawing) {
@@ -1332,8 +1342,7 @@
 
         canvas.addEventListener('wheel', (e) => {
             e.preventDefault();
-            const rect = canvas.getBoundingClientRect();
-            const mZ = e.clientX - rect.left, mX = e.clientY - rect.top;
+            const { mZ, mX } = canvasPx(e);
             const under = toMachineCoords(mX, mZ);
             scale *= e.deltaY < 0 ? 1.12 : 1 / 1.12;
             scale = Math.max(0.8, Math.min(240, scale)); // duży zoom -> siatka i przyciąganie do 0.05 mm
@@ -1345,8 +1354,7 @@
         /* ---------- Faza / promień na narożu (klik w styk linii) ---------- */
         // Znajduje najbliższe naroże (wierzchołek wewnętrzny) do kliknięcia
         function nearestCornerIndex(e) {
-            const rect = canvas.getBoundingClientRect();
-            const mZ = e.clientX - rect.left, mX = e.clientY - rect.top;
+            const { mZ, mX } = canvasPx(e);
             let best = -1, bestDist = 15; // próg w px
             for (let i = 1; i < profile.length - 1; i++) {
                 const px = getZPix(profile[i].z), py = getXPix(profile[i].x);
@@ -2658,11 +2666,16 @@
             setupCanvas();
             renderTable();
             generateGcode();
+            // Płótno zawsze dopasowane do rzeczywistego rozmiaru pola (także na cały ekran).
+            if (window.ResizeObserver) {
+                let raf = null;
+                new ResizeObserver(() => {
+                    if (raf) return;
+                    raf = requestAnimationFrame(() => { raf = null; setupCanvas(); });
+                }).observe(canvas.parentNode);
+            }
         });
-        window.addEventListener('resize', () => {
-            const rect = canvas.parentNode.getBoundingClientRect();
-            canvas.width = rect.width; drawCAD();
-        });
+        window.addEventListener('resize', () => setupCanvas());
     </script>
 </body>
 </html>
