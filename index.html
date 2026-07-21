@@ -210,6 +210,14 @@
             border-radius: var(--radius-sm); padding: 11px 13px; font-family: 'Fira Code', monospace;
         }
         .thread-info b { color: var(--ac1); font-weight: 700; }
+        .combine-check {
+            display: flex; align-items: center; gap: 9px; cursor: pointer;
+            font-size: 12.5px; font-weight: 600; color: var(--text-muted);
+            padding: 10px 12px; border-radius: var(--radius-sm);
+            background: var(--surface-2); border: 1px solid var(--stroke);
+        }
+        .combine-check input { width: 16px; height: 16px; accent-color: var(--ac1); cursor: pointer; }
+        .combine-check:hover { color: var(--text); }
 
         input, select {
             padding: 10px 12px;
@@ -715,13 +723,18 @@
                                 </div>
                                 <div class="field">
                                     <label>Narzędzie i korektor (T)</label>
-                                    <input type="text" id="thread_tool" value="0303">
+                                    <input type="text" id="thread_tool" value="303">
                                 </div>
                                 <div class="field">
                                     <label>Wyjście / dobieg Z (mm)</label>
                                     <input type="number" id="thread_safe_z" value="5.00" step="0.5">
                                 </div>
                             </div>
+
+                            <label class="combine-check">
+                                <input type="checkbox" id="thread_combine">
+                                <span>Połącz z toczeniem (profil z zakładki Parametry) — jeden program</span>
+                            </label>
 
                             <div id="thread_info" class="thread-info"></div>
                             <button class="btn-primary" id="btn_gen_thread">🔩 Generuj kod gwintu</button>
@@ -1734,8 +1747,10 @@
             g.push(`G00 X${fmtNC(approachX)}`);
         }
 
-        function generateGcode() {
-            if (profile.length < 2) { showError('Za mało punktów profilu.'); return; }
+        // Buduje część roboczą toczenia (od linii narzędzia do wyjścia), bez nagłówka i stopki programu.
+        // Zwraca { lines, header, sim } lub null przy błędzie.
+        function turningBody() {
+            if (profile.length < 2) { showError('Za mało punktów profilu.'); return null; }
 
             const internal = isInternal();
             const mode = codeMode();               // CYCLE / BLOCKS
@@ -1753,11 +1768,10 @@
             const allowZ = parseFloat(document.getElementById('finish_allowance_z').value);
             const safeZ = parseFloat(document.getElementById('safe_z').value);
 
-            // walidacja typu 1 -- tylko dla cyklu G71 (blok po bloku nie ma tego ograniczenia)
             if (mode === 'CYCLE' && !type2) {
                 for (let i = 1; i < profile.length; i++) {
-                    if (!internal && profile[i].x < profile[i - 1].x - 1e-6) { showError('Typ 1: profil zewn. musi rosnąć. Przełącz na Typ 2 lub na "Blok po bloku".'); return; }
-                    if (internal && profile[i].x > profile[i - 1].x + 1e-6) { showError('Typ 1: otwór nie może rosnąć w głąb. Przełącz na Typ 2 lub na "Blok po bloku".'); return; }
+                    if (!internal && profile[i].x < profile[i - 1].x - 1e-6) { showError('Typ 1: profil zewn. musi rosnąć. Przełącz na Typ 2 lub na "Blok po bloku".'); return null; }
+                    if (internal && profile[i].x > profile[i - 1].x + 1e-6) { showError('Typ 1: otwór nie może rosnąć w głąb. Przełącz na Typ 2 lub na "Blok po bloku".'); return null; }
                 }
             }
 
@@ -1766,18 +1780,12 @@
             const zMin = Math.min(...profile.map(p => p.z));
             const maxX = Math.max(...profile.map(p => p.x));
             const minX = Math.min(...profile.map(p => p.x));
-
             const modeTag = mode === 'CYCLE' ? ('G71 TYP ' + (type2 ? '2' : '1')) : 'BLOK PO BLOKU';
-            g.push('%');
-            g.push('O1002 (HAAS ST-35Y - ' + (internal ? 'WYTACZANIE WEWN.' : 'TOCZENIE ZEWN.') + ' - ' + modeTag + ')');
-            g.push('G21 G18');
-            g.push('G40 G80 G99');
-            g.push('');
+
             g.push('T' + tool + ' (' + (internal ? 'NOZ WYTACZAK' : 'NOZ ZEWNETRZNY') + ')');
             if (isG96) { g.push('G50 S' + g50); g.push('G96 S' + Math.round(speed) + ' M03'); }
             else { g.push('G97 S' + Math.round(speed) + ' M03'); }
 
-            // naddatek X: dla wytaczania ujemny (materiał zostaje na ściance otworu)
             const Iout = internal ? -Math.abs(allowX) : Math.abs(allowX);
             const approachX = internal ? Math.max(dPilot - 2, 1) : dBlank + 6;
 
@@ -1785,32 +1793,36 @@
             g.push('Z' + fmtNC(safeZ));
 
             if (mode === 'CYCLE') {
-                // cykl zgrubny G71
                 g.push('');
                 g.push(`G71 P${P} Q${Q} D${fmtNC(ap)} I${fmtNC(Iout)} K${fmtNC(allowZ)} F${fmtNC(fRough)}`);
-                // blok konturu P..Q (z jawnymi fazami/łukami)
                 emitContour(g, profile[0], type2, fFin, approachX, P, Q);
-                // cykl wykańczający
                 g.push('');
                 g.push(`G70 P${P} Q${Q} F${fmtNC(fFin)}`);
             } else {
-                // blok po bloku: jawne przejścia zgrubne + osobny przejazd wykańczający
                 g.push('');
                 emitRoughBlocks(g, internal, dBlank, dPilot, ap, allowX, fRough, approachX, safeZ, minX, maxX);
                 g.push('');
                 emitFinishBlock(g, profile[0], fFin, approachX);
             }
-
             g.push('');
             g.push('G00 Z' + fmtNC(safeZ) + ' M09');
-            g.push('G00 G53 X0. Y0.');
-            g.push('G53 Z0.');
-            g.push('M05');
-            g.push('M30');
-            g.push('%');
 
+            return {
+                lines: g,
+                header: 'HAAS ST-35Y - ' + (internal ? 'WYTACZANIE WEWN.' : 'TOCZENIE ZEWN.') + ' - ' + modeTag,
+                sim: { internal, dBlank, dPilot, ap, allowX, safeZ, approachX, zMin, maxX, minX }
+            };
+        }
+
+        function generateGcode() {
+            const t = turningBody();
+            if (!t) return;
+            const g = ['%', 'O1002 (' + t.header + ')', 'G21 G18', 'G40 G80 G99', '']
+                .concat(t.lines)
+                .concat(['G00 G53 X0. Y0.', 'G53 Z0.', 'M05', 'M30', '%']);
             renderOutput(g);
-            buildSimPath(internal, dBlank, dPilot, ap, allowX, safeZ, approachX, zMin, maxX, minX);
+            const s = t.sim;
+            buildSimPath(s.internal, s.dBlank, s.dPilot, s.ap, s.allowX, s.safeZ, s.approachX, s.zMin, s.maxX, s.minX);
             if (!isAnimating && simulationPath.length) currentSimPos = { ...simulationPath[0] };
         }
 
@@ -2224,9 +2236,11 @@
                 `Liczba przejść: <b>${passes.length}</b> (w tym 1 wygładzające)`;
         }
 
-        function generateThreadCode() {
+        // Buduje część roboczą gwintowania (od komentarza narzędzia do M05), w formacie maszyny.
+        // Zwraca { lines, label } lub null przy błędzie.
+        function threadBody() {
             const geo = threadGeom();
-            if (isNaN(geo.d) || isNaN(geo.p) || geo.p <= 0) { showError('Podaj poprawną średnicę i skok gwintu.'); return; }
+            if (isNaN(geo.d) || isNaN(geo.p) || geo.p <= 0) { showError('Podaj poprawną średnicę i skok gwintu.'); return null; }
             const z0 = parseFloat(document.getElementById('thread_z0').value);
             const len = parseFloat(document.getElementById('thread_len').value);
             const zEnd = z0 - Math.abs(len);
@@ -2237,68 +2251,85 @@
             const t = THREADS[threadSel];
             const label = t.custom ? ('GWINT ' + fmt(geo.d) + 'x' + fmt(geo.p))
                 : ('GWINT ' + t.name.replace(/["×]/g, m => m === '×' ? 'x' : '').replace(/ /g, ''));
+
+            // formaty liczb wg maszyny: średnice/K/D = 2 miejsca; Z = z kropką; F = dokładny skok
+            const fx = v => (Math.round(v * 100) / 100).toFixed(2);
+            const fz = v => fmtNC(v);
+            const ff = v => fmtNC(v);
+
             // stożek na promieniu: zewn. maleje ku końcowi (-Z) -> R ujemne; wewn. odwrotnie
-            const taperMagR = geo.taperRatio ? (Math.abs(len) * geo.taperRatio) / 2 : 0;
-            const taperR = geo.taperRatio ? (geo.internal ? taperMagR : -taperMagR) : 0;
-            const angle2 = String(geo.angle).padStart(2, '0');
+            const taperR = geo.taperRatio ? ((geo.internal ? 1 : -1) * (Math.abs(len) * geo.taperRatio) / 2) : 0;
+            const leadZ = z0 + Math.max(2, geo.p); // dobieg nad materiał
+
+            let firstDepth;
+            if (threadInfeed() === 'PASSES') {
+                const N = Math.max(1, Math.round(parseFloat(document.getElementById('thread_passes').value)));
+                firstDepth = geo.hRad / Math.sqrt(N);
+            } else {
+                firstDepth = Math.max(0.02, parseFloat(document.getElementById('thread_depth').value));
+            }
 
             const g = [];
-            g.push('%');
-            g.push('O1003 (' + label + ' - ' + cycle + ' - ' + (geo.internal ? 'WEWN.' : 'ZEWN.') + (geo.taperRatio ? ' - STOZEK 1:16' : '') + ')');
-            g.push('G21 G18');
-            g.push('G40 G80 G99');
-            g.push('');
-            g.push('T' + tool + ' (NOZ DO GWINTU)');
-            g.push('G97 S' + rpm + ' M03  (STALE OBROTY - WYMAGANE PRZY GWINTOWANIU)');
-            g.push('G00 X' + fmtNC(geo.approachDia) + ' M08');
-            g.push('Z' + fmtNC(z0 + Math.max(2, geo.p)) + '  (DOBIEG)');
-            g.push('');
+            g.push('(NOZ DO GWINTOW ' + (geo.internal ? 'WEWN.' : 'ZEWN.') + ')');
+            g.push('T' + tool);
+            g.push('G97 S' + rpm + ' M03');
+            g.push('G00 Z' + fz(leadZ));
+            g.push('G00 X' + fx(geo.approachDia));
+            g.push('M24');
+            g.push('M08');
 
             if (cycle === 'G92') {
-                // G92 jest modalne — pierwsza linia z X/Z(/R)/F, kolejne przejścia tylko X
+                // G92 modalne: pierwsza linia X/Z(/R)/F, kolejne tylko X
                 const dias = threadPassDiameters(geo);
-                const rTag = taperR ? ' R' + fmtNC(taperR) : '';
                 for (let i = 0; i < dias.length; i++) {
-                    const spring = i === dias.length - 1;
                     if (i === 0) {
-                        g.push('G92 X' + fmtNC(dias[i]) + ' Z' + fmtNC(zEnd) + rTag + ' F' + fmtNC(geo.p) +
-                            '  (1. PRZEJSCIE' + (taperR ? ' ; R=STOZEK - SPRAWDZ KIERUNEK' : '') + ')');
+                        g.push('G92 X' + fx(dias[i]) + ' Z' + fz(zEnd) + (taperR ? ' R' + ff(taperR) : '') + ' F' + ff(geo.p));
                     } else {
-                        g.push('X' + fmtNC(dias[i]) + (spring ? '  (WYGLADZAJACE)' : ''));
+                        g.push('X' + fx(dias[i]));
                     }
                 }
             } else {
-                // G76 — cykl dwuwierszowy Haas (metryczny: P/Q w mikronach)
-                const heightMic = Math.round(geo.hRad * 1000);
-                let firstDepth;
-                if (threadInfeed() === 'PASSES') {
-                    const N = Math.max(1, Math.round(parseFloat(document.getElementById('thread_passes').value)));
-                    firstDepth = geo.hRad / Math.sqrt(N);
-                } else {
-                    firstDepth = Math.max(0.02, parseFloat(document.getElementById('thread_depth').value));
-                }
-                const firstMic = Math.max(20, Math.round(firstDepth * 1000));
-                const minMic = Math.max(20, Math.round(firstMic / 4));
-                const finishPasses = '01';
-                const chamfer = '00';
-                g.push('G76 P' + finishPasses + chamfer + angle2 + ' Q' + minMic + ' R0.05  (WYK.PRZEJ/FAZA/KAT ' + geo.angle + ' ; MIN.WCIECIE ; NADDATEK)');
-                g.push('G76 X' + fmtNC(geo.xFinal) + ' Z' + fmtNC(zEnd) + ' R' + fmtNC(taperR) + ' P' + heightMic + ' Q' + firstMic + ' F' + fmtNC(geo.p) +
-                    '  (X=DNO ; R=STOZEK ; P=WYS.GWINTU ; Q=1.WCIECIE [um] ; F=SKOK)');
+                // G76 jednoliniowy: X=dno, K=głębokość, D=1.wcięcie, F=skok, A=kąt
+                g.push('G76 X' + fx(geo.xFinal) + ' Z' + fz(zEnd) + ' K' + fx(geo.hRad) +
+                    ' D' + fx(firstDepth) + ' F' + ff(geo.p) + ' A' + geo.angle);
+                if (taperR) g.push('(GWINT STOZKOWY 1:16 - USTAW STOZEK NA MASZYNIE)');
             }
 
-            g.push('');
-            g.push('G00 X' + fmtNC(geo.approachDia) + ' M09');
-            g.push('G00 Z' + fmtNC(safeZ));
-            g.push('G00 G53 X0. Y0.');
-            g.push('G53 Z0.');
+            g.push('G00 X' + fx(geo.approachDia) + ' M09');
+            g.push('Z' + fz(safeZ));
             g.push('M05');
-            g.push('M30');
-            g.push('%');
+            return { lines: g, label };
+        }
 
+        function generateThreadCode() {
+            const withTurning = document.getElementById('thread_combine').checked;
+            if (withTurning) { generateCombined(); return; }
+            const tb = threadBody();
+            if (!tb) return;
+            // Program w formacie maszyny (bez nagłówka), zakończony powrotem i M30
+            const g = tb.lines.concat(['G00 G53 X0 Y0', 'G53 Z0', 'M30', '%']);
             renderOutput(g);
-            simulationPath = []; // symulacja toczenia nie dotyczy gwintu
+            simulationPath = [];
             if (stepMode) setStepMode(false);
-            toast('Wygenerowano kod gwintu (' + cycle + ').', 'ok');
+            toast('Wygenerowano kod gwintu (' + threadCycle() + ').', 'ok');
+        }
+
+        // Toczenie + gwintowanie w jednym programie
+        function generateCombined() {
+            const t = turningBody();
+            if (!t) return;
+            const th = threadBody();
+            if (!th) return;
+            const g = ['%', 'O1004 (TOCZENIE + ' + th.label + ')', 'G21 G18', 'G40 G80 G99', '']
+                .concat(t.lines)
+                .concat(['M05', '', '(--- ZMIANA NARZEDZIA: GWINT ---)'])
+                .concat(th.lines)
+                .concat(['', 'G00 G53 X0 Y0', 'G53 Z0', 'M30', '%']);
+            renderOutput(g);
+            const s = t.sim;
+            buildSimPath(s.internal, s.dBlank, s.dPilot, s.ap, s.allowX, s.safeZ, s.approachX, s.zMin, s.maxX, s.minX);
+            if (!isAnimating && simulationPath.length) currentSimPos = { ...simulationPath[0] };
+            toast('Wygenerowano: toczenie + gwint (' + threadCycle() + ').', 'ok');
         }
 
         /* ============================================================
