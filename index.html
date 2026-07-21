@@ -204,6 +204,12 @@
         .field { display: flex; flex-direction: column; gap: 6px; }
         label { font-size: 11.5px; font-weight: 600; color: var(--text-muted); letter-spacing: 0.2px; }
         .hint { font-size: 10.5px; color: var(--text-dim); font-weight: 500; }
+        .thread-info {
+            font-size: 12px; line-height: 1.7; color: var(--text-muted);
+            background: var(--surface-2); border: 1px solid var(--stroke);
+            border-radius: var(--radius-sm); padding: 11px 13px; font-family: 'Fira Code', monospace;
+        }
+        .thread-info b { color: var(--ac1); font-weight: 700; }
 
         input, select {
             padding: 10px 12px;
@@ -494,6 +500,7 @@
                         <div class="card-tabs">
                             <button class="tab active" data-tab="params">⚙️ Parametry</button>
                             <button class="tab" data-tab="dims">📐 Wymiarowanie</button>
+                            <button class="tab" data-tab="thread">🔩 Gwint</button>
                         </div>
                         <div class="card-body tab-panel active" id="tab_params">
 
@@ -617,6 +624,99 @@
                                 <button class="btn-ok btn-sm" id="btn_add_row">＋ Dodaj punkt</button>
                                 <button class="btn-ghost btn-sm" id="btn_load_demo">📄 Wczytaj przykład</button>
                             </div>
+                        </div>
+
+                        <!-- ZAKŁADKA: Gwintowanie (G92 / G76) -->
+                        <div class="card-body tab-panel" id="tab_thread">
+                            <div class="field">
+                                <label>Gwint (tabela znormalizowana)</label>
+                                <div class="corner-dd" id="thread_dd" style="position:relative;">
+                                    <button type="button" class="dd-toggle" id="thread_dd_toggle">
+                                        <span class="dd-label" id="thread_dd_label">M16 × 1.5</span>
+                                        <span class="dd-caret">▾</span>
+                                    </button>
+                                    <div class="dd-menu" id="thread_dd_menu" hidden></div>
+                                </div>
+                            </div>
+
+                            <div class="grid-2" id="thread_custom_wrap" style="display:none;">
+                                <div class="field">
+                                    <label>Śr. nominalna Ø (mm)</label>
+                                    <input type="number" id="thread_d" value="16" step="0.1">
+                                </div>
+                                <div class="field">
+                                    <label>Skok P (mm)</label>
+                                    <input type="number" id="thread_p" value="1.5" step="0.05">
+                                </div>
+                            </div>
+
+                            <div class="grid-2">
+                                <div class="field">
+                                    <label>Rodzaj gwintu</label>
+                                    <div class="seg" id="seg_thread_side">
+                                        <input type="radio" id="thr_ext" name="thread_side" value="EXT" checked>
+                                        <label for="thr_ext">Zewnętrzny</label>
+                                        <input type="radio" id="thr_int" name="thread_side" value="INT">
+                                        <label for="thr_int">Wewnętrzny</label>
+                                    </div>
+                                </div>
+                                <div class="field">
+                                    <label>Cykl gwintowania</label>
+                                    <div class="seg accent" id="seg_thread_cycle">
+                                        <input type="radio" id="thr_g76" name="thread_cycle" value="G76" checked>
+                                        <label for="thr_g76">G76</label>
+                                        <input type="radio" id="thr_g92" name="thread_cycle" value="G92">
+                                        <label for="thr_g92">G92</label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="grid-2">
+                                <div class="field">
+                                    <label>Start gwintu Z (mm)</label>
+                                    <input type="number" id="thread_z0" value="0" step="0.5">
+                                </div>
+                                <div class="field">
+                                    <label>Długość gwintu (mm)</label>
+                                    <input type="number" id="thread_len" value="18" step="0.5" min="0.5">
+                                </div>
+                            </div>
+
+                            <div class="field">
+                                <label>Sposób dosuwu (naddatek na przejścia)</label>
+                                <div class="seg" id="seg_thread_infeed">
+                                    <input type="radio" id="thr_by_passes" name="thread_infeed" value="PASSES" checked>
+                                    <label for="thr_by_passes">Liczba przejść</label>
+                                    <input type="radio" id="thr_by_depth" name="thread_infeed" value="DEPTH">
+                                    <label for="thr_by_depth">Głębokość wcięcia</label>
+                                </div>
+                            </div>
+
+                            <div class="grid-2">
+                                <div class="field" id="wrap_thr_passes">
+                                    <label>Liczba przejść</label>
+                                    <input type="number" id="thread_passes" value="5" step="1" min="1">
+                                </div>
+                                <div class="field" id="wrap_thr_depth" style="display:none;">
+                                    <label>Głębokość wcięcia / przejście (mm)</label>
+                                    <input type="number" id="thread_depth" value="0.30" step="0.05" min="0.02">
+                                </div>
+                                <div class="field">
+                                    <label>Obroty n — G97 (obr/min)</label>
+                                    <input type="number" id="thread_rpm" value="500" min="1">
+                                </div>
+                                <div class="field">
+                                    <label>Narzędzie i korektor (T)</label>
+                                    <input type="text" id="thread_tool" value="0303">
+                                </div>
+                                <div class="field">
+                                    <label>Wyjście / dobieg Z (mm)</label>
+                                    <input type="number" id="thread_safe_z" value="5.00" step="0.5">
+                                </div>
+                            </div>
+
+                            <div id="thread_info" class="thread-info"></div>
+                            <button class="btn-primary" id="btn_gen_thread">🔩 Generuj kod gwintu</button>
                         </div>
                     </div>
                 </div>
@@ -872,6 +972,10 @@
         function closeAllCornerMenus() {
             document.querySelectorAll('#coord_body .dd-menu').forEach(m => m.hidden = true);
             document.querySelectorAll('#coord_body .dd-toggle').forEach(b => b.classList.remove('open'));
+            const tm = document.getElementById('thread_dd_menu');
+            const tt = document.getElementById('thread_dd_toggle');
+            if (tm) tm.hidden = true;
+            if (tt) tt.classList.remove('open');
         }
         document.addEventListener('click', closeAllCornerMenus);
         document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAllCornerMenus(); });
@@ -1871,6 +1975,194 @@
         }
 
         /* ============================================================
+           GWINTOWANIE (G92 / G76) — tabela gwintów + generowanie kodu
+           ============================================================ */
+        const THREADS = [
+            { name: 'M3 × 0.5', d: 3, p: 0.5 },
+            { name: 'M4 × 0.7', d: 4, p: 0.7 },
+            { name: 'M5 × 0.8', d: 5, p: 0.8 },
+            { name: 'M6 × 1.0', d: 6, p: 1.0 },
+            { name: 'M8 × 1.25', d: 8, p: 1.25 },
+            { name: 'M8 × 1.0', d: 8, p: 1.0 },
+            { name: 'M10 × 1.5', d: 10, p: 1.5 },
+            { name: 'M10 × 1.25', d: 10, p: 1.25 },
+            { name: 'M12 × 1.75', d: 12, p: 1.75 },
+            { name: 'M12 × 1.25', d: 12, p: 1.25 },
+            { name: 'M14 × 2.0', d: 14, p: 2.0 },
+            { name: 'M14 × 1.5', d: 14, p: 1.5 },
+            { name: 'M16 × 2.0', d: 16, p: 2.0 },
+            { name: 'M16 × 1.5', d: 16, p: 1.5 },
+            { name: 'M18 × 2.5', d: 18, p: 2.5 },
+            { name: 'M18 × 1.5', d: 18, p: 1.5 },
+            { name: 'M20 × 2.5', d: 20, p: 2.5 },
+            { name: 'M20 × 1.5', d: 20, p: 1.5 },
+            { name: 'M22 × 2.5', d: 22, p: 2.5 },
+            { name: 'M24 × 3.0', d: 24, p: 3.0 },
+            { name: 'M24 × 2.0', d: 24, p: 2.0 },
+            { name: 'M27 × 3.0', d: 27, p: 3.0 },
+            { name: 'M30 × 3.5', d: 30, p: 3.5 },
+            { name: 'M30 × 2.0', d: 30, p: 2.0 },
+            { name: 'M36 × 4.0', d: 36, p: 4.0 },
+            { name: 'Własny (ręcznie)', custom: true }
+        ];
+        let threadSel = 13; // domyślnie M16 × 1.5
+
+        function threadSide() { return document.querySelector('input[name="thread_side"]:checked').value; } // EXT / INT
+        function threadCycle() { return document.querySelector('input[name="thread_cycle"]:checked').value; } // G76 / G92
+        function threadInfeed() { return document.querySelector('input[name="thread_infeed"]:checked').value; } // PASSES / DEPTH
+
+        function renderThreadMenu() {
+            const menu = document.getElementById('thread_dd_menu');
+            menu.innerHTML = THREADS.map((t, i) =>
+                `<div class="dd-opt${i === threadSel ? ' active' : ''}" data-ti="${i}">${t.name}</div>`).join('');
+            menu.querySelectorAll('.dd-opt').forEach(opt => {
+                opt.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    threadSel = parseInt(opt.dataset.ti);
+                    const t = THREADS[threadSel];
+                    document.getElementById('thread_dd_label').innerText = t.name;
+                    document.getElementById('thread_custom_wrap').style.display = t.custom ? 'grid' : 'none';
+                    if (!t.custom) {
+                        document.getElementById('thread_d').value = t.d;
+                        document.getElementById('thread_p').value = t.p;
+                    }
+                    closeAllCornerMenus();
+                    updateThreadInfo();
+                });
+            });
+        }
+
+        // Parametry geometryczne gwintu ISO 60°
+        function threadGeom() {
+            const t = THREADS[threadSel];
+            let d, p;
+            if (t.custom) { d = parseFloat(document.getElementById('thread_d').value); p = parseFloat(document.getElementById('thread_p').value); }
+            else { d = t.d; p = t.p; }
+            const internal = threadSide() === 'INT';
+            // głębokość na promieniu
+            const hRad = internal ? 0.5413 * p : 0.6134 * p;
+            let majorDia, xFinal, startDia, approachDia;
+            if (!internal) {
+                majorDia = d;                       // średnica kryzy (crest) zewn.
+                xFinal = d - 2 * hRad;              // średnica rdzenia (minor)
+                startDia = d;                       // start od kryzy
+                approachDia = d + 2;                // bezpieczny dosuw
+            } else {
+                majorDia = d;                       // średnica gwintu (crest) w otworze = nominał
+                startDia = d - 2 * hRad;            // otwór wstępny (minor)
+                xFinal = d;                         // docinamy do średnicy nominalnej
+                approachDia = Math.max(startDia - 2, 1);
+            }
+            return { d, p, internal, hRad, majorDia, xFinal, startDia, approachDia };
+        }
+
+        // Lista średnic przejść (średnice absolutne X), z ostatnim przejściem = xFinal + przejście wygładzające
+        function threadPassDiameters(geo) {
+            const passes = [];
+            const totalDepth = geo.hRad; // na promieniu
+            const dir = geo.internal ? 1 : -1; // zewn. maleje, wewn. rośnie
+            const base = geo.startDia;
+            if (threadInfeed() === 'PASSES') {
+                const N = Math.max(1, Math.round(parseFloat(document.getElementById('thread_passes').value)));
+                for (let i = 1; i <= N; i++) {
+                    const cum = totalDepth * Math.sqrt(i / N);  // rozkład malejący (stały przekrój wióra)
+                    passes.push(base + dir * 2 * cum);
+                }
+            } else {
+                const ap = Math.max(0.02, parseFloat(document.getElementById('thread_depth').value));
+                let cum = 0;
+                while (cum < totalDepth - 1e-6) {
+                    cum = Math.min(cum + ap, totalDepth);
+                    passes.push(base + dir * 2 * cum);
+                }
+            }
+            passes.push(geo.xFinal); // przejście wygładzające (spring pass) na pełnej głębokości
+            return passes;
+        }
+
+        function updateThreadInfo() {
+            const geo = threadGeom();
+            if (isNaN(geo.d) || isNaN(geo.p) || geo.p <= 0) { document.getElementById('thread_info').innerHTML = 'Podaj poprawną średnicę i skok.'; return; }
+            const passes = threadPassDiameters(geo);
+            const el = document.getElementById('thread_info');
+            el.innerHTML =
+                `Skok P: <b>${fmt(geo.p)}</b> mm &nbsp; Głębokość (promień): <b>${fmt(Math.round(geo.hRad * 1000) / 1000)}</b> mm<br>` +
+                (geo.internal
+                    ? `Otwór wstępny Ø: <b>${fmt(Math.round(geo.startDia * 100) / 100)}</b> → gwint Ø<b>${fmt(geo.majorDia)}</b><br>`
+                    : `Kryza Ø<b>${fmt(geo.majorDia)}</b> → rdzeń Ø<b>${fmt(Math.round(geo.xFinal * 100) / 100)}</b><br>`) +
+                `Liczba przejść: <b>${passes.length}</b> (w tym 1 wygładzające)`;
+        }
+
+        function generateThreadCode() {
+            const geo = threadGeom();
+            if (isNaN(geo.d) || isNaN(geo.p) || geo.p <= 0) { showError('Podaj poprawną średnicę i skok gwintu.'); return; }
+            const z0 = parseFloat(document.getElementById('thread_z0').value);
+            const len = parseFloat(document.getElementById('thread_len').value);
+            const zEnd = z0 - Math.abs(len);
+            const rpm = Math.round(parseFloat(document.getElementById('thread_rpm').value));
+            const tool = document.getElementById('thread_tool').value;
+            const safeZ = parseFloat(document.getElementById('thread_safe_z').value);
+            const cycle = threadCycle();
+            const t = THREADS[threadSel];
+            const label = t.custom ? ('GWINT ' + fmt(geo.d) + 'x' + fmt(geo.p)) : ('GWINT ' + t.name.replace(/ /g, '').replace(/×/g, 'x'));
+
+            const g = [];
+            g.push('%');
+            g.push('O1003 (' + label + ' - ' + cycle + ' - ' + (geo.internal ? 'WEWN.' : 'ZEWN.') + ')');
+            g.push('G21 G18');
+            g.push('G40 G80 G99');
+            g.push('');
+            g.push('T' + tool + ' (NOZ DO GWINTU)');
+            g.push('G97 S' + rpm + ' M03  (STALE OBROTY - WYMAGANE PRZY GWINTOWANIU)');
+            g.push('G00 X' + fmtNC(geo.approachDia) + ' M08');
+            g.push('Z' + fmtNC(z0 + Math.max(2, geo.p)) + '  (DOBIEG)');
+            g.push('');
+
+            if (cycle === 'G92') {
+                const dias = threadPassDiameters(geo);
+                let first = true;
+                for (let i = 0; i < dias.length; i++) {
+                    const spring = i === dias.length - 1;
+                    g.push('G92 X' + fmtNC(dias[i]) + ' Z' + fmtNC(zEnd) + ' F' + fmtNC(geo.p) +
+                        (first ? '  (1. PRZEJSCIE)' : (spring ? '  (WYGLADZAJACE)' : '')));
+                    first = false;
+                }
+            } else {
+                // G76 — cykl dwuwierszowy Haas (metryczny: P/Q w mikronach)
+                const heightMic = Math.round(geo.hRad * 1000);
+                let firstDepth;
+                if (threadInfeed() === 'PASSES') {
+                    const N = Math.max(1, Math.round(parseFloat(document.getElementById('thread_passes').value)));
+                    firstDepth = geo.hRad / Math.sqrt(N);
+                } else {
+                    firstDepth = Math.max(0.02, parseFloat(document.getElementById('thread_depth').value));
+                }
+                const firstMic = Math.max(20, Math.round(firstDepth * 1000));
+                const minMic = Math.max(20, Math.round(firstMic / 4));
+                const finishPasses = '01';
+                const angle = '60';
+                const chamfer = '00';
+                g.push('G76 P' + finishPasses + chamfer + angle + ' Q' + minMic + ' R0.05  (WYK.PRZEJ/FAZA/KAT ; MIN.WCIECIE ; NADDATEK)');
+                g.push('G76 X' + fmtNC(geo.xFinal) + ' Z' + fmtNC(zEnd) + ' R0. P' + heightMic + ' Q' + firstMic + ' F' + fmtNC(geo.p) +
+                    '  (X=DNO ; P=WYS.GWINTU ; Q=1.WCIECIE [um] ; F=SKOK)');
+            }
+
+            g.push('');
+            g.push('G00 X' + fmtNC(geo.approachDia) + ' M09');
+            g.push('G00 Z' + fmtNC(safeZ));
+            g.push('G00 G53 X0. Y0.');
+            g.push('G53 Z0.');
+            g.push('M05');
+            g.push('M30');
+            g.push('%');
+
+            renderOutput(g);
+            simulationPath = []; // symulacja toczenia nie dotyczy gwintu
+            if (stepMode) setStepMode(false);
+            toast('Wygenerowano kod gwintu (' + cycle + ').', 'ok');
+        }
+
+        /* ============================================================
            UI: przełączniki, przyciski
            ============================================================ */
         function updateModeUI() {
@@ -2039,8 +2331,31 @@
             document.querySelectorAll('.card-tabs .tab').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
             document.getElementById('tab_params').classList.toggle('active', name === 'params');
             document.getElementById('tab_dims').classList.toggle('active', name === 'dims');
+            document.getElementById('tab_thread').classList.toggle('active', name === 'thread');
         }
         document.querySelectorAll('.card-tabs .tab').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
+
+        // ---- Gwintowanie: obsługa UI ----
+        document.getElementById('thread_dd_toggle').addEventListener('click', (e) => {
+            e.stopPropagation();
+            const menu = document.getElementById('thread_dd_menu');
+            const willOpen = menu.hidden;
+            closeAllCornerMenus();
+            if (willOpen) { menu.hidden = false; document.getElementById('thread_dd_toggle').classList.add('open'); }
+        });
+        document.querySelectorAll('input[name="thread_side"]').forEach(r => r.addEventListener('change', updateThreadInfo));
+        document.querySelectorAll('input[name="thread_cycle"]').forEach(r => r.addEventListener('change', updateThreadInfo));
+        document.querySelectorAll('input[name="thread_infeed"]').forEach(r => r.addEventListener('change', () => {
+            const byDepth = threadInfeed() === 'DEPTH';
+            document.getElementById('wrap_thr_passes').style.display = byDepth ? 'none' : 'flex';
+            document.getElementById('wrap_thr_depth').style.display = byDepth ? 'flex' : 'none';
+            updateThreadInfo();
+        }));
+        ['thread_d', 'thread_p', 'thread_passes', 'thread_depth'].forEach(id =>
+            document.getElementById(id).addEventListener('input', updateThreadInfo));
+        document.getElementById('btn_gen_thread').addEventListener('click', generateThreadCode);
+        renderThreadMenu();
+        updateThreadInfo();
 
         // Tryb krokowy
         document.getElementById('btn_step_mode').addEventListener('click', () => setStepMode(!stepMode));
