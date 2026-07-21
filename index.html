@@ -162,12 +162,12 @@
 
         .workspace {
             display: grid;
-            grid-template-columns: 500px 1fr;
+            grid-template-columns: minmax(460px, 1fr) 780px;
             gap: 22px;
             padding: 22px 26px 40px;
             align-items: start;
         }
-        @media (max-width: 1280px) {
+        @media (max-width: 1300px) {
             .workspace { grid-template-columns: 1fr; }
         }
 
@@ -318,7 +318,6 @@
         .canvas-wrap {
             position: relative; background: radial-gradient(120% 120% at 50% 0%, #0a1120 0%, #060a12 100%);
             border-radius: 10px; overflow: hidden; border: 1px solid var(--panel-border);
-            max-width: 760px; margin: 0 auto; /* zwężone pole szkicownika */
         }
         canvas { display: block; width: 100%; height: 460px; cursor: crosshair; }
         .canvas-overlay {
@@ -404,18 +403,6 @@
         .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 11px; color: var(--text-dim); }
         .legend span { display: flex; align-items: center; gap: 6px; }
         .legend i { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
-
-        /* Podkład (rysunek referencyjny) */
-        .ref-bar {
-            display: flex; flex-direction: column; gap: 8px;
-            padding-top: 10px; border-top: 1px dashed var(--panel-border);
-        }
-        .ref-controls { display: none; gap: 8px; flex-wrap: wrap; align-items: center; }
-        .ref-controls.show { display: flex; }
-        .ref-opacity {
-            display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-muted);
-        }
-        .ref-opacity input[type=range] { width: 90px; }
 
         /* Tabs (Parametry / Wymiarowanie) */
         .card-tabs {
@@ -750,7 +737,7 @@
                             <div class="ico">✏️</div>
                             <div>
                                 <h2 id="cad_title">Szkicownik profilu 2D</h2>
-                                <div class="sub">Narzędzie: przeciągnij (Shift/środkowy) aby przesuwać, kółko = zoom</div>
+                                <div class="sub">PPM (lub Shift+LPM) = przesuwanie, kółko = zoom. Najedź na punkt, aby zobaczyć wymiar.</div>
                             </div>
                             <div class="right">
                                 <div class="seg" id="seg_tool" style="padding:2px;">
@@ -783,22 +770,6 @@
                                 <button class="btn-ghost btn-sm" id="btn_reset_view">⛶ Reset widoku</button>
                                 <button class="btn-ok btn-sm" id="btn_sim_start">▶ Animuj obróbkę</button>
                                 <button class="btn-ghost btn-sm" id="btn_sim_reset">⏹ Reset animacji</button>
-                            </div>
-
-                            <div class="ref-bar">
-                                <input type="file" id="ref_file_input" accept="image/*" style="display:none;">
-                                <button class="btn-ghost btn-sm" id="btn_ref_load">🖼️ Wczytaj rysunek jako podkład</button>
-                                <div id="ref_controls" class="ref-controls">
-                                    <button class="btn-ghost btn-sm" id="btn_ref_calib_z">📏 Kalibruj długość (Z)</button>
-                                    <button class="btn-ghost btn-sm" id="btn_ref_calib_x">📏 Kalibruj średnicę (Ø)</button>
-                                    <button class="btn-ghost btn-sm" id="btn_ref_flip">🔄 Odbij</button>
-                                    <button class="btn-ghost btn-sm" id="btn_ref_lines">📐 Podświetl grube linie</button>
-                                    <label class="ref-opacity">Krycie
-                                        <input type="range" id="ref_opacity" min="10" max="100" value="50">
-                                    </label>
-                                    <button class="btn-danger btn-sm" id="btn_ref_remove">✕ Usuń podkład</button>
-                                </div>
-                                <span class="hint" id="ref_hint">Wczytaj zdjęcie/skan rysunku technicznego, skalibruj skalę i rysuj po nim istniejącymi narzędziami. Ctrl+przeciągnij = przesuń podkład.</span>
                             </div>
                         </div>
                     </div>
@@ -849,18 +820,7 @@
         let mouseInCanvas = false;
         let isFreehandDrawing = false;
         let freehandRaw = [];
-
-        /* ---------- Podkład: rysunek referencyjny (kalka do obrysowania) ---------- */
-        let refImg = null;                 // wczytany obrazek (Image)
-        let refImgOpacity = 0.5;
-        let refImgRectMm = null;           // { zLeft, zRight, diamTop, diamBottom } — znormalizowany prostokąt w mm
-        let refImgFlipZ = false;           // odbicie lustrzane treści (bez zmiany prostokąta)
-        let refImgLinesCanvas = null;      // offscreen canvas z podświetlonymi grubymi liniami
-        let refImgShowLines = false;
-        let calibAxis = null;              // 'Z' | 'X' | null — trwa kalibracja tej osi
-        let calibClick1 = null;            // { z, x } pierwszy klik kalibracji
-        let isDraggingRefImg = false;
-        let dragRefStart = { x: 0, y: 0 };
+        let hoverPointIdx = -1;            // podświetlony/przyciągany punkt profilu pod kursorem
 
         const canvas = document.getElementById('simCanvas');
         const ctx = canvas.getContext('2d');
@@ -1143,194 +1103,30 @@
         }
 
         /* ============================================================
-           PODKŁAD: RYSUNEK REFERENCYJNY (kalka do obrysowania)
-           ============================================================ */
-        function loadRefImageFile(file) {
-            const reader = new FileReader();
-            reader.onload = (ev) => {
-                const img = new Image();
-                img.onload = () => {
-                    refImg = img;
-                    refImgLinesCanvas = null;
-                    refImgShowLines = false;
-                    refImgFlipZ = false;
-                    // domyślne, przybliżone umiejscowienie — kalibracja Z i Ø poprawi skalę i pozycję
-                    const guessMmWidth = 200;
-                    const guessMmHeight = guessMmWidth * (img.naturalHeight / img.naturalWidth) * 0.6;
-                    const czZ = (canvas.width / 2 - originZ) / scale;
-                    const czDiam = Math.max(0, (originX - canvas.height / 2) / scale * 2);
-                    refImgRectMm = {
-                        zLeft: czZ - guessMmWidth / 2, zRight: czZ + guessMmWidth / 2,
-                        diamTop: czDiam + guessMmHeight, diamBottom: Math.max(0, czDiam - guessMmHeight)
-                    };
-                    document.getElementById('ref_controls').classList.add('show');
-                    toast('Wczytano rysunek. Skalibruj długość (Z) i średnicę (Ø), aby dopasować podkład.', 'info');
-                    drawCAD();
-                };
-                img.src = ev.target.result;
-            };
-            reader.readAsDataURL(file);
-        }
-
-        function startCalib(axis) {
-            if (!refImg) { showError('Najpierw wczytaj rysunek jako podkład.'); return; }
-            calibAxis = axis;
-            calibClick1 = null;
-            updateCalibHint();
-        }
-        function updateCalibHint() {
-            const hint = document.getElementById('ref_hint');
-            if (!calibAxis) return;
-            const what = calibAxis === 'Z' ? 'znanego odcinka długości (Z)' : 'znanej średnicy (Ø) — góra krawędzi i oś/dół';
-            hint.innerText = calibClick1
-                ? `Kalibracja ${calibAxis}: kliknij DRUGI punkt ${what}.`
-                : `Kalibracja ${calibAxis}: kliknij PIERWSZY punkt ${what}.`;
-        }
-        function handleCalibClick(e) {
-            const pt = getUnclampedMachineCoords(e); // bez przycinania — kliknięcia kalibracyjne mogą być gdziekolwiek
-            if (!calibClick1) {
-                calibClick1 = pt;
-                updateCalibHint();
-                drawCAD();
-                return;
-            }
-            const click2 = pt;
-            const axis = calibAxis;
-            calibAxis = null;
-            document.getElementById('ref_hint').innerText = 'Wczytaj zdjęcie/skan rysunku technicznego, skalibruj skalę i rysuj po nim istniejącymi narzędziami. Ctrl+przeciągnij = przesuń podkład.';
-
-            const promptLabel = axis === 'Z'
-                ? 'Rzeczywista odległość między klikniętymi punktami (mm):'
-                : 'Rzeczywista odległość między klikniętymi punktami (mm) — jeśli to promień (krawędź→oś), wpisz połowę średnicy:';
-            const input = prompt(promptLabel, '10');
-            if (input === null) { drawCAD(); return; }
-            const L = parseFloat(input.replace(',', '.'));
-            if (isNaN(L) || L <= 0) { showError('Podaj dodatnią wartość w mm.'); drawCAD(); return; }
-
-            if (axis === 'Z') {
-                const anchor = calibClick1.z;
-                const currentSpan = Math.abs(click2.z - calibClick1.z);
-                if (currentSpan < 1e-6) { showError('Punkty są zbyt blisko siebie.'); drawCAD(); return; }
-                const k = L / currentSpan;
-                const newLeft = anchor + (refImgRectMm.zLeft - anchor) * k;
-                const newRight = anchor + (refImgRectMm.zRight - anchor) * k;
-                refImgRectMm.zLeft = Math.min(newLeft, newRight);
-                refImgRectMm.zRight = Math.max(newLeft, newRight);
-            } else {
-                const anchor = calibClick1.x;
-                const currentSpan = Math.abs(click2.x - calibClick1.x);
-                if (currentSpan < 1e-6) { showError('Punkty są zbyt blisko siebie.'); drawCAD(); return; }
-                const k = L / currentSpan;
-                const newTop = anchor + (refImgRectMm.diamTop - anchor) * k;
-                const newBottom = anchor + (refImgRectMm.diamBottom - anchor) * k;
-                refImgRectMm.diamTop = Math.max(newTop, newBottom);
-                refImgRectMm.diamBottom = Math.min(newTop, newBottom);
-            }
-            calibClick1 = null;
-            toast('Skalibrowano podkład (' + (axis === 'Z' ? 'długość' : 'średnica') + ').', 'ok');
-            drawCAD();
-        }
-
-        function drawRefImage() {
-            if (!refImg || !refImgRectMm) return;
-            const { zLeft, zRight, diamTop, diamBottom } = refImgRectMm;
-            const xA = getZPix(zLeft), xB = getZPix(zRight);
-            const yA = getXPix(diamTop), yB = getXPix(diamBottom);
-            const drawX = Math.min(xA, xB), drawW = Math.abs(xB - xA);
-            const drawY = Math.min(yA, yB), drawH = Math.abs(yB - yA);
-            ctx.save();
-            ctx.globalAlpha = refImgOpacity;
-            // Płótno szkicownika jest zawsze ciemne — odwrócenie kolorów + tryb 'screen'
-            // sprawia, że białe tło skanu znika (przezroczyste), a ciemne linie rysunku
-            // świecą jasno na tle płótna (efekt kalki, zamiast szarej, mało czytelnej plamy)
-            ctx.filter = 'invert(1)';
-            ctx.globalCompositeOperation = 'screen';
-            if (refImgFlipZ) { ctx.translate(drawX + drawW, drawY); ctx.scale(-1, 1); ctx.drawImage(refImg, 0, 0, drawW, drawH); }
-            else { ctx.drawImage(refImg, drawX, drawY, drawW, drawH); }
-            ctx.restore();
-            if (refImgShowLines && refImgLinesCanvas) {
-                ctx.save();
-                ctx.globalAlpha = Math.min(1, refImgOpacity + 0.35);
-                if (refImgFlipZ) { ctx.translate(drawX + drawW, drawY); ctx.scale(-1, 1); ctx.drawImage(refImgLinesCanvas, 0, 0, drawW, drawH); }
-                else { ctx.drawImage(refImgLinesCanvas, drawX, drawY, drawW, drawH); }
-                ctx.restore();
-            }
-            // znaczniki kalibracji w toku
-            if (calibAxis && calibClick1) {
-                const px = calibAxis === 'Z' ? getZPix(calibClick1.z) : getZPix(calibClick1.z);
-                const py = calibAxis === 'Z' ? getXPix(calibClick1.x) : getXPix(calibClick1.x);
-                ctx.fillStyle = '#facc15';
-                ctx.beginPath(); ctx.arc(px, py, 5, 0, 2 * Math.PI); ctx.fill();
-            }
-        }
-
-        // Analiza obrazu: podświetla piksele należące do GRUBYCH linii (przybliżenie konturu głównego)
-        // odróżniając je od cienkich linii wymiarowych/pomocniczych — na podstawie lokalnej "grubości"
-        // ciemnego obszaru (min. długości ciągłego biegu w poziomie i w pionie przechodzącego przez piksel).
-        // To metoda przybliżona — działa najlepiej na czystych skanach/eksportach z CAD.
-        function computeThickLineOverlay(img) {
-            const w = img.naturalWidth, h = img.naturalHeight;
-            const off = document.createElement('canvas');
-            off.width = w; off.height = h;
-            const octx = off.getContext('2d');
-            octx.drawImage(img, 0, 0);
-            const src = octx.getImageData(0, 0, w, h);
-            const d = src.data;
-            const dark = new Uint8Array(w * h);
-            for (let i = 0; i < w * h; i++) {
-                const lum = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2];
-                dark[i] = lum < 140 ? 1 : 0;
-            }
-            const runH = new Uint16Array(w * h), runV = new Uint16Array(w * h);
-            for (let y = 0; y < h; y++) {
-                let run = 0;
-                for (let x = 0; x < w; x++) { const i = y * w + x; run = dark[i] ? run + 1 : 0; runH[i] = run; }
-                run = 0;
-                for (let x = w - 1; x >= 0; x--) { const i = y * w + x; if (dark[i]) { run = Math.max(run, runH[i]); runH[i] = run; } else run = 0; }
-            }
-            for (let x = 0; x < w; x++) {
-                let run = 0;
-                for (let y = 0; y < h; y++) { const i = y * w + x; run = dark[i] ? run + 1 : 0; runV[i] = run; }
-                run = 0;
-                for (let y = h - 1; y >= 0; y--) { const i = y * w + x; if (dark[i]) { run = Math.max(run, runV[i]); runV[i] = run; } else run = 0; }
-            }
-            const THRESH = 3;
-            const out = octx.createImageData(w, h);
-            for (let i = 0; i < w * h; i++) {
-                const thick = dark[i] && Math.min(runH[i], runV[i]) >= THRESH;
-                if (thick) {
-                    out.data[i * 4] = 239; out.data[i * 4 + 1] = 68; out.data[i * 4 + 2] = 68; out.data[i * 4 + 3] = 255;
-                } else {
-                    out.data[i * 4 + 3] = 0;
-                }
-            }
-            octx.putImageData(out, 0, 0);
-            return off;
-        }
-
-        /* ============================================================
            MYSZ / RYSOWANIE PROFILU
            ============================================================ */
+        // Znajduje najbliższy punkt profilu pod kursorem (do przyciągania i pokazywania wymiaru)
+        function nearestProfilePoint(e) {
+            if (!profile.length) return -1;
+            const rect = canvas.getBoundingClientRect();
+            const mZ = e.clientX - rect.left, mX = e.clientY - rect.top;
+            let best = -1, bestD = 12;
+            for (let i = 0; i < profile.length; i++) {
+                const d = Math.hypot(getZPix(profile[i].z) - mZ, getXPix(profile[i].x) - mX);
+                if (d < bestD) { bestD = d; best = i; }
+            }
+            return best;
+        }
+
         canvas.addEventListener('mousedown', (e) => {
-            if (e.button === 1 || e.shiftKey) {
+            // Przesuwanie pola roboczego: PPM, środkowy przycisk lub Shift+LPM
+            if (e.button === 2 || e.button === 1 || (e.button === 0 && e.shiftKey)) {
                 isDragging = true; startDragPos = { x: e.clientX, y: e.clientY };
                 canvas.style.cursor = 'grabbing'; return;
             }
             if (e.button !== 0 || isAnimating) return;
 
-            if (calibAxis) { handleCalibClick(e); return; }
-
-            if (e.ctrlKey && refImg && refImgRectMm) {
-                isDraggingRefImg = true;
-                dragRefStart = { x: e.clientX, y: e.clientY };
-                canvas.style.cursor = 'grabbing';
-                return;
-            }
-
-            if (cadTool() === 'FILLET') {
-                applyCornerAt(e);
-                return;
-            }
+            if (cadTool() === 'FILLET') { applyCornerAt(e); return; }
 
             if (cadTool() === 'FREEHAND') {
                 isFreehandDrawing = true;
@@ -1354,18 +1150,14 @@
             refreshAll();
         });
 
+        // Wyłącz menu kontekstowe na płótnie — PPM służy do przesuwania widoku
+        canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
         window.addEventListener('mousemove', (e) => {
             if (isDragging) {
                 originZ += e.clientX - startDragPos.x;
                 originX += e.clientY - startDragPos.y;
                 startDragPos = { x: e.clientX, y: e.clientY };
-                drawCAD();
-            } else if (isDraggingRefImg) {
-                const dPixX = e.clientX - dragRefStart.x, dPixY = e.clientY - dragRefStart.y;
-                dragRefStart = { x: e.clientX, y: e.clientY };
-                const dz = dPixX / scale, dDiam = -dPixY / scale * 2;
-                refImgRectMm.zLeft += dz; refImgRectMm.zRight += dz;
-                refImgRectMm.diamTop += dDiam; refImgRectMm.diamBottom += dDiam;
                 drawCAD();
             } else if (isFreehandDrawing) {
                 const pt = getRawMachineCoords(e);
@@ -1376,19 +1168,20 @@
                 drawCAD();
             } else {
                 currentMouseGrid = getMouseCoordinates(e);
+                hoverPointIdx = mouseInCanvas ? nearestProfilePoint(e) : -1;
+                canvas.style.cursor = hoverPointIdx >= 0 ? 'pointer' : (cadTool() === 'FILLET' ? 'pointer' : 'crosshair');
                 document.getElementById('badge_pos').innerHTML = `X <b>${currentMouseGrid.x}</b> &nbsp; Z <b>${currentMouseGrid.z}</b>`;
                 if (!isAnimating) drawCAD();
             }
         });
         window.addEventListener('mouseup', () => {
             if (isDragging) { isDragging = false; canvas.style.cursor = 'crosshair'; }
-            if (isDraggingRefImg) { isDraggingRefImg = false; canvas.style.cursor = 'crosshair'; }
             if (isFreehandDrawing) { isFreehandDrawing = false; finishFreehandStroke(); }
         });
 
         // Podgląd kreskowanej linii tylko gdy kursor jest nad polem szkicu
         canvas.addEventListener('mouseenter', () => { mouseInCanvas = true; });
-        canvas.addEventListener('mouseleave', () => { mouseInCanvas = false; if (!isAnimating) drawCAD(); });
+        canvas.addEventListener('mouseleave', () => { mouseInCanvas = false; hoverPointIdx = -1; if (!isAnimating) drawCAD(); });
 
         canvas.addEventListener('wheel', (e) => {
             e.preventDefault();
@@ -1453,14 +1246,22 @@
             const dBlank = parseFloat(document.getElementById('d_blank').value) || 90;
             const internal = isInternal();
 
-            // siatka
-            ctx.strokeStyle = 'rgba(148,163,184,0.06)';
+            // siatka — gęstsza: drobna linia co 5 mm, mocniejsza co 10 mm
+            const fine = 5 * scale;   // Z co 5 mm; oś X (promień) co 2.5 mm
             ctx.lineWidth = 1;
-            const step = 10 * scale;
-            for (let zPix = originZ % step; zPix < canvas.width; zPix += step) {
+            ctx.strokeStyle = 'rgba(148,163,184,0.045)';
+            for (let zPix = originZ % fine; zPix < canvas.width; zPix += fine) {
                 ctx.beginPath(); ctx.moveTo(zPix, 0); ctx.lineTo(zPix, canvas.height); ctx.stroke();
             }
-            for (let xPix = originX % (step / 2); xPix < canvas.height; xPix += step / 2) {
+            for (let xPix = originX % (fine / 2); xPix < canvas.height; xPix += fine / 2) {
+                ctx.beginPath(); ctx.moveTo(0, xPix); ctx.lineTo(canvas.width, xPix); ctx.stroke();
+            }
+            const coarse = 10 * scale;
+            ctx.strokeStyle = 'rgba(148,163,184,0.11)';
+            for (let zPix = originZ % coarse; zPix < canvas.width; zPix += coarse) {
+                ctx.beginPath(); ctx.moveTo(zPix, 0); ctx.lineTo(zPix, canvas.height); ctx.stroke();
+            }
+            for (let xPix = originX % (coarse / 2); xPix < canvas.height; xPix += coarse / 2) {
                 ctx.beginPath(); ctx.moveTo(0, xPix); ctx.lineTo(canvas.width, xPix); ctx.stroke();
             }
 
@@ -1475,9 +1276,6 @@
             ctx.fillStyle = '#475569'; ctx.font = '10px monospace';
             for (let z = 0; z >= -320; z -= 20) ctx.fillText(z + '', getZPix(z) - 8, originX + 16);
             for (let x = 20; x <= 220; x += 20) ctx.fillText('Ø' + x, originZ + 6, getXPix(x) + 3);
-
-            // podkład: rysunek referencyjny (kalka do obrysowania)
-            drawRefImage();
 
             // materiał
             const zsProfile = profile.map(p => p.z);
@@ -1562,8 +1360,8 @@
                 drawAutoDims();
             }
 
-            // podgląd linii — tylko gdy kursor jest nad polem szkicu
-            if (!isAnimating && mouseInCanvas && cadTool() === 'SKETCH' && profile.length) {
+            // podgląd linii — tylko gdy kursor jest nad polem szkicu i nie przyciągamy punktu
+            if (!isAnimating && mouseInCanvas && hoverPointIdx < 0 && cadTool() === 'SKETCH' && profile.length) {
                 const last = profile[profile.length - 1];
                 if (currentMouseGrid.z <= last.z) {
                     ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
@@ -1571,10 +1369,38 @@
                     ctx.moveTo(getZPix(last.z), getXPix(last.x));
                     ctx.lineTo(getZPix(currentMouseGrid.z), getXPix(currentMouseGrid.x));
                     ctx.stroke(); ctx.setLineDash([]);
+                    // kąt rysowanej linii względem osi Z (0° = wzdłuż osi, 90° = czoło)
+                    const dz = currentMouseGrid.z - last.z, dr = (currentMouseGrid.x - last.x) / 2;
+                    let angTxt = '';
+                    if (Math.hypot(dz, dr) > 0.5) {
+                        const ang = Math.atan2(Math.abs(dr), Math.abs(dz)) * 180 / Math.PI;
+                        angTxt = '  ∠' + (Math.round(ang * 10) / 10) + '°';
+                    }
                     ctx.fillStyle = '#22c55e'; ctx.font = '11px monospace';
-                    ctx.fillText(`Ø${currentMouseGrid.x}  Z${currentMouseGrid.z}`,
+                    ctx.fillText(`Ø${currentMouseGrid.x}  Z${currentMouseGrid.z}${angTxt}`,
                         getZPix(currentMouseGrid.z) + 10, getXPix(currentMouseGrid.x) - 8);
                 }
+            }
+
+            // przyciąganie / wymiar punktu profilu pod kursorem
+            if (!isAnimating && hoverPointIdx >= 0 && hoverPointIdx < profile.length) {
+                const pt = profile[hoverPointIdx];
+                const px = getZPix(pt.z), py = getXPix(pt.x);
+                ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.arc(px, py, 8, 0, 2 * Math.PI); ctx.stroke();
+                // linie odniesienia do osi i czoła
+                ctx.setLineDash([3, 3]); ctx.strokeStyle = 'rgba(34,211,238,0.5)';
+                ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px, originX);
+                ctx.moveTo(px, py); ctx.lineTo(getZPix(0), py); ctx.stroke(); ctx.setLineDash([]);
+                const lbl = `#${hoverPointIdx}  Ø${fmt(pt.x)}  Z${fmt(pt.z)}`;
+                ctx.font = 'bold 12px monospace';
+                const w = ctx.measureText(lbl).width + 12;
+                ctx.fillStyle = 'rgba(9,14,25,0.92)';
+                ctx.fillRect(px + 12, py - 24, w, 20);
+                ctx.strokeStyle = 'rgba(34,211,238,0.5)'; ctx.lineWidth = 1;
+                ctx.strokeRect(px + 12, py - 24, w, 20);
+                ctx.fillStyle = '#67e8f9';
+                ctx.fillText(lbl, px + 18, py - 10);
             }
 
             // podgląd rysowania odręcznego (flamaster)
@@ -2322,7 +2148,7 @@
             if (!th) return;
             const g = ['%', 'O1004 (TOCZENIE + ' + th.label + ')', 'G21 G18', 'G40 G80 G99', '']
                 .concat(t.lines)
-                .concat(['M05', '', '(--- ZMIANA NARZEDZIA: GWINT ---)'])
+                .concat(['G00 G53 X0. Y0.', 'G53 Z0.', 'M05', '', '(--- ZMIANA NARZEDZIA: GWINT ---)'])
                 .concat(th.lines)
                 .concat(['', 'G00 G53 X0 Y0', 'G53 Z0', 'M30', '%']);
             renderOutput(g);
@@ -2440,41 +2266,6 @@
         });
         document.getElementById('btn_sim_reset').addEventListener('click', () => {
             stopAnimation(); if (simulationPath.length) currentSimPos = { ...simulationPath[0] }; drawCAD();
-        });
-
-        // Podkład: rysunek referencyjny
-        document.getElementById('btn_ref_load').addEventListener('click', () => document.getElementById('ref_file_input').click());
-        document.getElementById('ref_file_input').addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (file) loadRefImageFile(file);
-            e.target.value = '';
-        });
-        document.getElementById('btn_ref_calib_z').addEventListener('click', () => startCalib('Z'));
-        document.getElementById('btn_ref_calib_x').addEventListener('click', () => startCalib('X'));
-        document.getElementById('btn_ref_flip').addEventListener('click', () => { refImgFlipZ = !refImgFlipZ; drawCAD(); });
-        document.getElementById('btn_ref_lines').addEventListener('click', () => {
-            if (!refImg) { showError('Najpierw wczytaj rysunek jako podkład.'); return; }
-            if (!refImgLinesCanvas) {
-                toast('Analizuję grubość linii…', 'info');
-                setTimeout(() => {
-                    refImgLinesCanvas = computeThickLineOverlay(refImg);
-                    refImgShowLines = true;
-                    drawCAD();
-                    toast('Podświetlono najgrubsze linie (przybliżenie konturu). To podpowiedź, nie automatyczny import.', 'ok');
-                }, 10);
-            } else {
-                refImgShowLines = !refImgShowLines;
-                drawCAD();
-            }
-        });
-        document.getElementById('ref_opacity').addEventListener('input', (e) => {
-            refImgOpacity = parseInt(e.target.value) / 100;
-            drawCAD();
-        });
-        document.getElementById('btn_ref_remove').addEventListener('click', () => {
-            refImg = null; refImgRectMm = null; refImgLinesCanvas = null; refImgShowLines = false; calibAxis = null; calibClick1 = null;
-            document.getElementById('ref_controls').classList.remove('show');
-            drawCAD();
         });
 
         function currentCodeText() {
