@@ -322,7 +322,7 @@
             border-radius: 10px; overflow: hidden; border: 1px solid var(--panel-border);
         }
         canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
-        .canvas-wrap { height: 460px; }
+        .canvas-wrap { height: 560px; }
 
         /* Szkicownik na całe okno */
         #card_cad.maximized {
@@ -334,6 +334,27 @@
         #card_cad.maximized .card-body { flex: 1; min-height: 0; overflow: auto; }
         #card_cad.maximized .canvas-wrap { flex: 1; height: auto; min-height: 0; }
         .cad-full-btn { -webkit-app-region: no-drag; }
+
+        /* Wygenerowany G-code jako osobne, przesuwane i rozciągane okno */
+        #card_output {
+            position: fixed; z-index: 950; margin: 0;
+            width: 560px; height: 480px; min-width: 340px; min-height: 220px;
+            max-width: 96vw; max-height: 90vh;
+            display: flex; flex-direction: column;
+            resize: both; overflow: hidden;
+            background: var(--bg-2);
+            border: 1px solid rgba(var(--ac2-rgb), 0.45);
+            box-shadow: 0 24px 70px rgba(0,0,0,0.62);
+            -webkit-app-region: no-drag;
+        }
+        #card_output .card-head { cursor: move; user-select: none; flex-shrink: 0; }
+        #card_output .card-body { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 12px; }
+        #card_output .output { flex: 1; height: auto; min-height: 0; }
+        #card_output .win-x {
+            width: 28px; height: 28px; padding: 0; border-radius: 8px; font-size: 16px;
+            background: transparent; color: var(--text-dim); border: 1px solid var(--stroke);
+        }
+        #card_output .win-x:hover { background: #ef4444; color: #fff; border-color: #ef4444; }
         .canvas-overlay {
             position: absolute; top: 12px; left: 12px; display: flex; gap: 8px; flex-wrap: wrap;
             pointer-events: none;
@@ -455,7 +476,7 @@
         #tab_params .grid-2, #tab_thread .grid-2 { display: contents; }
         #tab_params > .field, #tab_params .grid-2 > .field,
         #tab_thread > .field, #tab_thread .grid-2 > .field {
-            flex: 0 0 158px; width: 158px;
+            flex: 1 1 168px; min-width: 150px; width: auto;
         }
         /* elementy pełnej szerokości */
         #tab_params > .field:has(.seg), #tab_thread .field:has(.seg),
@@ -465,7 +486,7 @@
         #thread_custom_wrap {
             flex: 1 1 100%; width: 100%;
         }
-        #thread_custom_wrap > .field { flex: 0 0 158px; width: 158px; }
+        #thread_custom_wrap > .field { flex: 1 1 168px; min-width: 150px; width: auto; }
 
         /* G-code output with per-line spans + step highlight */
         .output .ln { display: block; padding: 0 4px; border-radius: 3px; min-height: 1.35em; }
@@ -812,13 +833,16 @@
                         </div>
                     </div>
 
-                    <!-- Output -->
+                    <!-- Output (osobne, przesuwane okno) -->
                     <div class="card" id="card_output" style="display:none;">
-                        <div class="card-head">
+                        <div class="card-head" id="output_titlebar">
                             <div class="ico">📄</div>
                             <div>
                                 <h2>Wygenerowany G-code</h2>
-                                <div class="sub">Haas ST-35Y · cykl G71 / G70</div>
+                                <div class="sub">Haas ST-35Y · przeciągnij nagłówek, rozciągnij za róg</div>
+                            </div>
+                            <div class="right">
+                                <button class="win-x" id="btn_output_close" title="Zamknij okno (Esc)">✕</button>
                             </div>
                         </div>
                         <div class="card-body">
@@ -1824,7 +1848,75 @@
 
         function escapeHTML(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
-        function revealOutput() { document.getElementById('card_output').style.display = ''; }
+        /* ---------- Okno z G-code: przesuwanie, rozciąganie, pamięć położenia ---------- */
+        const OUT_KEY = 'camOutputWinGeom';
+        const outputWin = document.getElementById('card_output');
+        const outputBar = document.getElementById('output_titlebar');
+
+        function saveOutputGeom() {
+            if (outputWin.style.display === 'none') return;
+            const g = {
+                left: outputWin.style.left, top: outputWin.style.top,
+                width: outputWin.offsetWidth + 'px', height: outputWin.offsetHeight + 'px'
+            };
+            try { localStorage.setItem(OUT_KEY, JSON.stringify(g)); } catch (e) {}
+        }
+        function placeOutputDefault() {
+            const w = 560, h = 480;
+            outputWin.style.width = w + 'px'; outputWin.style.height = h + 'px';
+            outputWin.style.left = Math.max(12, window.innerWidth - w - 28) + 'px';
+            outputWin.style.top = '96px';
+        }
+        function restoreOutputGeom() {
+            try {
+                const g = JSON.parse(localStorage.getItem(OUT_KEY));
+                if (g && g.left) {
+                    outputWin.style.left = g.left; outputWin.style.top = g.top;
+                    if (g.width) outputWin.style.width = g.width;
+                    if (g.height) outputWin.style.height = g.height;
+                    return true;
+                }
+            } catch (e) {}
+            return false;
+        }
+        function ensureOutputOnScreen() {
+            const w = outputWin.offsetWidth, h = outputWin.offsetHeight;
+            let left = parseFloat(outputWin.style.left) || 0;
+            let top = parseFloat(outputWin.style.top) || 96;
+            left = Math.max(0, Math.min(window.innerWidth - Math.min(w, window.innerWidth), left));
+            top = Math.max(38, Math.min(window.innerHeight - 60, top));
+            outputWin.style.left = left + 'px'; outputWin.style.top = top + 'px';
+        }
+        function revealOutput() {
+            outputWin.style.display = '';
+            if (!outputWin.dataset.placed) {
+                if (!restoreOutputGeom()) placeOutputDefault();
+                outputWin.dataset.placed = '1';
+            }
+            ensureOutputOnScreen();
+        }
+        document.getElementById('btn_output_close').addEventListener('click', () => { outputWin.style.display = 'none'; });
+
+        // przeciąganie za pasek tytułu
+        let outDrag = null;
+        outputBar.addEventListener('mousedown', (e) => {
+            if (e.target.closest('button')) return;
+            const r = outputWin.getBoundingClientRect();
+            outDrag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+            outputWin.style.transition = 'none';
+            e.preventDefault();
+        });
+        window.addEventListener('mousemove', (e) => {
+            if (!outDrag) return;
+            const w = outputWin.offsetWidth, h = outputWin.offsetHeight;
+            let left = Math.max(0, Math.min(window.innerWidth - w, e.clientX - outDrag.dx));
+            let top = Math.max(38, Math.min(window.innerHeight - 40, e.clientY - outDrag.dy));
+            outputWin.style.left = left + 'px'; outputWin.style.top = top + 'px';
+        });
+        window.addEventListener('mouseup', () => { if (outDrag) { outDrag = null; saveOutputGeom(); } });
+
+        // zapamiętaj rozmiar po rozciągnięciu (uchwyt w rogu)
+        if (window.ResizeObserver) new ResizeObserver(() => saveOutputGeom()).observe(outputWin);
         function renderOutput(lines) {
             // zbuduj model kroków z modalnym X/Z (średnica)
             codeLines = [];
@@ -2382,7 +2474,6 @@
         document.getElementById('btn_generate').addEventListener('click', () => {
             if (profile.length < 2) { showError('Najpierw utwórz profil (min. 2 punkty).'); return; }
             generateGcode(); revealOutput();
-            document.getElementById('card_output').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             toast('Wygenerowano G-code.', 'ok');
         });
 
@@ -2425,7 +2516,9 @@
             setCadFull(!document.getElementById('card_cad').classList.contains('maximized'));
         });
         window.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && document.getElementById('card_cad').classList.contains('maximized')) setCadFull(false);
+            if (e.key !== 'Escape') return;
+            if (document.getElementById('card_cad').classList.contains('maximized')) { setCadFull(false); return; }
+            if (outputWin.style.display !== 'none') outputWin.style.display = 'none';
         });
         document.getElementById('btn_sim_start').addEventListener('click', () => {
             if (profile.length < 2) { showError('Najpierw utwórz profil.'); return; }
