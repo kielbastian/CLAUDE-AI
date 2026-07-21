@@ -2119,13 +2119,15 @@
             g.push('');
 
             if (cycle === 'G92') {
+                // G92 jest modalne — pierwsza linia z X/Z/F, kolejne przejścia tylko X
                 const dias = threadPassDiameters(geo);
-                let first = true;
                 for (let i = 0; i < dias.length; i++) {
                     const spring = i === dias.length - 1;
-                    g.push('G92 X' + fmtNC(dias[i]) + ' Z' + fmtNC(zEnd) + ' F' + fmtNC(geo.p) +
-                        (first ? '  (1. PRZEJSCIE)' : (spring ? '  (WYGLADZAJACE)' : '')));
-                    first = false;
+                    if (i === 0) {
+                        g.push('G92 X' + fmtNC(dias[i]) + ' Z' + fmtNC(zEnd) + ' F' + fmtNC(geo.p) + '  (1. PRZEJSCIE)');
+                    } else {
+                        g.push('X' + fmtNC(dias[i]) + (spring ? '  (WYGLADZAJACE)' : ''));
+                    }
                 }
             } else {
                 // G76 — cykl dwuwierszowy Haas (metryczny: P/Q w mikronach)
