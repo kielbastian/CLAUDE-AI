@@ -200,8 +200,10 @@
         .card-body { padding: 18px; display: flex; flex-direction: column; gap: 15px; }
 
         /* ---------- Form ---------- */
-        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: end; }
         .field { display: flex; flex-direction: column; gap: 6px; }
+        /* etykiety w siatce 2-kol. rezerwują dwie linie, więc pola są wyrównane */
+        .grid-2 > .field > label { min-height: 2.7em; line-height: 1.3; display: flex; align-items: flex-start; }
         label { font-size: 11.5px; font-weight: 600; color: var(--text-muted); letter-spacing: 0.2px; }
         .hint { font-size: 10.5px; color: var(--text-dim); font-weight: 500; }
         .thread-info {
@@ -319,7 +321,19 @@
             position: relative; background: radial-gradient(120% 120% at 50% 0%, #0a1120 0%, #060a12 100%);
             border-radius: 10px; overflow: hidden; border: 1px solid var(--panel-border);
         }
-        canvas { display: block; width: 100%; height: 460px; cursor: crosshair; }
+        canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
+        .canvas-wrap { height: 460px; }
+
+        /* Szkicownik na całe okno */
+        #card_cad.maximized {
+            position: fixed; inset: 44px 12px 12px; z-index: 900; margin: 0;
+            display: flex; flex-direction: column; background: var(--bg-2);
+            border-color: rgba(var(--ac2-rgb), 0.4);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+        }
+        #card_cad.maximized .card-body { flex: 1; min-height: 0; overflow: auto; }
+        #card_cad.maximized .canvas-wrap { flex: 1; height: auto; min-height: 0; }
+        .cad-full-btn { -webkit-app-region: no-drag; }
         .canvas-overlay {
             position: absolute; top: 12px; left: 12px; display: flex; gap: 8px; flex-wrap: wrap;
             pointer-events: none;
@@ -372,8 +386,20 @@
             border: 1px solid var(--panel-border); box-shadow: inset 0 6px 20px rgba(0,0,0,0.55);
             tab-size: 2;
         }
-        .output::-webkit-scrollbar, .tbl-wrap::-webkit-scrollbar { width: 9px; height: 9px; }
-        .output::-webkit-scrollbar-thumb, .tbl-wrap::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 6px; }
+        /* ── paski przewijania w kolorach aplikacji ─────────────── */
+        * { scrollbar-width: thin; scrollbar-color: var(--ac2) transparent; }
+        ::-webkit-scrollbar { width: 12px; height: 12px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb {
+            background: var(--brand-grad); border-radius: 999px;
+            border: 3px solid transparent; background-clip: padding-box;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(135deg, var(--ac2), var(--ac3));
+            border: 2px solid transparent; background-clip: padding-box;
+        }
+        ::-webkit-scrollbar-corner { background: transparent; }
+        .output::-webkit-scrollbar, .tbl-wrap::-webkit-scrollbar { width: 10px; height: 10px; }
 
         .notice {
             display: none; font-size: 12.5px; font-weight: 500; padding: 11px 13px;
@@ -759,6 +785,7 @@
                                     <input type="radio" id="tool_fillet" name="cad_tool" value="FILLET">
                                     <label for="tool_fillet" style="padding:7px 10px;">◜ Faza / R</label>
                                 </div>
+                                <button class="btn-ghost btn-sm cad-full-btn" id="btn_cad_full" title="Powiększ szkicownik na całe okno" style="margin-left:8px; font-size:15px;">⛶</button>
                             </div>
                         </div>
                         <div class="card-body">
@@ -786,7 +813,7 @@
                     </div>
 
                     <!-- Output -->
-                    <div class="card">
+                    <div class="card" id="card_output" style="display:none;">
                         <div class="card-head">
                             <div class="ico">📄</div>
                             <div>
@@ -1026,8 +1053,14 @@
            ============================================================ */
         function setupCanvas() {
             const rect = canvas.parentNode.getBoundingClientRect();
+            const prevW = canvas.width, prevH = canvas.height;
             canvas.width = rect.width;
-            canvas.height = 460;
+            canvas.height = Math.round(rect.height) || 460;
+            // utrzymaj środek widoku przy zmianie rozmiaru płótna
+            if (prevW && prevH) {
+                originZ += (canvas.width - prevW) / 2;
+                originX += (canvas.height - prevH) / 2;
+            }
             drawCAD();
         }
         function getXPix(diam) { return originX - (diam / 2) * scale; }
@@ -1358,14 +1391,16 @@
             ctx.fillStyle = '#f59e0b'; ctx.font = '10px monospace';
             ctx.fillText('OŚ  Z / CL', 8, originX - 6);
 
-            // etykiety osi na liniach głównych (realne mm)
+            // etykiety osi na liniach głównych (realne mm) — większe i jasne, dobrze widoczne
             const majStep = step * majEvery;
-            ctx.fillStyle = '#64748b'; ctx.font = '10px monospace';
+            ctx.font = 'bold 12px monospace';
+            ctx.fillStyle = '#f1f5f9';
+            ctx.shadowColor = 'rgba(0,0,0,0.85)'; ctx.shadowBlur = 3;
             for (let k = kz0; k <= kz1; k++) {
                 if ((((k % majEvery) + majEvery) % majEvery) !== 0) continue;
                 const zVal = Math.round(k * step * 1000) / 1000;
                 if (zVal > eps) continue; // profil: Z ≤ 0
-                ctx.fillText(fmt(zVal), originZ + k * step * scale - 8, originX + 16);
+                ctx.fillText(fmt(zVal), originZ + k * step * scale - 8, originX + 17);
             }
             for (let k = kr0; k <= kr1; k++) {
                 if ((((k % majEvery) + majEvery) % majEvery) !== 0) continue;
@@ -1373,6 +1408,7 @@
                 if (diam <= eps) continue; // pomiń oś (Ø0)
                 ctx.fillText('Ø' + fmt(diam), originZ + 6, originX - k * step * scale + 3);
             }
+            ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
 
             // materiał
             const zsProfile = profile.map(p => p.z);
@@ -1788,6 +1824,7 @@
 
         function escapeHTML(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
+        function revealOutput() { document.getElementById('card_output').style.display = ''; }
         function renderOutput(lines) {
             // zbuduj model kroków z modalnym X/Z (średnica)
             codeLines = [];
@@ -2260,7 +2297,7 @@
             if (!tb) return;
             // Program w formacie maszyny (bez nagłówka), zakończony powrotem i M30
             const g = tb.lines.concat(['G00 G53 X0 Y0', 'G53 Z0', 'M30', '%']);
-            renderOutput(g);
+            renderOutput(g); revealOutput();
             simulationPath = [];
             if (stepMode) setStepMode(false);
             toast('Wygenerowano kod gwintu (' + threadCycle() + ').', 'ok');
@@ -2277,7 +2314,7 @@
                 .concat(['G00 G53 X0. Y0.', 'G53 Z0.', 'M05', '', '(--- ZMIANA NARZEDZIA: GWINT ---)'])
                 .concat(th.lines)
                 .concat(['', 'G00 G53 X0 Y0', 'G53 Z0', 'M30', '%']);
-            renderOutput(g);
+            renderOutput(g); revealOutput();
             const s = t.sim;
             buildSimPath(s.internal, s.dBlank, s.dPilot, s.ap, s.allowX, s.safeZ, s.approachX, s.zMin, s.maxX, s.minX);
             if (!isAnimating && simulationPath.length) currentSimPos = { ...simulationPath[0] };
@@ -2344,7 +2381,9 @@
 
         document.getElementById('btn_generate').addEventListener('click', () => {
             if (profile.length < 2) { showError('Najpierw utwórz profil (min. 2 punkty).'); return; }
-            generateGcode(); toast('Wygenerowano G-code.', 'ok');
+            generateGcode(); revealOutput();
+            document.getElementById('card_output').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            toast('Wygenerowano G-code.', 'ok');
         });
 
         document.getElementById('btn_add_row').addEventListener('click', () => {
@@ -2370,6 +2409,23 @@
         });
         document.getElementById('btn_reset_view').addEventListener('click', () => {
             scale = 4.0; originX = 230; originZ = 300; drawCAD();
+        });
+
+        // Powiększ szkicownik na całe okno / przywróć
+        function setCadFull(on) {
+            const card = document.getElementById('card_cad');
+            const btn = document.getElementById('btn_cad_full');
+            card.classList.toggle('maximized', on);
+            btn.innerHTML = on ? '🗕' : '⛶';
+            btn.title = on ? 'Przywróć rozmiar szkicownika' : 'Powiększ szkicownik na całe okno';
+            // po zmianie układu przelicz rozmiar płótna
+            requestAnimationFrame(() => { setupCanvas(); });
+        }
+        document.getElementById('btn_cad_full').addEventListener('click', () => {
+            setCadFull(!document.getElementById('card_cad').classList.contains('maximized'));
+        });
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && document.getElementById('card_cad').classList.contains('maximized')) setCadFull(false);
         });
         document.getElementById('btn_sim_start').addEventListener('click', () => {
             if (profile.length < 2) { showError('Najpierw utwórz profil.'); return; }
