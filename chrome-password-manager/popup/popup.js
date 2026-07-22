@@ -47,7 +47,7 @@ $("setupBtn").addEventListener("click", async () => {
   const p2 = $("setupPass2").value;
   if (p1.length < 8) return showError("setupError", "Hasło główne musi mieć co najmniej 8 znaków.");
   if (p1 !== p2) return showError("setupError", "Hasła nie są identyczne.");
-  const res = await send({ type: "SETUP", masterPassword: p1 });
+  const res = await send({ type: "SETUP", masterPassword: p1, trust: $("setupTrust").checked });
   if (!res.ok) return showError("setupError", res.error);
   showError("setupError", "");
   refresh();
@@ -57,7 +57,11 @@ $("unlockBtn").addEventListener("click", unlock);
 $("unlockPass").addEventListener("keydown", (e) => e.key === "Enter" && unlock());
 
 async function unlock() {
-  const res = await send({ type: "UNLOCK", masterPassword: $("unlockPass").value });
+  const res = await send({
+    type: "UNLOCK",
+    masterPassword: $("unlockPass").value,
+    trust: $("unlockTrust").checked,
+  });
   if (!res.ok) return showError("unlockError", res.error);
   $("unlockPass").value = "";
   showError("unlockError", "");
@@ -236,6 +240,7 @@ $("genCopyBtn").addEventListener("click", (e) => copyText($("genValue").textCont
 // ---------- Dysk Google ----------
 
 async function renderDrive() {
+  await renderTrust();
   const res = await send({ type: "DRIVE_STATUS" });
   if (!res?.ok) return;
   $("driveSetupHint").classList.toggle("hidden", !res.needsClientId);
@@ -283,6 +288,28 @@ $("driveSyncBtn").addEventListener("click", async () => {
 $("driveDisconnectBtn").addEventListener("click", async () => {
   await send({ type: "DRIVE_DISCONNECT" });
   renderDrive();
+});
+
+// ---------- zaufanie urządzenia ----------
+
+async function renderTrust() {
+  const res = await send({ type: "GET_STATUS" });
+  const trusted = !!res?.trusted;
+  $("trustToggle").checked = trusted;
+  $("trustStatus").textContent = trusted
+    ? "To urządzenie jest zaufane — sejf nie pyta o hasło główne przy starcie."
+    : "To urządzenie nie jest zaufane — sejf blokuje się po zamknięciu przeglądarki.";
+}
+
+$("trustToggle").addEventListener("change", async () => {
+  const res = await send({ type: "SET_TRUSTED", trusted: $("trustToggle").checked });
+  if (!res.ok) {
+    showError("driveError", "Najpierw odblokuj sejf.");
+    $("trustToggle").checked = false;
+  } else {
+    showError("driveError", "");
+  }
+  renderTrust();
 });
 
 // ---------- zakładki ----------

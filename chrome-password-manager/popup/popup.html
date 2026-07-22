@@ -24,6 +24,7 @@
     <label>Powtórz hasło główne
       <input type="password" id="setupPass2" autocomplete="new-password" minlength="8" />
     </label>
+    <label class="trust"><input type="checkbox" id="setupTrust" /> Zaufaj temu urządzeniu (nie pytaj o hasło przy starcie)</label>
     <button id="setupBtn" class="primary">Utwórz sejf</button>
     <p id="setupError" class="error hidden"></p>
   </section>
@@ -34,6 +35,7 @@
     <label>Hasło główne
       <input type="password" id="unlockPass" autocomplete="current-password" />
     </label>
+    <label class="trust"><input type="checkbox" id="unlockTrust" /> Zaufaj temu urządzeniu (nie pytaj o hasło przy starcie)</label>
     <button id="unlockBtn" class="primary">Odblokuj</button>
     <p id="unlockError" class="error hidden"></p>
   </section>
@@ -111,6 +113,15 @@
         <button id="driveDisconnectBtn" class="ghost" style="width:100%; margin-top:8px;">Odłącz od Dysku</button>
       </div>
       <p id="driveError" class="error hidden"></p>
+
+      <hr style="border:0; border-top:1px solid #374151; margin:18px 0;" />
+      <h3>To urządzenie</h3>
+      <p class="muted" id="trustStatus"></p>
+      <label class="trust"><input type="checkbox" id="trustToggle" /> Zaufaj temu urządzeniu — nie pytaj o hasło główne przy starcie</label>
+      <p class="muted small">
+        ⚠️ Gdy włączone, każdy, kto odblokuje to urządzenie, otworzy sejf bez hasła głównego.
+        Włącz tylko na sprzęcie zabezpieczonym PIN-em/odciskiem. Przycisk „Zablokuj” u góry wyłącza zaufanie.
+      </p>
     </div>
   </section>
 

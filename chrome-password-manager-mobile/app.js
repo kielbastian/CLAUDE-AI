@@ -44,9 +44,20 @@ async function deriveKey(masterPassword, saltBytes, iterations) {
     { name: "PBKDF2", salt: saltBytes, iterations, hash: "SHA-256" },
     baseKey,
     { name: "AES-GCM", length: 256 },
-    false,
+    true, // eksportowalny, by móc zapamiętać klucz na zaufanym urządzeniu
     ["encrypt", "decrypt"]
   );
+}
+
+async function exportKeyB64(key) {
+  return toB64(await crypto.subtle.exportKey("raw", key));
+}
+
+async function importKeyB64(b64) {
+  return crypto.subtle.importKey("raw", fromB64(b64), { name: "AES-GCM" }, true, [
+    "encrypt",
+    "decrypt",
+  ]);
 }
 
 async function encryptJSON(key, obj) {
@@ -390,11 +401,14 @@ function startConnectView() {
   $("offlineBtn").classList.toggle("hidden", !cachedPayload());
 }
 
-$("connectBtn").addEventListener("click", async () => {
+$("connectBtn").addEventListener("click", () => doConnect(false));
+
+async function doConnect(silent) {
   showError("connectError", "");
   try {
     await requestToken(""); // najpierw próba bez okna zgody
   } catch {
+    if (silent) return; // przy autostarcie nie wymuszamy okna — zostań na ekranie logowania
     try {
       await requestToken("consent");
     } catch (err) {
@@ -407,6 +421,11 @@ $("connectBtn").addEventListener("click", async () => {
       const payload = await downloadVault();
       cachePayload(payload);
       app.createMode = false;
+      // Zaufane urządzenie: pomiń pytanie o hasło główne.
+      if (await tryStoredKeyUnlock(payload)) {
+        enterMain();
+        return;
+      }
       openUnlockView(payload, `Znaleziono sejf na Dysku Google (ostatnia zmiana: ${new Date(file.modifiedTime).toLocaleString("pl-PL")}).`);
     } else {
       app.createMode = true;
@@ -415,15 +434,52 @@ $("connectBtn").addEventListener("click", async () => {
   } catch (err) {
     showError("connectError", err.message);
   }
-});
+}
 
-$("offlineBtn").addEventListener("click", () => {
+$("offlineBtn").addEventListener("click", async () => {
   const payload = cachedPayload();
   if (!payload) return;
   app.offline = true;
   app.createMode = false;
+  if (await tryStoredKeyUnlock(payload)) {
+    enterMain();
+    return;
+  }
   openUnlockView(payload, "Tryb offline — otwierasz ostatnią pobraną kopię sejfu (tylko odczyt).");
 });
+
+// ---------- zaufane urządzenie ----------
+
+function isTrusted() {
+  return localStorage.getItem("sh_trusted") === "1" && !!localStorage.getItem("sh_persistentKey");
+}
+
+async function rememberDevice() {
+  localStorage.setItem("sh_trusted", "1");
+  localStorage.setItem("sh_persistentKey", await exportKeyB64(app.key));
+}
+
+function forgetDevice() {
+  localStorage.removeItem("sh_trusted");
+  localStorage.removeItem("sh_persistentKey");
+}
+
+// Próba odblokowania zapamiętanym kluczem (bez hasła głównego).
+async function tryStoredKeyUnlock(payload) {
+  if (!isTrusted() || !payload) return false;
+  try {
+    const key = await importKeyB64(localStorage.getItem("sh_persistentKey"));
+    const entries = await decryptJSON(key, { iv: payload.iv, data: payload.data });
+    app.vaultMeta = { salt: payload.salt, iterations: payload.iterations || PBKDF2_ITERATIONS };
+    app.key = key;
+    app.entries = entries;
+    return true;
+  } catch {
+    // Zapamiętany klucz nie pasuje (np. zmieniono hasło na innym urządzeniu).
+    forgetDevice();
+    return false;
+  }
+}
 
 // ---------- krok 3: odblokowanie ----------
 
@@ -470,19 +526,37 @@ async function unlock() {
     }
     app.key = key;
   }
+  // Zapamiętaj urządzenie, jeśli użytkownik zaznaczył opcję.
+  if ($("unlockTrust")?.checked) await rememberDevice();
   $("unlockPass").value = $("unlockPass2").value = "";
+  enterMain();
+}
+
+function enterMain() {
   show("viewMain");
+  $("trustToggle").checked = isTrusted();
   setSyncStatus(app.offline ? "" : "Zsynchronizowano: " + new Date().toLocaleTimeString("pl-PL"));
   paintEntries();
   regeneratePassword();
   if (!app.offline) startAutoSync();
 }
 
+// "Zablokuj" = twarda blokada: zapomina też zaufanie urządzenia.
 $("lockBtn").addEventListener("click", () => {
   app.key = null;
   app.entries = [];
+  forgetDevice();
   stopAutoSync();
   startConnectView();
+});
+
+$("trustToggle").addEventListener("change", async () => {
+  if ($("trustToggle").checked) {
+    if (!app.key) return;
+    await rememberDevice();
+  } else {
+    forgetDevice();
+  }
 });
 
 // ---------- lista wpisów ----------
@@ -678,8 +752,17 @@ if ("serviceWorker" in navigator && location.protocol === "https:") {
   navigator.serviceWorker.register("sw.js").catch(() => {});
 }
 
+// Czeka, aż załaduje się skrypt logowania Google, po czym wywołuje cb.
+function whenGoogleReady(cb, tries = 40) {
+  if (window.google?.accounts?.oauth2) return cb();
+  if (tries <= 0) return; // brak internetu / GIS — zostań na ekranie logowania
+  setTimeout(() => whenGoogleReady(cb, tries - 1), 150);
+}
+
 if (!app.clientId) {
   show("viewConfig");
 } else {
   startConnectView();
+  // Zaufane urządzenie: spróbuj po cichu zalogować i odblokować bez pytań.
+  if (isTrusted()) whenGoogleReady(() => doConnect(true));
 }

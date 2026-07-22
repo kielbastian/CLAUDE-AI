@@ -129,3 +129,9 @@ details[open] summary { margin-bottom: 10px; }
 .range input { width: 100%; margin-top: 8px; }
 .check { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; cursor: pointer; }
 .check input { accent-color: #2563eb; width: 18px; height: 18px; }
+
+.trust {
+  display: flex; align-items: flex-start; gap: 10px; margin: 12px 0;
+  font-size: 13px; color: #d1d5db; cursor: pointer; line-height: 1.45;
+}
+.trust input { accent-color: #2563eb; width: 18px; height: 18px; margin-top: 1px; flex-shrink: 0; }

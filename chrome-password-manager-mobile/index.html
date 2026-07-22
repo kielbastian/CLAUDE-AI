@@ -58,8 +58,10 @@
     <label id="unlockPass2Label" class="hidden">Powtórz hasło główne
       <input type="password" id="unlockPass2" autocomplete="new-password" />
     </label>
+    <label class="trust"><input type="checkbox" id="unlockTrust" /> Zaufaj temu urządzeniu — nie pytaj o hasło przy następnych uruchomieniach</label>
     <button id="unlockBtn" class="primary">Odblokuj</button>
     <p id="unlockError" class="error hidden"></p>
+    <p class="muted small" style="margin-top:10px;">⚠️ Zaufanie włączaj tylko na telefonie zabezpieczonym PIN-em/odciskiem — każdy, kto go odblokuje, zobaczy Twoje hasła bez pytania o hasło główne.</p>
   </section>
 
   <!-- Główny widok -->
@@ -68,6 +70,7 @@
       <span id="syncStatus" class="muted small"></span>
       <button id="syncBtn" class="ghost small-btn">🔄 Synchronizuj</button>
     </div>
+    <label class="trust"><input type="checkbox" id="trustToggle" /> Zaufaj temu urządzeniu (nie pytaj o hasło główne przy starcie)</label>
 
     <div class="tabs">
       <button id="tabVaultBtn" class="tab active">Hasła</button>

@@ -17,12 +17,29 @@ import * as drive from "./drive.js";
 import { VAULT_FORMAT, mergeEntries, purgeTombstones } from "./sync.js";
 
 // ---------- pomocnicze: klucz sesji ----------
+//
+// Domyślnie klucz żyje w chrome.storage.session (znika po zamknięciu
+// przeglądarki). Gdy użytkownik oznaczy urządzenie jako "zaufane", klucz
+// jest dodatkowo zapisywany w chrome.storage.local i przetrwa restart —
+// dzięki temu sejf nie pyta o hasło główne przy każdym uruchomieniu.
 
 let cachedKey = null;
 
+async function isTrustedDevice() {
+  const { trustedDevice } = await chrome.storage.local.get("trustedDevice");
+  return !!trustedDevice;
+}
+
 async function getSessionKey() {
   if (cachedKey) return cachedKey;
-  const { sessionKey } = await chrome.storage.session.get("sessionKey");
+  let { sessionKey } = await chrome.storage.session.get("sessionKey");
+  if (!sessionKey && (await isTrustedDevice())) {
+    const { persistentKey } = await chrome.storage.local.get("persistentKey");
+    if (persistentKey) {
+      sessionKey = persistentKey;
+      await chrome.storage.session.set({ sessionKey });
+    }
+  }
   if (!sessionKey) return null;
   cachedKey = await importKeyB64(sessionKey);
   return cachedKey;
@@ -31,9 +48,34 @@ async function getSessionKey() {
 async function setSessionKey(key) {
   cachedKey = key;
   if (key) {
-    await chrome.storage.session.set({ sessionKey: await exportKeyB64(key) });
+    const b64 = await exportKeyB64(key);
+    await chrome.storage.session.set({ sessionKey: b64 });
+    if (await isTrustedDevice()) {
+      await chrome.storage.local.set({ persistentKey: b64 });
+    }
   } else {
     await chrome.storage.session.remove("sessionKey");
+  }
+}
+
+// Twarda blokada: czyści klucz z sesji ORAZ zaufanie urządzenia,
+// więc przy następnym otwarciu sejf poprosi o hasło główne.
+async function hardLock() {
+  cachedKey = null;
+  await chrome.storage.session.remove("sessionKey");
+  await chrome.storage.local.set({ trustedDevice: false });
+  await chrome.storage.local.remove("persistentKey");
+}
+
+async function setTrusted(trusted) {
+  if (trusted) {
+    await chrome.storage.local.set({ trustedDevice: true });
+    if (cachedKey) {
+      await chrome.storage.local.set({ persistentKey: await exportKeyB64(cachedKey) });
+    }
+  } else {
+    await chrome.storage.local.set({ trustedDevice: false });
+    await chrome.storage.local.remove("persistentKey");
   }
 }
 
@@ -224,7 +266,11 @@ async function handleMessage(msg, sender) {
     case "GET_STATUS": {
       const vault = await getVaultMeta();
       const key = await getSessionKey();
-      return { configured: !!vault, unlocked: !!key };
+      return {
+        configured: !!vault,
+        unlocked: !!key,
+        trusted: await isTrustedDevice(),
+      };
     }
 
     case "SETUP": {
@@ -239,6 +285,7 @@ async function handleMessage(msg, sender) {
         vault: { salt: toB64(salt), iterations: PBKDF2_ITERATIONS, ...encrypted },
       });
       await setSessionKey(key);
+      if (msg.trust) await setTrusted(true);
       return { ok: true };
     }
 
@@ -252,13 +299,23 @@ async function handleMessage(msg, sender) {
         return { ok: false, error: "Nieprawidłowe hasło główne." };
       }
       await setSessionKey(key);
+      if (msg.trust) await setTrusted(true);
       scheduleSync(500);
       return { ok: true };
     }
 
     case "LOCK": {
-      await setSessionKey(null);
+      // Twarda blokada: wyłącza też zaufanie urządzenia, więc następnym
+      // razem trzeba podać hasło główne.
+      await hardLock();
       return { ok: true };
+    }
+
+    case "SET_TRUSTED": {
+      const key = await getSessionKey();
+      if (msg.trusted && !key) return { ok: false, locked: true };
+      await setTrusted(!!msg.trusted);
+      return { ok: true, trusted: !!msg.trusted };
     }
 
     case "GENERATE_PASSWORD": {
