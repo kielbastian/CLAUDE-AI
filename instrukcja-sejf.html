@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Instrukcja – Sejf Haseł</title>
+<style>
+  :root {
+    --bg: #0f172a; --card: #1f2937; --card2: #111827; --line: #374151;
+    --text: #f9fafb; --muted: #9ca3af; --blue: #2563eb; --blue2: #60a5fa;
+    --green: #34d399; --amber: #fbbf24; --red: #f87171;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.6;
+    max-width: 820px; margin: 0 auto; padding: 20px 16px 80px;
+  }
+  header { text-align: center; padding: 24px 0 12px; }
+  header h1 { font-size: 26px; }
+  header p { color: var(--muted); margin-top: 6px; font-size: 15px; }
+
+  h2 {
+    font-size: 20px; margin: 34px 0 14px; padding-bottom: 8px;
+    border-bottom: 2px solid var(--line);
+  }
+  h2 .num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 30px; height: 30px; border-radius: 50%; background: var(--blue);
+    color: #fff; font-size: 15px; margin-right: 10px; vertical-align: middle;
+  }
+  h3 { font-size: 16px; margin: 20px 0 8px; }
+
+  .card {
+    background: var(--card); border-radius: 14px; padding: 18px 20px;
+    margin: 16px 0; border: 1px solid var(--line);
+  }
+  .data-row {
+    display: flex; flex-direction: column; gap: 3px; padding: 12px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .data-row:last-child { border-bottom: 0; }
+  .data-row .label { color: var(--muted); font-size: 13px; }
+  .data-row .value {
+    font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 14px;
+    background: var(--card2); border-radius: 8px; padding: 8px 10px;
+    word-break: break-all; user-select: all; border: 1px solid var(--line);
+  }
+  .value a { color: var(--blue2); text-decoration: none; }
+
+  ol.steps { list-style: none; counter-reset: s; padding: 0; }
+  ol.steps > li {
+    counter-increment: s; position: relative; padding: 4px 0 16px 42px; margin: 0;
+  }
+  ol.steps > li::before {
+    content: counter(s); position: absolute; left: 0; top: 2px;
+    width: 28px; height: 28px; border-radius: 50%;
+    background: var(--card); border: 2px solid var(--blue);
+    color: var(--blue2); font-weight: 700; font-size: 14px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  ol.steps > li:not(:last-child)::after {
+    content: ""; position: absolute; left: 13px; top: 32px; bottom: 0;
+    width: 2px; background: var(--line);
+  }
+
+  code {
+    font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13.5px;
+    background: var(--card2); padding: 2px 6px; border-radius: 5px;
+    border: 1px solid var(--line); word-break: break-all;
+  }
+  .codeblock {
+    display: block; background: var(--card2); border: 1px solid var(--line);
+    border-radius: 8px; padding: 10px 12px; margin: 8px 0;
+    font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13.5px;
+    word-break: break-all; user-select: all;
+  }
+  a { color: var(--blue2); }
+  b { color: #fff; }
+  .muted { color: var(--muted); }
+
+  .note { border-left: 4px solid var(--blue); padding: 12px 16px; border-radius: 8px; background: rgba(37,99,235,.12); margin: 14px 0; }
+  .warn { border-left: 4px solid var(--amber); padding: 12px 16px; border-radius: 8px; background: rgba(251,191,36,.12); margin: 14px 0; }
+  .danger { border-left: 4px solid var(--red); padding: 12px 16px; border-radius: 8px; background: rgba(248,113,113,.12); margin: 14px 0; }
+  .ok { border-left: 4px solid var(--green); padding: 12px 16px; border-radius: 8px; background: rgba(52,211,153,.12); margin: 14px 0; }
+
+  .pill {
+    display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 10px;
+    border-radius: 999px; vertical-align: middle;
+  }
+  .pill.done { background: rgba(52,211,153,.2); color: var(--green); }
+
+  table.tbl { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px; }
+  table.tbl td { padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  table.tbl td:first-child { color: var(--blue2); font-weight: 600; width: 42%; }
+
+  details { background: var(--card); border: 1px solid var(--line); border-radius: 10px; margin: 10px 0; padding: 0 16px; }
+  summary { cursor: pointer; padding: 14px 0; font-weight: 600; }
+  details[open] { padding-bottom: 14px; }
+  .toc { columns: 1; }
+  .toc a { display: block; padding: 4px 0; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🔐 Sejf Haseł — instrukcja</h1>
+  <p>Kompletny przewodnik: rozszerzenie na komputerze + aplikacja na telefonie,<br>zsynchronizowane przez Twój Dysk Google.</p>
+</header>
+
+<div class="card">
+  <h3>Spis treści</h3>
+  <nav class="toc">
+    <a href="#dane">📋 Twoje dane (klucze i odnośniki)</a>
+    <a href="#jak">🧭 Jak to działa w skrócie</a>
+    <a href="#google">1. Konfiguracja Google Cloud (jednorazowo)</a>
+    <a href="#komputer">2. Komputer — rozszerzenie do Chrome</a>
+    <a href="#telefon">3. Telefon — aplikacja (Android)</a>
+    <a href="#uzywanie">4. Codzienne używanie</a>
+    <a href="#bezpieczenstwo">🛡️ Bezpieczeństwo — przeczytaj</a>
+    <a href="#problemy">🩹 Rozwiązywanie problemów</a>
+  </nav>
+</div>
+
+<!-- ============ TWOJE DANE ============ -->
+<h2 id="dane">📋 Twoje dane (klucze i odnośniki)</h2>
+<p class="muted">To Twoje osobiste wartości. Identyfikatory klienta nie są tajne (to nie są hasła) — tajne jest tylko Twoje <b>hasło główne</b>, którego nigdzie tu nie zapisujemy.</p>
+<div class="card">
+  <div class="data-row">
+    <span class="label">🔗 Adres aplikacji na telefon</span>
+    <span class="value"><a href="https://kielbastian.github.io/CLAUDE-AI/chrome-password-manager-mobile/">https://kielbastian.github.io/CLAUDE-AI/chrome-password-manager-mobile/</a></span>
+  </div>
+  <div class="data-row">
+    <span class="label">📦 Adres projektu (pliki rozszerzenia)</span>
+    <span class="value"><a href="https://github.com/kielbastian/CLAUDE-AI">https://github.com/kielbastian/CLAUDE-AI</a></span>
+  </div>
+  <div class="data-row">
+    <span class="label">🆔 Identyfikator klienta — TELEFON (typ „Aplikacja internetowa”)</span>
+    <span class="value">813120956178-6em0da7j7s75o7vbtl8u6ekpb8h8vnra.apps.googleusercontent.com</span>
+  </div>
+  <div class="data-row">
+    <span class="label">🆔 Identyfikator klienta — KOMPUTER (typ „Rozszerzenie do Chrome”)</span>
+    <span class="value">813120956178-id9nand1bffjgmtpfml3m2hojkami1em.apps.googleusercontent.com</span>
+  </div>
+  <div class="data-row">
+    <span class="label">🧩 Identyfikator elementu rozszerzenia (Item ID)</span>
+    <span class="value">kophlmcchgfamngackfbmokcpeoponmc</span>
+  </div>
+  <div class="data-row">
+    <span class="label">🌐 Autoryzowane źródło JavaScript (dla klienta telefonu)</span>
+    <span class="value">https://kielbastian.github.io</span>
+  </div>
+  <div class="data-row">
+    <span class="label">☁️ Projekt Google Cloud</span>
+    <span class="value">Sejf Hasel · numer 813120956178</span>
+  </div>
+</div>
+
+<!-- ============ JAK DZIAŁA ============ -->
+<h2 id="jak">🧭 Jak to działa w skrócie</h2>
+<div class="card">
+  <p>Twój sejf to jeden <b>zaszyfrowany plik</b> (<code>sejf-hasel.vault.json</code>) w folderze <b>„Sejf Haseł”</b> na Twoim Dysku Google. Oba urządzenia czytają i zapisują ten sam plik:</p>
+  <p style="text-align:center; margin:14px 0; font-size:15px;">
+    💻 Komputer&nbsp;&nbsp;⇄&nbsp;&nbsp;☁️ Dysk Google&nbsp;&nbsp;⇄&nbsp;&nbsp;📱 Telefon
+  </p>
+  <p>Zapiszesz hasło na komputerze → po synchronizacji pojawia się na telefonie (i odwrotnie). Google widzi tylko zaszyfrowane dane — bez Twojego hasła głównego nikt ich nie odczyta.</p>
+</div>
+
+<!-- ============ 1. GOOGLE ============ -->
+<h2 id="google"><span class="num">1</span>Konfiguracja Google Cloud <span class="pill done">✓ już zrobione</span></h2>
+<p class="muted">Ten etap wykonałeś raz i nie trzeba go powtarzać. Zostawiam go dla porządku — gdybyś kiedyś stawiał wszystko od zera lub coś przestało działać.</p>
+<details>
+  <summary>Pokaż, co zostało ustawione w Google Cloud</summary>
+  <ol class="steps">
+    <li>Na <a href="https://console.cloud.google.com">console.cloud.google.com</a> utworzony projekt <b>„Sejf Hasel”</b>.</li>
+    <li>Włączone <b>Google Drive API</b> (Biblioteka → „Google Drive API” → Włącz).</li>
+    <li>Ekran zgody OAuth: typ <b>Z zewnątrz</b>, a Twój adres Gmail dodany jako <b>użytkownik testowy</b> (bez tego Google blokuje logowanie).</li>
+    <li>Utworzony klient <b>„Sejf Hasel telefon”</b> — typ <b>Aplikacja internetowa</b>, źródło JavaScript <code>https://kielbastian.github.io</code>.</li>
+    <li>Utworzony klient <b>„Sejf Hasel komputer”</b> — typ <b>Rozszerzenie do Chrome</b>, Item ID <code>kophlmcchgfamngackfbmokcpeoponmc</code>.</li>
+  </ol>
+  <div class="warn">Aplikacja działa w <b>trybie testowym</b>, więc zaloguje się tylko na koncie Google, które dodałeś jako „użytkownika testowego”. Dla prywatnego użytku to wystarcza — nie trzeba niczego wysyłać do weryfikacji.</div>
+</details>
+
+<!-- ============ 2. KOMPUTER ============ -->
+<h2 id="komputer"><span class="num">2</span>Komputer — rozszerzenie do Chrome</h2>
+<ol class="steps">
+  <li>
+    <h3>Pobierz pliki projektu</h3>
+    Wejdź na <a href="https://github.com/kielbastian/CLAUDE-AI">github.com/kielbastian/CLAUDE-AI</a> → zielony przycisk <b>„Code”</b> → <b>„Download ZIP”</b>. Rozpakuj pobrany plik (prawy przycisk → „Wyodrębnij wszystko”).
+  </li>
+  <li>
+    <h3>Sprawdź plik <code>manifest.json</code></h3>
+    W rozpakowanym folderze wejdź do podfolderu <b>chrome-password-manager</b>. Plik <code>manifest.json</code> ma już wpisany Twój identyfikator komputera — powinna w nim być linia:
+    <span class="codeblock">"client_id": "813120956178-id9nand1bffjgmtpfml3m2hojkami1em.apps.googleusercontent.com",</span>
+    <span class="muted">Jeśli zamiast tego widzisz <code>WPISZ_TUTAJ...</code>, podmień tę linię na powyższą (Notatnik → zapisz).</span>
+  </li>
+  <li>
+    <h3>Załaduj rozszerzenie do Chrome</h3>
+    W pasku adresu wpisz <code>chrome://extensions</code> → włącz <b>„Tryb dewelopera”</b> (prawy górny róg) → kliknij <b>„Załaduj rozpakowane”</b> → wskaż folder <b>chrome-password-manager</b>.
+  </li>
+  <li>
+    <h3>Utwórz sejf</h3>
+    Kliknij ikonę 🔐 na pasku Chrome → ustaw <b>hasło główne</b> (min. 8 znaków). <b>Zapamiętaj je</b> — użyjesz tego samego na telefonie.
+  </li>
+  <li>
+    <h3>Połącz z Dyskiem Google</h3>
+    W okienku rozszerzenia otwórz zakładkę <b>„☁️ Dysk”</b> → wpisz hasło główne → <b>„Połącz z Dyskiem Google”</b> → zaloguj się i zezwól na dostęp do Dysku.
+    <div class="ok">Od tej chwili każde zapisane, zmienione lub usunięte hasło jest automatycznie wysyłane na Dysk.</div>
+  </li>
+</ol>
+
+<!-- ============ 3. TELEFON ============ -->
+<h2 id="telefon"><span class="num">3</span>Telefon — aplikacja (Android)</h2>
+<ol class="steps">
+  <li>
+    <h3>Otwórz aplikację w Chrome</h3>
+    W <b>Chrome na Androidzie</b> otwórz adres:
+    <span class="codeblock"><a href="https://kielbastian.github.io/CLAUDE-AI/chrome-password-manager-mobile/">https://kielbastian.github.io/CLAUDE-AI/chrome-password-manager-mobile/</a></span>
+  </li>
+  <li>
+    <h3>Zainstaluj na ekranie głównym</h3>
+    Menu <b>⋮</b> (prawy górny róg) → <b>„Dodaj do ekranu głównego”</b> → <b>Dodaj</b>. Na ekranie telefonu pojawi się ikona 🔐 „Sejf Haseł”.
+  </li>
+  <li>
+    <h3>Wklej identyfikator klienta (telefon)</h3>
+    Uruchom aplikację z ekranu głównego. Na ekranie „Konfiguracja” <b>wklej</b> (nie przepisuj ręcznie!) identyfikator telefonu:
+    <span class="codeblock">813120956178-6em0da7j7s75o7vbtl8u6ekpb8h8vnra.apps.googleusercontent.com</span>
+    Kliknij <b>„Zapisz i przejdź dalej”</b>.
+  </li>
+  <li>
+    <h3>Zaloguj się przez Google</h3>
+    Kliknij <b>„Zaloguj się przez Google”</b> → wybierz swoje konto. Gdy pojawi się „Google nie zweryfikował tej aplikacji” → <b>Zaawansowane</b> → <b>Przejdź do Sejf Hasel</b> → zezwól na dostęp.
+  </li>
+  <li>
+    <h3>Podaj to samo hasło główne</h3>
+    Wpisz <b>dokładnie to samo hasło główne</b>, którego użyłeś na komputerze. Zobaczysz te same hasła co na komputerze.
+    <div class="warn">Jeśli aplikacja po aktualizacji zachowuje się dziwnie — <b>zamknij ją i otwórz ponownie</b> (pobiera wtedy najnowszą wersję).</div>
+  </li>
+</ol>
+
+<!-- ============ 4. UŻYWANIE ============ -->
+<h2 id="uzywanie"><span class="num">4</span>Codzienne używanie</h2>
+<table class="tbl">
+  <tr><td>Rejestrujesz się na stronie</td><td>Po kliknięciu pola hasła rozszerzenie pokazuje dymek z propozycją silnego hasła — kliknij „Użyj hasła”.</td></tr>
+  <tr><td>Logujesz się / wysyłasz formularz</td><td>Rozszerzenie pyta: „Zapisać hasło dla tej strony?”.</td></tr>
+  <tr><td>Wracasz na stronę logowania</td><td>Pyta: „Uzupełnić login i hasło?” — kliknij „Uzupełnij”.</td></tr>
+  <tr><td>Potrzebujesz hasła „na już”</td><td>Ikona rozszerzenia / aplikacja → zakładka „Generator”.</td></tr>
+  <tr><td>Chcesz zobaczyć lub skopiować hasło</td><td>Zakładka „Hasła” → „Pokaż” / „Kopiuj hasło”.</td></tr>
+  <tr><td>Na telefonie</td><td>Hasła kopiujesz przyciskiem „Kopiuj hasło” i wklejasz w aplikacji/stronie (Android nie pozwala aplikacjom-PWA na automatyczne wypełnianie).</td></tr>
+  <tr><td>Synchronizacja</td><td>Dzieje się sama. Ręcznie: przycisk „Synchronizuj” (telefon) lub „Synchronizuj teraz” (komputer, zakładka „Dysk”).</td></tr>
+  <tr><td>„Zablokuj”</td><td>Chowa hasła i wymaga ponownie hasła głównego. Niczego nie kasuje.</td></tr>
+</table>
+
+<!-- ============ BEZPIECZEŃSTWO ============ -->
+<h2 id="bezpieczenstwo">🛡️ Bezpieczeństwo — przeczytaj</h2>
+<div class="danger">
+  <b>Hasła głównego nie da się odzyskać.</b> Jeśli je zapomnisz, stracisz dostęp do wszystkich zapisanych haseł — tak działa szyfrowanie. Zapisz je w bezpiecznym miejscu.
+</div>
+<div class="warn">
+  <b>To samo hasło główne na obu urządzeniach.</b> Komputer i telefon muszą używać identycznego hasła głównego, bo odszyfrowują ten sam plik z Dysku.
+</div>
+<div class="note">
+  <b>Co jest, a co nie jest tajne:</b> identyfikatory klienta i Item ID <b>nie są tajne</b> (są jawne z założenia). Tajne jest wyłącznie Twoje hasło główne oraz same hasła — a te są szyfrowane algorytmem AES‑256 i nigdy nie opuszczają Twoich urządzeń w postaci jawnej.
+</div>
+
+<!-- ============ PROBLEMY ============ -->
+<h2 id="problemy">🩹 Rozwiązywanie problemów</h2>
+
+<details>
+  <summary>Błąd 401: <code>invalid_client</code> / „The OAuth client was not found”</summary>
+  <p>Identyfikator klienta wpisany w aplikacji ma literówkę albo jest niepełny. Najczęściej mylone znaki: litera <b>o</b> ↔ zero <b>0</b>, oraz przypadkowa <b>spacja</b>. Rozwiązanie: skopiuj identyfikator <b>prosto z Google Cloud → Klienty</b> (ikonka kopiowania) i wklej ponownie. Na telefonie: link „Zmień identyfikator klienta OAuth” → wyczyść pole → wklej → zapisz. Po zmianie <b>zamknij i otwórz aplikację ponownie</b>.</p>
+</details>
+<details>
+  <summary>„Dostęp zablokowany” / „access blocked” przy logowaniu Google</summary>
+  <p>Twojego konta nie ma na liście użytkowników testowych. Wejdź w <a href="https://console.cloud.google.com/auth/audience">Google Cloud → Odbiorcy</a> → sekcja „Użytkownicy testowi” → dodaj swój adres Gmail.</p>
+</details>
+<details>
+  <summary>Zakładka „Dysk” mówi „Synchronizacja nieskonfigurowana”</summary>
+  <p>W pliku <code>manifest.json</code> rozszerzenia brakuje prawdziwego identyfikatora (jest jeszcze <code>WPISZ_TUTAJ...</code>). Podmień tę linię na identyfikator komputera z sekcji „Twoje dane”, zapisz plik i odśwież rozszerzenie na <code>chrome://extensions</code> (ikonka ↻).</p>
+</details>
+<details>
+  <summary>„Nieprawidłowe hasło główne” przy łączeniu komputera z Dyskiem</summary>
+  <p>Komputer i telefon mają różne hasła główne. Muszą być takie same. Jeśli na komputerze nie masz jeszcze ważnych haseł, najprościej ustawić je od nowa tak, by pasowały do telefonu — w razie potrzeby poproś o pomoc.</p>
+</details>
+<details>
+  <summary>Adres aplikacji pokazuje błąd 404</summary>
+  <p>Publikacja mogła się jeszcze nie zakończyć — odczekaj 1–2 minuty i odśwież stronę. Sprawdź też, czy adres kończy się na <code>/chrome-password-manager-mobile/</code>.</p>
+</details>
+
+<p style="text-align:center; color:var(--muted); margin-top:40px; font-size:13px;">
+  Sejf Haseł · dane szyfrowane AES‑256 · synchronizacja przez Dysk Google
+</p>
+
+</body>
+</html>
