@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <title>Sejf Haseł</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <div class="brand">🔐 Sejf Haseł</div>
+    <button id="lockBtn" class="ghost hidden" title="Zablokuj sejf">Zablokuj</button>
+  </header>
+
+  <!-- Pierwsza konfiguracja -->
+  <section id="viewSetup" class="view hidden">
+    <h2>Utwórz sejf</h2>
+    <p class="muted">
+      Ustaw hasło główne. Szyfruje ono wszystkie zapisane loginy i hasła (AES-256).
+      Zapamiętaj je — bez niego nie da się odzyskać danych.
+    </p>
+    <label>Hasło główne
+      <input type="password" id="setupPass1" autocomplete="new-password" minlength="8" />
+    </label>
+    <label>Powtórz hasło główne
+      <input type="password" id="setupPass2" autocomplete="new-password" minlength="8" />
+    </label>
+    <button id="setupBtn" class="primary">Utwórz sejf</button>
+    <p id="setupError" class="error hidden"></p>
+  </section>
+
+  <!-- Odblokowanie -->
+  <section id="viewUnlock" class="view hidden">
+    <h2>Odblokuj sejf</h2>
+    <label>Hasło główne
+      <input type="password" id="unlockPass" autocomplete="current-password" />
+    </label>
+    <button id="unlockBtn" class="primary">Odblokuj</button>
+    <p id="unlockError" class="error hidden"></p>
+  </section>
+
+  <!-- Główny widok -->
+  <section id="viewMain" class="view hidden">
+    <div id="pendingBox" class="pending hidden">
+      <h3>Oczekujące zapisy</h3>
+      <div id="pendingList"></div>
+    </div>
+
+    <div class="tabs">
+      <button id="tabVaultBtn" class="tab active">Hasła</button>
+      <button id="tabGenBtn" class="tab">Generator</button>
+    </div>
+
+    <div id="tabVault">
+      <input type="search" id="searchBox" placeholder="Szukaj strony lub loginu…" />
+      <div id="entriesList"></div>
+      <details id="addBox">
+        <summary>➕ Dodaj wpis ręcznie</summary>
+        <label>Adres strony (np. example.com)
+          <input type="text" id="addHost" placeholder="example.com" />
+        </label>
+        <label>Login
+          <input type="text" id="addUser" autocomplete="off" />
+        </label>
+        <label>Hasło
+          <div class="inline">
+            <input type="password" id="addPass" autocomplete="new-password" />
+            <button id="addGenBtn" class="ghost" title="Wygeneruj hasło">🎲</button>
+          </div>
+        </label>
+        <button id="addBtn" class="primary">Zapisz wpis</button>
+        <p id="addError" class="error hidden"></p>
+      </details>
+    </div>
+
+    <div id="tabGen" class="hidden">
+      <div class="genOut">
+        <output id="genValue">…</output>
+        <button id="genCopyBtn" class="ghost" title="Kopiuj">📋</button>
+      </div>
+      <label class="range">Długość: <span id="genLenLabel">18</span>
+        <input type="range" id="genLen" min="8" max="64" value="18" />
+      </label>
+      <label class="check"><input type="checkbox" id="genLower" checked /> małe litery (a–z)</label>
+      <label class="check"><input type="checkbox" id="genUpper" checked /> wielkie litery (A–Z)</label>
+      <label class="check"><input type="checkbox" id="genDigits" checked /> cyfry (0–9)</label>
+      <label class="check"><input type="checkbox" id="genSymbols" checked /> znaki specjalne (!@#…)</label>
+      <button id="genBtn" class="primary">Wygeneruj nowe hasło</button>
+    </div>
+  </section>
+
+  <script src="popup.js"></script>
+</body>
+</html>
