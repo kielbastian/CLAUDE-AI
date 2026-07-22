@@ -7,7 +7,7 @@
   "permissions": ["storage", "tabs", "identity"],
   "host_permissions": ["<all_urls>"],
   "oauth2": {
-    "client_id": "WPISZ_TUTAJ_SWOJ_CLIENT_ID.apps.googleusercontent.com",
+    "client_id": "813120956178-id9nand1bffjgmtpfml3m2hojkami1em.apps.googleusercontent.com",
     "scopes": ["https://www.googleapis.com/auth/drive.file"]
   },
   "background": {
