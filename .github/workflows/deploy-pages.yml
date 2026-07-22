@@ -1,0 +1,44 @@
+# Publikuje repozytorium (w tym aplikację mobilną Sejf Haseł) na GitHub Pages.
+# Przy pierwszym uruchomieniu sam włącza GitHub Pages dla repozytorium.
+
+name: Publikacja na GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+      - claude/chroma-password-manager-generator-hvrs08
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Pobranie kodu
+        uses: actions/checkout@v4
+
+      - name: Konfiguracja GitHub Pages (włącza Pages przy pierwszym razie)
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Przygotowanie plików do publikacji
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - name: Publikacja
+        id: deployment
+        uses: actions/deploy-pages@v4
