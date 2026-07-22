@@ -251,6 +251,57 @@
   body.light .btn-primary{background:var(--grad);color:#fff}
   body.light .toast{color:#1b2333;background:linear-gradient(135deg,rgba(var(--ac1-rgb),.20),rgba(var(--ac2-rgb),.16)),#fff}
   body.light ::-webkit-scrollbar-thumb{background:#c3cbdc}
+
+  /* ── generator / podgląd konturu 2D (backplot z G-kodu) ── */
+  .bp-overlay{position:fixed;inset:0;z-index:300;display:flex;background:#4b52d6}
+  .bp-canvas{flex:1;display:block;width:100%;height:100%;cursor:grab}
+  .bp-canvas.drag{cursor:grabbing}
+  .bp-bar{
+    position:absolute;top:0;left:0;right:0;height:52px;z-index:2;
+    display:flex;align-items:center;gap:9px;padding:0 12px;
+    -webkit-app-region:drag;
+    background:linear-gradient(180deg,rgba(6,9,20,.55),rgba(6,9,20,0));
+  }
+  .bp-bar .bp-title{
+    font-weight:700;font-size:.92rem;color:#fff;flex:1;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    text-shadow:0 1px 4px rgba(0,0,0,.5);
+  }
+  .bp-bar .bp-onum{
+    font-family:'Orbitron','Rajdhani',sans-serif;font-weight:800;font-size:.82rem;color:#fff;flex:none;
+    background:rgba(0,0,0,.30);border:1px solid rgba(255,255,255,.4);border-radius:8px;padding:4px 10px;
+  }
+  .bp-btn{
+    -webkit-app-region:no-drag;display:inline-flex;align-items:center;gap:6px;cursor:pointer;
+    font-family:inherit;font-weight:600;font-size:.8rem;color:#fff;
+    background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.3);border-radius:9px;padding:7px 11px;
+    transition:background .15s,border-color .15s,color .15s;
+  }
+  .bp-btn:hover{background:rgba(255,255,255,.24)}
+  .bp-btn.on{background:rgba(255,255,255,.92);color:#1b2333;border-color:#fff}
+  .bp-btn svg{width:15px;height:15px;flex:none}
+  .bp-btn.close{background:rgba(248,113,113,.28);border-color:rgba(248,113,113,.6)}
+  .bp-btn.close:hover{background:rgba(248,113,113,.55)}
+  .bp-info{
+    position:absolute;left:14px;bottom:12px;z-index:2;display:flex;gap:14px;flex-wrap:wrap;
+    font-size:.8rem;color:#eef1ff;text-shadow:0 1px 4px rgba(0,0,0,.6);pointer-events:none;
+  }
+  .bp-info b{color:#fff;font-weight:700}
+  .bp-legend{
+    position:absolute;right:14px;bottom:12px;z-index:2;display:flex;gap:16px;
+    font-size:.76rem;color:#eef1ff;text-shadow:0 1px 4px rgba(0,0,0,.6);pointer-events:none;
+  }
+  .bp-legend span{display:inline-flex;align-items:center;gap:7px}
+  .bp-swatch{display:inline-block;width:22px;height:0;border-top:2px solid #ffd60a}
+  .bp-swatch.rap{border-top:2px dashed rgba(255,255,255,.8)}
+  .bp-empty{
+    position:absolute;inset:0;display:grid;place-items:center;z-index:2;pointer-events:none;
+    color:#fff;font-size:.95rem;text-align:center;padding:30px;text-shadow:0 1px 6px rgba(0,0,0,.5);
+  }
+  .bp-hint{
+    position:absolute;left:50%;top:60px;translate:-50% 0;z-index:2;pointer-events:none;
+    font-size:.72rem;color:rgba(255,255,255,.7);text-shadow:0 1px 4px rgba(0,0,0,.6);
+  }
 </style>
 </head>
 <body>
@@ -318,6 +369,13 @@
     </svg>
     Pobierz .nc
   </button>
+  <button class="btn" id="btnBackplot" title="Podgląd konturu — rysuje zarys detalu z toru narzędzia (G-kod)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M2 17h3l3-8h6l3 8h3"></path>
+      <path d="M2 21h20"></path>
+    </svg>
+    Podgląd 2D
+  </button>
   <button class="btn btn-primary" id="btnEdit">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
@@ -336,6 +394,46 @@
     </svg>
     Zapisz program
   </button>
+</div>
+
+<!-- ── generator / podgląd konturu 2D ── -->
+<div id="bpOverlay" class="bp-overlay" style="display:none">
+  <canvas id="bpCanvas" class="bp-canvas"></canvas>
+  <div class="bp-bar">
+    <span class="bp-title" id="bpTitle">Podgląd konturu</span>
+    <span class="bp-onum" id="bpOnum" style="display:none"></span>
+    <button class="bp-btn" id="bpFit" title="Dopasuj widok">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"></path></svg>
+      Dopasuj
+    </button>
+    <button class="bp-btn on" id="bpMirror" title="Odbicie lustrzane — pełny zarys detalu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3v18M6 8l-3 4 3 4M18 8l3 4-3 4"></path></svg>
+      Odbicie
+    </button>
+    <button class="bp-btn on" id="bpRapids" title="Pokaż ruchy szybkie (dojazdy)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 12h4M11 12h2M16 12h4"></path></svg>
+      Dojazdy
+    </button>
+    <button class="bp-btn on" id="bpGrid" title="Siatka">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 9h18M3 15h18M9 3v18M15 3v18"></path></svg>
+      Siatka
+    </button>
+    <button class="bp-btn close" id="bpClose" title="Zamknij (Esc)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+      Zamknij
+    </button>
+  </div>
+  <div class="bp-hint">Kółko myszy = powiększenie · przeciągnij = przesuń</div>
+  <div class="bp-info" id="bpInfo"></div>
+  <div class="bp-legend">
+    <span><i class="bp-swatch"></i>Obróbka (posuw)</span>
+    <span><i class="bp-swatch rap"></i>Dojazd (szybki)</span>
+  </div>
+  <div class="bp-empty" id="bpEmpty" style="display:none">Brak ruchów tokarskich (płaszczyzna G18) do narysowania w tym programie.</div>
 </div>
 
 <div id="toast"></div>
@@ -567,6 +665,257 @@ document.getElementById("btnSketch").addEventListener("click", async () => {
   const r = await window.native.openSketch(pdfDir, sketch);
   if (r && r.notFound) toast('Nie znaleziono szkicu „' + sketch + '” — otwarto główny folder rysunków');
   else if (!(r && r.ok)) toast("Nie udało się otworzyć folderu rysunku");
+});
+
+/* ─────────── Generator / podgląd konturu 2D (backplot z G-kodu) ───────────
+   Rysuje zarys detalu z toru narzędzia tokarki. Płaszczyzna G18 (ZX):
+   X = średnica → promień = X/2 (oś pionowa), Z = oś (pozioma).
+   Tylko do odczytu — nie modyfikuje ani nie nadpisuje żadnego pliku. */
+(function () {
+  const ov = document.getElementById("bpOverlay");
+  const canvas = document.getElementById("bpCanvas");
+  let ctx = null, dpr = 1;
+  let model = null;            // { feeds, rapids, empty, zmin, zmax, rmax, maxDia, length }
+  let T = { S: 1, tx: 0, ty: 0 }; // transformacja model → ekran
+  const opts = { mirror: true, rapids: true, grid: true };
+  let open = false, drag = null;
+
+  const SX = z => z * T.S + T.tx;
+  const SY = r => -r * T.S + T.ty;
+
+  /* — parser — */
+  function parse(code) {
+    const feeds = [], rapids = [];
+    let plane = 18, motion = 0, x = null, z = null;
+    const wre = /([A-Za-z])\s*(-?\d*\.?\d+)/g;
+    for (const raw of String(code || "").split(/\r?\n/)) {
+      const line = raw.replace(/\([^)]*\)/g, " ").trim();
+      if (!line) continue;
+      let m, words = []; wre.lastIndex = 0;
+      while ((m = wre.exec(line))) words.push([m[1].toUpperCase(), parseFloat(m[2])]);
+      if (!words.length) continue;
+
+      let np = null, nm = null, g53 = false, home = false, nonmove = false;
+      let nx = x, nz = z, R = null, I = null, K = null, axis = false;
+      for (const [L, V] of words) {
+        if (L === "G") {
+          const g = Math.round(V);
+          if (g === 53) g53 = true;
+          else if (g === 28 || g === 30) home = true;
+          else if (g === 17) np = 17; else if (g === 18) np = 18; else if (g === 19) np = 19;
+          else if (g === 0) nm = 0; else if (g === 1) nm = 1; else if (g === 2) nm = 2; else if (g === 3) nm = 3;
+          else if (g === 4 || g === 10 || (g >= 70 && g <= 89) || g === 92) nonmove = true; // cykle/dwell/ustawienia
+        }
+        else if (L === "X") { nx = V; axis = true; }
+        else if (L === "Z") { nz = V; axis = true; }
+        else if (L === "U") { if (x != null) nx = x + V; axis = true; } // przyrostowy X (średnica)
+        else if (L === "W") { if (z != null) nz = z + V; axis = true; } // przyrostowy Z
+        else if (L === "R") R = V; else if (L === "I") I = V; else if (L === "K") K = V;
+      }
+
+      if (np !== null && np !== plane) { plane = np; x = null; z = null; if (nm !== null) motion = nm; continue; }
+      if (nm !== null) motion = nm;
+      if (g53 || home || nonmove) { if (g53 || home) { x = null; z = null; } continue; }
+      if (plane !== 18) continue;      // rysujemy tylko zarys tokarski
+      if (!axis) continue;
+
+      const known = (x != null && z != null);
+      const b = { z: (nz != null ? nz : z), r: ((nx != null ? nx : x) || 0) / 2 };
+      if (known) {
+        const a = { z, r: x / 2 };
+        if (motion === 2 || motion === 3) {
+          let prev = a;
+          for (const p of arc(a, b, R, I, K, motion === 2)) { feeds.push({ a: prev, b: p }); prev = p; }
+        } else (motion === 0 ? rapids : feeds).push({ a, b });
+      }
+      x = (nx != null ? nx : x); z = (nz != null ? nz : z);
+    }
+    return finalize(feeds, rapids);
+  }
+
+  /* — łuk G2/G3 → punkty (w przestrzeni z,promień) — */
+  function arc(a, b, R, I, K, cw) {
+    let cz, cr;
+    if (I != null || K != null) { cr = a.r + (I || 0); cz = a.z + (K || 0); }
+    else if (R != null) {
+      const d = Math.hypot(b.z - a.z, b.r - a.r) || 1e-9;
+      let rad = Math.abs(R); if (rad < d / 2) rad = d / 2;
+      const h = Math.sqrt(Math.max(0, rad * rad - (d / 2) * (d / 2)));
+      const mz = (a.z + b.z) / 2, mr = (a.r + b.r) / 2;
+      const uz = -(b.r - a.r) / d, ur = (b.z - a.z) / d;
+      const sign = (cw ? -1 : 1) * (R < 0 ? -1 : 1);
+      cz = mz + sign * h * uz; cr = mr + sign * h * ur;
+    } else return [b];
+    const rad = Math.hypot(a.z - cz, a.r - cr) || 1e-9;
+    const a0 = Math.atan2(a.r - cr, a.z - cz);
+    const a1 = Math.atan2(b.r - cr, b.z - cz);
+    let da = a1 - a0;
+    if (cw) { while (da > 0) da -= 2 * Math.PI; } else { while (da < 0) da += 2 * Math.PI; }
+    if (Math.abs(da) < 1e-6) da = cw ? -2 * Math.PI : 2 * Math.PI;
+    const steps = Math.max(2, Math.ceil(Math.abs(da) / (Math.PI / 24)));
+    const out = [];
+    for (let i = 1; i <= steps; i++) { const t = a0 + da * (i / steps); out.push({ z: cz + rad * Math.cos(t), r: cr + rad * Math.sin(t) }); }
+    return out;
+  }
+
+  function finalize(feeds, rapids) {
+    const all = []; feeds.forEach(s => { all.push(s.a, s.b); }); rapids.forEach(s => { all.push(s.a, s.b); });
+    if (!all.length) return { feeds, rapids, empty: true };
+    let zmin = 1e9, zmax = -1e9, rmax = -1e9;
+    all.forEach(p => { zmin = Math.min(zmin, p.z); zmax = Math.max(zmax, p.z); rmax = Math.max(rmax, p.r); });
+    let fz0 = 1e9, fz1 = -1e9, fr = 0;
+    feeds.forEach(s => [s.a, s.b].forEach(p => { fz0 = Math.min(fz0, p.z); fz1 = Math.max(fz1, p.z); fr = Math.max(fr, p.r); }));
+    zmin = Math.min(zmin, 0); zmax = Math.max(zmax, 0);
+    return { feeds, rapids, empty: false, zmin, zmax, rmax: Math.max(rmax, 0), maxDia: fr * 2, length: (fz1 > fz0 ? fz1 - fz0 : 0) };
+  }
+
+  /* — dopasowanie widoku — */
+  function fit() {
+    if (!model || model.empty) { draw(); return; }
+    const W = canvas.clientWidth, H = canvas.clientHeight, pad = 56;
+    const rMax = model.rmax, rMin = opts.mirror ? -model.rmax : 0;
+    const wz = Math.max(1e-6, model.zmax - model.zmin), wr = Math.max(1e-6, rMax - rMin);
+    const S = Math.min((W - 2 * pad) / wz, (H - 2 * pad) / wr) || 1;
+    const zc = (model.zmin + model.zmax) / 2, rc = (rMin + rMax) / 2;
+    T = { S, tx: W / 2 - zc * S, ty: H / 2 + rc * S };
+    draw();
+  }
+
+  /* — rysowanie — */
+  function draw() {
+    if (!ctx) return;
+    const W = canvas.clientWidth, H = canvas.clientHeight;
+    if (W <= 0 || H <= 0) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const g = ctx.createLinearGradient(0, 0, W * 0.35, H);
+    g.addColorStop(0, "#6d78ea"); g.addColorStop(1, "#3f45c4");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    if (!model || model.empty) return;
+
+    if (opts.grid) drawGrid(W, H);
+
+    // oś środkowa (Z) i pionowa przy z=0
+    ctx.setLineDash([]); ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(255,255,255,.28)";
+    ctx.beginPath(); ctx.moveTo(0, SY(0)); ctx.lineTo(W, SY(0)); ctx.stroke();
+    const zx = SX(0);
+    if (zx >= 0 && zx <= W) { ctx.strokeStyle = "rgba(255,255,255,.15)"; ctx.beginPath(); ctx.moveTo(zx, 0); ctx.lineTo(zx, H); ctx.stroke(); }
+
+    if (opts.mirror) { ctx.globalAlpha = .34; strokeSegs(model.feeds, "#ffd60a", 1.4, null, true); ctx.globalAlpha = 1; }
+    if (opts.rapids) strokeSegs(model.rapids, "rgba(255,255,255,.72)", 1, [5, 4], false);
+    strokeSegs(model.feeds, "#ffd60a", 1.7, null, false);
+
+    drawOrigin();
+  }
+
+  function drawGrid(W, H) {
+    let mstep = Math.pow(10, Math.round(Math.log10(60 / Math.max(T.S, 1e-9))));
+    const cand = [mstep, mstep * 2, mstep * 5, mstep * 10];
+    let step = cand[cand.length - 1];
+    for (const c of cand) { if (c * T.S >= 46) { step = c; break; } }
+    const s = step * T.S;
+    if (!isFinite(s) || s < 10) return;
+    ctx.setLineDash([]); ctx.lineWidth = 1; ctx.strokeStyle = "rgba(255,255,255,.06)";
+    for (let x = T.tx - Math.floor(T.tx / s) * s; x <= W; x += s) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+    for (let y = T.ty - Math.floor(T.ty / s) * s; y <= H; y += s) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+  }
+
+  function strokeSegs(segs, color, w, dash, mirror) {
+    ctx.strokeStyle = color; ctx.lineWidth = w; ctx.setLineDash(dash || []);
+    ctx.lineJoin = "round"; ctx.lineCap = "round"; ctx.beginPath();
+    for (const s of segs) {
+      const ar = mirror ? -s.a.r : s.a.r, br = mirror ? -s.b.r : s.b.r;
+      ctx.moveTo(SX(s.a.z), SY(ar)); ctx.lineTo(SX(s.b.z), SY(br));
+    }
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  function drawOrigin() {
+    const ox = SX(0), oy = SY(0), L = 26;
+    arrow(ox, oy, ox + L, oy, "#39d98a"); // Z+ w prawo (zielony)
+    arrow(ox, oy, ox, oy - L, "#ff5a6a"); // X+ w górę (czerwony)
+  }
+  function arrow(x0, y0, x1, y1, color) {
+    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 2; ctx.setLineDash([]);
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+    const a = Math.atan2(y1 - y0, x1 - x0), h = 6;
+    ctx.beginPath(); ctx.moveTo(x1, y1);
+    ctx.lineTo(x1 - h * Math.cos(a - 0.4), y1 - h * Math.sin(a - 0.4));
+    ctx.lineTo(x1 - h * Math.cos(a + 0.4), y1 - h * Math.sin(a + 0.4));
+    ctx.closePath(); ctx.fill();
+  }
+
+  function resize() {
+    dpr = window.devicePixelRatio || 1;
+    const W = canvas.clientWidth, H = canvas.clientHeight;
+    if (W <= 0 || H <= 0) return;
+    canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+    draw();
+  }
+
+  function info() {
+    const el = document.getElementById("bpInfo");
+    if (!model || model.empty) { el.innerHTML = ""; return; }
+    const n = model.feeds.length + model.rapids.length;
+    el.innerHTML = 'Ø max: <b>' + model.maxDia.toFixed(1) + ' mm</b> &nbsp;•&nbsp; Długość: <b>' +
+      model.length.toFixed(1) + ' mm</b> &nbsp;•&nbsp; Segmenty: <b>' + n + '</b>';
+  }
+
+  function ensureSized(cb) { if (canvas.clientWidth > 0) cb(); else requestAnimationFrame(() => ensureSized(cb)); }
+
+  function openBp() {
+    if (!prog) return;
+    document.getElementById("bpTitle").textContent = "Podgląd konturu — " + (prog.name || "program");
+    const on = document.getElementById("bpOnum");
+    on.textContent = prog.onum || ""; on.style.display = prog.onum ? "" : "none";
+    ov.style.display = "flex";
+    open = true;
+    if (!ctx) ctx = canvas.getContext("2d");
+    model = parse(prog.code || "");
+    document.getElementById("bpEmpty").style.display = model.empty ? "grid" : "none";
+    syncBtns();
+    ensureSized(() => { resize(); fit(); info(); });
+  }
+  function closeBp() { ov.style.display = "none"; open = false; }
+
+  function syncBtns() {
+    document.getElementById("bpMirror").classList.toggle("on", opts.mirror);
+    document.getElementById("bpRapids").classList.toggle("on", opts.rapids);
+    document.getElementById("bpGrid").classList.toggle("on", opts.grid);
+  }
+
+  // interakcje myszą
+  canvas.addEventListener("wheel", e => {
+    e.preventDefault();
+    const r = canvas.getBoundingClientRect();
+    const cx = e.clientX - r.left, cy = e.clientY - r.top;
+    const f = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+    const mz = (cx - T.tx) / T.S, mr = -(cy - T.ty) / T.S;
+    T.S *= f; T.tx = cx - mz * T.S; T.ty = cy + mr * T.S;
+    draw();
+  }, { passive: false });
+  canvas.addEventListener("mousedown", e => { drag = { x: e.clientX, y: e.clientY, tx: T.tx, ty: T.ty }; canvas.classList.add("drag"); });
+  window.addEventListener("mousemove", e => { if (!drag) return; T.tx = drag.tx + (e.clientX - drag.x); T.ty = drag.ty + (e.clientY - drag.y); draw(); });
+  window.addEventListener("mouseup", () => { drag = null; canvas.classList.remove("drag"); });
+  window.addEventListener("resize", () => { if (open) { resize(); } });
+
+  document.getElementById("bpFit").addEventListener("click", () => { resize(); fit(); });
+  document.getElementById("bpMirror").addEventListener("click", () => { opts.mirror = !opts.mirror; syncBtns(); fit(); });
+  document.getElementById("bpRapids").addEventListener("click", () => { opts.rapids = !opts.rapids; syncBtns(); draw(); });
+  document.getElementById("bpGrid").addEventListener("click", () => { opts.grid = !opts.grid; syncBtns(); draw(); });
+  document.getElementById("bpClose").addEventListener("click", closeBp);
+  document.addEventListener("keydown", e => {
+    if (!open) return;
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeBp(); }
+    else if (e.key === "0" || e.key.toLowerCase() === "f") { e.preventDefault(); resize(); fit(); }
+  }, true);
+
+  window.__openBackplot = openBp;
+})();
+
+document.getElementById("btnBackplot").addEventListener("click", () => {
+  if (!prog) return;
+  window.__openBackplot();
 });
 
 /* skróty klawiszowe w trybie edycji: Ctrl+S = zapisz, Esc = anuluj */
