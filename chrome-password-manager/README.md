@@ -10,7 +10,11 @@ Rozszerzenie do przeglądarki Chrome (Manifest V3), które:
   masz zapisane dane, pojawia się pytanie „Uzupełnić login i hasło?” z przyciskiem
   „Uzupełnij”,
 - ma wbudowany **generator haseł** (długość 8–64, litery, cyfry, znaki specjalne),
-- pozwala przeglądać, wyszukiwać, kopiować, dodawać ręcznie i usuwać zapisane wpisy.
+- pozwala przeglądać, wyszukiwać, kopiować, dodawać ręcznie i usuwać zapisane wpisy,
+- **synchronizuje sejf z Dyskiem Google** (zakładka „☁️ Dysk”) — zaszyfrowany plik
+  trafia do folderu „Sejf Haseł” na Twoim Dysku, skąd czyta go też
+  [aplikacja mobilna](../chrome-password-manager-mobile/) na Androida; konfiguracja
+  krok po kroku: [`KONFIGURACJA-GOOGLE.md`](../KONFIGURACJA-GOOGLE.md).
 
 ## Bezpieczeństwo
 
@@ -51,10 +55,23 @@ aby otworzyć rozszerzenie i odblokować sejf – oczekujący zapis będzie czek
 
 ```
 chrome-password-manager/
-├── manifest.json          # konfiguracja rozszerzenia (MV3)
-├── background.js          # service worker: sejf, szyfrowanie, generator
+├── manifest.json          # konfiguracja rozszerzenia (MV3) + klient OAuth
+├── background.js          # service worker: sejf, szyfrowanie, generator, synchronizacja
 ├── crypto.js              # PBKDF2 + AES-256-GCM (Web Crypto API)
+├── drive.js               # Dysk Google: folder, plik sejfu, wysyłka/pobieranie
+├── sync.js                # scalanie wpisów między urządzeniami (nowszy wygrywa)
 ├── content/content.js     # dymki i paski na stronach (shadow DOM)
 ├── popup/                 # interfejs rozszerzenia (HTML/CSS/JS)
 └── icons/                 # ikony 16/48/128 px
 ```
+
+## Synchronizacja z telefonem
+
+1. Wykonaj jednorazową konfigurację z [`KONFIGURACJA-GOOGLE.md`](../KONFIGURACJA-GOOGLE.md)
+   (identyfikatory OAuth + wpisanie client ID do `manifest.json`).
+2. W popupie: zakładka **„☁️ Dysk”** → podaj hasło główne → **„Połącz z Dyskiem Google”**.
+3. Od tej chwili każdy zapis/zmiana/usunięcie hasła jest automatycznie wysyłane na
+   Dysk (i pobierane przy odblokowaniu); przycisk „Synchronizuj teraz” wymusza
+   synchronizację ręcznie.
+4. Na telefonie zainstaluj [aplikację mobilną](../chrome-password-manager-mobile/) —
+   po zalogowaniu na to samo konto Google zobaczy ten sam sejf.

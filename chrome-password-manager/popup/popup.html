@@ -48,6 +48,7 @@
     <div class="tabs">
       <button id="tabVaultBtn" class="tab active">Hasła</button>
       <button id="tabGenBtn" class="tab">Generator</button>
+      <button id="tabDriveBtn" class="tab">☁️ Dysk</button>
     </div>
 
     <div id="tabVault">
@@ -85,6 +86,31 @@
       <label class="check"><input type="checkbox" id="genDigits" checked /> cyfry (0–9)</label>
       <label class="check"><input type="checkbox" id="genSymbols" checked /> znaki specjalne (!@#…)</label>
       <button id="genBtn" class="primary">Wygeneruj nowe hasło</button>
+    </div>
+
+    <div id="tabDrive" class="hidden">
+      <h3>Synchronizacja z Dyskiem Google</h3>
+      <p class="muted">
+        Sejf jest zapisywany jako zaszyfrowany plik w folderze „Sejf Haseł” na Twoim
+        Dysku Google. Dzięki temu te same hasła masz na komputerze i w aplikacji na telefonie.
+        Google widzi tylko zaszyfrowane dane.
+      </p>
+      <p id="driveSetupHint" class="error hidden">
+        Najpierw wpisz swój identyfikator klienta OAuth w pliku manifest.json
+        (sekcja „oauth2”). Instrukcja krok po kroku jest w pliku KONFIGURACJA-GOOGLE.md.
+      </p>
+      <div id="driveStatus" class="muted"></div>
+      <div id="driveConnectBox" class="hidden">
+        <label>Hasło główne (potwierdź, aby powiązać sejf)
+          <input type="password" id="drivePass" autocomplete="current-password" />
+        </label>
+        <button id="driveConnectBtn" class="primary">Połącz z Dyskiem Google</button>
+      </div>
+      <div id="driveActions" class="hidden">
+        <button id="driveSyncBtn" class="primary">Synchronizuj teraz</button>
+        <button id="driveDisconnectBtn" class="ghost" style="width:100%; margin-top:8px;">Odłącz od Dysku</button>
+      </div>
+      <p id="driveError" class="error hidden"></p>
     </div>
   </section>
 

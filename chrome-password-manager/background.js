@@ -13,6 +13,8 @@ import {
   encryptJSON,
   decryptJSON,
 } from "./crypto.js";
+import * as drive from "./drive.js";
+import { VAULT_FORMAT, mergeEntries, purgeTombstones } from "./sync.js";
 
 // ---------- pomocnicze: klucz sesji ----------
 
@@ -50,10 +52,73 @@ async function readEntries(key) {
 
 async function writeEntries(key, entries) {
   const vault = await getVaultMeta();
-  const encrypted = await encryptJSON(key, entries);
+  const encrypted = await encryptJSON(key, purgeTombstones(entries));
   await chrome.storage.local.set({
     vault: { salt: vault.salt, iterations: vault.iterations, ...encrypted },
   });
+}
+
+// ---------- synchronizacja z Dyskiem Google ----------
+
+async function buildVaultPayload(key, entries) {
+  const vault = await getVaultMeta();
+  const encrypted = await encryptJSON(key, purgeTombstones(entries));
+  return {
+    format: VAULT_FORMAT,
+    salt: vault.salt,
+    iterations: vault.iterations,
+    ...encrypted,
+    updatedAt: Date.now(),
+  };
+}
+
+async function syncNow(key) {
+  const token = await drive.getToken(false);
+  const folderId = await drive.ensureFolder(token);
+  const file = await drive.findVaultFile(token, folderId);
+  const localVault = await getVaultMeta();
+  const localEntries = await readEntries(key);
+
+  if (!file) {
+    await drive.uploadVault(token, folderId, null, await buildVaultPayload(key, localEntries));
+    return;
+  }
+
+  const remote = await drive.downloadVault(token, file.id);
+  if (remote.salt !== localVault.salt) {
+    throw new Error(
+      'Sejf na Dysku pochodzi z innej konfiguracji — użyj "Połącz z Dyskiem Google" ponownie, aby je powiązać.'
+    );
+  }
+  const remoteEntries = await decryptJSON(key, { iv: remote.iv, data: remote.data });
+  const { merged, localChanged, remoteChanged } = mergeEntries(localEntries, remoteEntries);
+  if (localChanged) await writeEntries(key, merged);
+  if (remoteChanged) {
+    await drive.uploadVault(token, folderId, file.id, await buildVaultPayload(key, merged));
+  }
+}
+
+let syncTimer = null;
+
+function scheduleSync(delayMs = 2000) {
+  if (syncTimer) clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => {
+    syncTimer = null;
+    syncIfEnabled();
+  }, delayMs);
+}
+
+async function syncIfEnabled() {
+  const { driveEnabled } = await chrome.storage.local.get("driveEnabled");
+  if (!driveEnabled) return;
+  const key = await getSessionKey();
+  if (!key) return;
+  try {
+    await syncNow(key);
+    await chrome.storage.local.set({ driveLastSync: Date.now(), driveLastError: null });
+  } catch (err) {
+    await chrome.storage.local.set({ driveLastError: String(err?.message || err) });
+  }
 }
 
 export function normalizeHost(hostname) {
@@ -187,6 +252,7 @@ async function handleMessage(msg, sender) {
         return { ok: false, error: "Nieprawidłowe hasło główne." };
       }
       await setSessionKey(key);
+      scheduleSync(500);
       return { ok: true };
     }
 
@@ -206,7 +272,7 @@ async function handleMessage(msg, sender) {
       const host = normalizeHost(msg.host);
       const entries = await readEntries(key);
       const matches = entries
-        .filter((e) => e.host === host)
+        .filter((e) => e.host === host && !e.deleted)
         .map((e) => ({ id: e.id, username: e.username }));
       return { ok: true, matches };
     }
@@ -215,7 +281,7 @@ async function handleMessage(msg, sender) {
       const key = await getSessionKey();
       if (!key) return { ok: false, locked: true };
       const entries = await readEntries(key);
-      const entry = entries.find((e) => e.id === msg.id);
+      const entry = entries.find((e) => e.id === msg.id && !e.deleted);
       if (!entry) return { ok: false, error: "Nie znaleziono wpisu." };
       // Hasło trafia wyłącznie do strony o tym samym hoście, dla którego je zapisano.
       const senderHost = hostFromUrl(sender?.url || sender?.tab?.url || "");
@@ -237,9 +303,11 @@ async function handleMessage(msg, sender) {
         (e) => e.host === host && e.username === (msg.entry.username || "")
       );
       const now = Date.now();
+      const wasUpdate = !!existing && !existing.deleted;
       if (existing) {
         existing.password = msg.entry.password;
         existing.url = msg.entry.url || existing.url;
+        existing.deleted = false;
         existing.updatedAt = now;
       } else {
         entries.push({
@@ -253,13 +321,14 @@ async function handleMessage(msg, sender) {
         });
       }
       await writeEntries(key, entries);
-      return { ok: true, updated: !!existing };
+      scheduleSync();
+      return { ok: true, updated: wasUpdate };
     }
 
     case "LIST_CREDENTIALS": {
       const key = await getSessionKey();
       if (!key) return { ok: false, locked: true };
-      const entries = await readEntries(key);
+      const entries = (await readEntries(key)).filter((e) => !e.deleted);
       entries.sort((a, b) => a.host.localeCompare(b.host));
       return { ok: true, entries };
     }
@@ -268,7 +337,151 @@ async function handleMessage(msg, sender) {
       const key = await getSessionKey();
       if (!key) return { ok: false, locked: true };
       const entries = await readEntries(key);
-      await writeEntries(key, entries.filter((e) => e.id !== msg.id));
+      const entry = entries.find((e) => e.id === msg.id);
+      if (entry) {
+        // Nagrobek zamiast twardego usunięcia — żeby kasowanie
+        // zsynchronizowało się na pozostałe urządzenia.
+        entry.deleted = true;
+        entry.updatedAt = Date.now();
+        await writeEntries(key, entries);
+        scheduleSync();
+      }
+      return { ok: true };
+    }
+
+    case "DRIVE_STATUS": {
+      const data = await chrome.storage.local.get([
+        "driveEnabled",
+        "driveLastSync",
+        "driveLastError",
+      ]);
+      const clientId = chrome.runtime.getManifest().oauth2?.client_id || "";
+      return {
+        ok: true,
+        enabled: !!data.driveEnabled,
+        lastSync: data.driveLastSync || null,
+        lastError: data.driveLastError || null,
+        needsClientId: clientId.startsWith("WPISZ"),
+      };
+    }
+
+    case "DRIVE_CONNECT": {
+      const localVault = await getVaultMeta();
+      if (!localVault) return { ok: false, error: "Najpierw utwórz sejf." };
+
+      // Weryfikacja hasła głównego na lokalnym sejfie.
+      const localKey = await deriveKey(
+        msg.masterPassword,
+        fromB64(localVault.salt),
+        localVault.iterations
+      );
+      let localEntries;
+      try {
+        localEntries = await decryptJSON(localKey, {
+          iv: localVault.iv,
+          data: localVault.data,
+        });
+      } catch {
+        return { ok: false, error: "Nieprawidłowe hasło główne." };
+      }
+
+      let token;
+      try {
+        token = await drive.getToken(true);
+      } catch (err) {
+        return { ok: false, error: String(err?.message || err) };
+      }
+      const folderId = await drive.ensureFolder(token);
+      const file = await drive.findVaultFile(token, folderId);
+
+      if (file) {
+        // Na Dysku jest już sejf (np. z telefonu) — scalamy i przejmujemy
+        // jego sól jako wspólną dla wszystkich urządzeń.
+        const remote = await drive.downloadVault(token, file.id);
+        const remoteKey =
+          remote.salt === localVault.salt
+            ? localKey
+            : await deriveKey(
+                msg.masterPassword,
+                fromB64(remote.salt),
+                remote.iterations || PBKDF2_ITERATIONS
+              );
+        let remoteEntries;
+        try {
+          remoteEntries = await decryptJSON(remoteKey, {
+            iv: remote.iv,
+            data: remote.data,
+          });
+        } catch {
+          return {
+            ok: false,
+            error:
+              "Sejf na Dysku Google jest zaszyfrowany innym hasłem głównym. Użyj tego samego hasła na obu urządzeniach.",
+          };
+        }
+        const { merged } = mergeEntries(localEntries, remoteEntries);
+        const encrypted = await encryptJSON(remoteKey, purgeTombstones(merged));
+        await chrome.storage.local.set({
+          vault: {
+            salt: remote.salt,
+            iterations: remote.iterations || PBKDF2_ITERATIONS,
+            ...encrypted,
+          },
+        });
+        await setSessionKey(remoteKey);
+        await drive.uploadVault(token, folderId, file.id, {
+          format: VAULT_FORMAT,
+          salt: remote.salt,
+          iterations: remote.iterations || PBKDF2_ITERATIONS,
+          ...(await encryptJSON(remoteKey, purgeTombstones(merged))),
+          updatedAt: Date.now(),
+        });
+      } else {
+        await setSessionKey(localKey);
+        await drive.uploadVault(token, folderId, null, {
+          format: VAULT_FORMAT,
+          salt: localVault.salt,
+          iterations: localVault.iterations,
+          iv: localVault.iv,
+          data: localVault.data,
+          updatedAt: Date.now(),
+        });
+      }
+
+      await chrome.storage.local.set({
+        driveEnabled: true,
+        driveLastSync: Date.now(),
+        driveLastError: null,
+      });
+      return { ok: true };
+    }
+
+    case "DRIVE_SYNC": {
+      const key = await getSessionKey();
+      if (!key) return { ok: false, locked: true };
+      const { driveEnabled } = await chrome.storage.local.get("driveEnabled");
+      if (!driveEnabled) return { ok: false, error: "Dysk Google nie jest połączony." };
+      try {
+        await syncNow(key);
+        await chrome.storage.local.set({ driveLastSync: Date.now(), driveLastError: null });
+        return { ok: true };
+      } catch (err) {
+        const error = String(err?.message || err);
+        await chrome.storage.local.set({ driveLastError: error });
+        return { ok: false, error };
+      }
+    }
+
+    case "DRIVE_DISCONNECT": {
+      await chrome.storage.local.set({ driveEnabled: false, driveLastError: null });
+      try {
+        const token = await drive.getToken(false);
+        await new Promise((resolve) =>
+          chrome.identity.removeCachedAuthToken({ token }, resolve)
+        );
+      } catch {
+        // brak tokenu — nic do wyczyszczenia
+      }
       return { ok: true };
     }
 
@@ -297,7 +510,7 @@ async function handleMessage(msg, sender) {
       // Nie pytamy ponownie, jeśli identyczny wpis już istnieje.
       const entries = await readEntries(key);
       const existing = entries.find(
-        (e) => e.host === pending.host && e.username === pending.username
+        (e) => e.host === pending.host && e.username === pending.username && !e.deleted
       );
       if (existing && existing.password === pending.password) {
         await takePending(tabId, { remove: true });

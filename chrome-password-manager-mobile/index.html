@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#111827" />
+  <title>Sejf Haseł</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon192.png" />
+  <link rel="apple-touch-icon" href="icons/icon192.png" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <div class="brand">🔐 Sejf Haseł</div>
+    <button id="lockBtn" class="ghost hidden">Zablokuj</button>
+  </header>
+
+  <!-- Krok 1: identyfikator klienta OAuth -->
+  <section id="viewConfig" class="view hidden">
+    <h2>Konfiguracja (jednorazowa)</h2>
+    <p class="muted">
+      Aby aplikacja mogła czytać i zapisywać sejf na Twoim Dysku Google, potrzebny jest
+      identyfikator klienta OAuth z Google Cloud. Instrukcja krok po kroku znajduje się
+      w pliku <b>KONFIGURACJA-GOOGLE.md</b> w repozytorium.
+    </p>
+    <label>Identyfikator klienta OAuth (typ „Aplikacja internetowa”)
+      <input type="text" id="clientIdInput" placeholder="xxxxx.apps.googleusercontent.com" />
+    </label>
+    <button id="clientIdSaveBtn" class="primary">Zapisz i przejdź dalej</button>
+    <p id="configError" class="error hidden"></p>
+  </section>
+
+  <!-- Krok 2: logowanie Google -->
+  <section id="viewConnect" class="view hidden">
+    <h2>Połącz z Dyskiem Google</h2>
+    <p class="muted">
+      Sejf jest przechowywany jako zaszyfrowany plik w folderze „Sejf Haseł” na Twoim
+      Dysku Google — tym samym, którego używa rozszerzenie na komputerze.
+    </p>
+    <button id="connectBtn" class="primary">Zaloguj się przez Google</button>
+    <button id="offlineBtn" class="ghost hidden" style="width:100%; margin-top:8px;">
+      Otwórz ostatnią kopię offline
+    </button>
+    <p id="connectError" class="error hidden"></p>
+    <p class="muted small">
+      <a href="#" id="changeClientId">Zmień identyfikator klienta OAuth</a>
+    </p>
+  </section>
+
+  <!-- Krok 3: hasło główne -->
+  <section id="viewUnlock" class="view hidden">
+    <h2 id="unlockTitle">Odblokuj sejf</h2>
+    <p id="unlockInfo" class="muted"></p>
+    <label>Hasło główne
+      <input type="password" id="unlockPass" autocomplete="current-password" />
+    </label>
+    <label id="unlockPass2Label" class="hidden">Powtórz hasło główne
+      <input type="password" id="unlockPass2" autocomplete="new-password" />
+    </label>
+    <button id="unlockBtn" class="primary">Odblokuj</button>
+    <p id="unlockError" class="error hidden"></p>
+  </section>
+
+  <!-- Główny widok -->
+  <section id="viewMain" class="view hidden">
+    <div id="syncBar" class="syncbar">
+      <span id="syncStatus" class="muted small"></span>
+      <button id="syncBtn" class="ghost small-btn">🔄 Synchronizuj</button>
+    </div>
+
+    <div class="tabs">
+      <button id="tabVaultBtn" class="tab active">Hasła</button>
+      <button id="tabGenBtn" class="tab">Generator</button>
+    </div>
+
+    <div id="tabVault">
+      <input type="search" id="searchBox" placeholder="Szukaj strony lub loginu…" />
+      <div id="entriesList"></div>
+      <details id="addBox">
+        <summary>➕ Dodaj wpis</summary>
+        <label>Adres strony (np. example.com)
+          <input type="text" id="addHost" placeholder="example.com" />
+        </label>
+        <label>Login
+          <input type="text" id="addUser" autocomplete="off" />
+        </label>
+        <label>Hasło
+          <div class="inline">
+            <input type="password" id="addPass" autocomplete="new-password" />
+            <button id="addGenBtn" class="ghost">🎲</button>
+          </div>
+        </label>
+        <button id="addBtn" class="primary">Zapisz wpis</button>
+        <p id="addError" class="error hidden"></p>
+      </details>
+    </div>
+
+    <div id="tabGen" class="hidden">
+      <div class="genOut">
+        <output id="genValue">…</output>
+        <button id="genCopyBtn" class="ghost">📋</button>
+      </div>
+      <label class="range">Długość: <span id="genLenLabel">18</span>
+        <input type="range" id="genLen" min="8" max="64" value="18" />
+      </label>
+      <label class="check"><input type="checkbox" id="genLower" checked /> małe litery (a–z)</label>
+      <label class="check"><input type="checkbox" id="genUpper" checked /> wielkie litery (A–Z)</label>
+      <label class="check"><input type="checkbox" id="genDigits" checked /> cyfry (0–9)</label>
+      <label class="check"><input type="checkbox" id="genSymbols" checked /> znaki specjalne (!@#…)</label>
+      <button id="genBtn" class="primary">Wygeneruj nowe hasło</button>
+    </div>
+  </section>
+
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="app.js"></script>
+</body>
+</html>

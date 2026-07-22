@@ -36,7 +36,7 @@ async function refresh() {
     show("viewUnlock");
   } else {
     show("viewMain");
-    await Promise.all([renderEntries(), renderPending(), regeneratePassword()]);
+    await Promise.all([renderEntries(), renderPending(), regeneratePassword(), renderDrive()]);
   }
 }
 
@@ -233,16 +233,71 @@ for (const id of ["genLower", "genUpper", "genDigits", "genSymbols"]) {
 }
 $("genCopyBtn").addEventListener("click", (e) => copyText($("genValue").textContent, e.target));
 
+// ---------- Dysk Google ----------
+
+async function renderDrive() {
+  const res = await send({ type: "DRIVE_STATUS" });
+  if (!res?.ok) return;
+  $("driveSetupHint").classList.toggle("hidden", !res.needsClientId);
+  $("driveConnectBox").classList.toggle("hidden", res.needsClientId || res.enabled);
+  $("driveActions").classList.toggle("hidden", !res.enabled);
+
+  let statusText;
+  if (res.needsClientId) {
+    statusText = "Synchronizacja nieskonfigurowana.";
+  } else if (!res.enabled) {
+    statusText = "Nie połączono z Dyskiem Google.";
+  } else if (res.lastSync) {
+    statusText = "Połączono. Ostatnia synchronizacja: " + new Date(res.lastSync).toLocaleString("pl-PL");
+  } else {
+    statusText = "Połączono.";
+  }
+  $("driveStatus").textContent = statusText;
+  showError("driveError", res.lastError || "");
+}
+
+$("driveConnectBtn").addEventListener("click", async () => {
+  const masterPassword = $("drivePass").value;
+  if (!masterPassword) return showError("driveError", "Podaj hasło główne.");
+  $("driveConnectBtn").disabled = true;
+  $("driveConnectBtn").textContent = "Łączenie…";
+  const res = await send({ type: "DRIVE_CONNECT", masterPassword });
+  $("driveConnectBtn").disabled = false;
+  $("driveConnectBtn").textContent = "Połącz z Dyskiem Google";
+  if (!res.ok) return showError("driveError", res.error || "Nie udało się połączyć.");
+  $("drivePass").value = "";
+  showError("driveError", "");
+  await Promise.all([renderDrive(), renderEntries()]);
+});
+
+$("driveSyncBtn").addEventListener("click", async () => {
+  $("driveSyncBtn").disabled = true;
+  $("driveSyncBtn").textContent = "Synchronizowanie…";
+  const res = await send({ type: "DRIVE_SYNC" });
+  $("driveSyncBtn").disabled = false;
+  $("driveSyncBtn").textContent = "Synchronizuj teraz";
+  if (!res.ok) showError("driveError", res.error || "Błąd synchronizacji.");
+  await Promise.all([renderDrive(), renderEntries()]);
+});
+
+$("driveDisconnectBtn").addEventListener("click", async () => {
+  await send({ type: "DRIVE_DISCONNECT" });
+  renderDrive();
+});
+
 // ---------- zakładki ----------
 
 $("tabVaultBtn").addEventListener("click", () => switchTab("vault"));
 $("tabGenBtn").addEventListener("click", () => switchTab("gen"));
+$("tabDriveBtn").addEventListener("click", () => switchTab("drive"));
 
 function switchTab(name) {
   $("tabVault").classList.toggle("hidden", name !== "vault");
   $("tabGen").classList.toggle("hidden", name !== "gen");
+  $("tabDrive").classList.toggle("hidden", name !== "drive");
   $("tabVaultBtn").classList.toggle("active", name === "vault");
   $("tabGenBtn").classList.toggle("active", name === "gen");
+  $("tabDriveBtn").classList.toggle("active", name === "drive");
 }
 
 refresh();
