@@ -117,6 +117,7 @@
     <a href="#komputer">2. Komputer — rozszerzenie do Chrome</a>
     <a href="#telefon">3. Telefon — aplikacja (Android)</a>
     <a href="#uzywanie">4. Codzienne używanie</a>
+    <a href="#zaufane">🔓 „Zaufaj temu urządzeniu”</a>
     <a href="#bezpieczenstwo">🛡️ Bezpieczeństwo — przeczytaj</a>
     <a href="#problemy">🩹 Rozwiązywanie problemów</a>
   </nav>
@@ -247,9 +248,25 @@
   <tr><td>Potrzebujesz hasła „na już”</td><td>Ikona rozszerzenia / aplikacja → zakładka „Generator”.</td></tr>
   <tr><td>Chcesz zobaczyć lub skopiować hasło</td><td>Zakładka „Hasła” → „Pokaż” / „Kopiuj hasło”.</td></tr>
   <tr><td>Na telefonie</td><td>Hasła kopiujesz przyciskiem „Kopiuj hasło” i wklejasz w aplikacji/stronie (Android nie pozwala aplikacjom-PWA na automatyczne wypełnianie).</td></tr>
-  <tr><td>Synchronizacja</td><td>Dzieje się sama. Ręcznie: przycisk „Synchronizuj” (telefon) lub „Synchronizuj teraz” (komputer, zakładka „Dysk”).</td></tr>
-  <tr><td>„Zablokuj”</td><td>Chowa hasła i wymaga ponownie hasła głównego. Niczego nie kasuje.</td></tr>
+  <tr><td>Synchronizacja</td><td>Dzieje się sama. Ręcznie: przycisk „Synchronizuj” (telefon) lub „Synchronizuj teraz” (komputer, zakładka „Dysk”). Działa dopiero, gdy <b>oba</b> urządzenia są podłączone do Dysku.</td></tr>
+  <tr><td>„Zablokuj”</td><td>Chowa hasła i wymaga ponownie hasła głównego. Wyłącza też „zaufanie” urządzenia. Niczego nie kasuje.</td></tr>
 </table>
+
+<div class="note">
+  <b>Ważne o synchronizacji:</b> hasła wędrują między urządzeniami <b>tylko przez Dysk Google</b>. Nowe urządzenie zobaczy hasła z drugiego dopiero, gdy tamto zostanie <b>podłączone do Dysku</b> i wyśle tam swój sejf. Jeśli na telefonie klikniesz „Synchronizuj”, a nie widzisz haseł z komputera — to znaczy, że komputer nie jest jeszcze połączony z Dyskiem (zakładka „☁️ Dysk” → „Połącz z Dyskiem Google”).
+</div>
+
+<!-- ============ ZAUFANE URZĄDZENIE ============ -->
+<h2 id="zaufane">🔓 „Zaufaj temu urządzeniu” — bez pytania o hasło</h2>
+<p class="muted">Nie chcesz podawać hasła głównego przy każdym uruchomieniu? Włącz zaufanie — urządzenie zapamięta klucz i będzie otwierać sejf od razu.</p>
+<table class="tbl">
+  <tr><td>📱 Telefon</td><td>Przy odblokowaniu zaznacz <b>„Zaufaj temu urządzeniu”</b> (jest też przełącznik nad zakładkami). Przy następnym starcie aplikacja sama zaloguje się i pokaże hasła.</td></tr>
+  <tr><td>💻 Komputer</td><td>Przy tworzeniu / odblokowaniu sejfu zaznacz <b>„Zaufaj temu urządzeniu”</b> (przełącznik jest też w zakładce „☁️ Dysk”, sekcja „To urządzenie”). Sejf nie zablokuje się po zamknięciu przeglądarki.</td></tr>
+  <tr><td>Wyłączenie</td><td>Kliknij <b>„Zablokuj”</b> — to twarda blokada, która wyłącza zaufanie i znów poprosi o hasło główne.</td></tr>
+</table>
+<div class="danger">
+  <b>Włączaj tylko na własnym, zabezpieczonym urządzeniu</b> (PIN, odcisk, hasło systemowe). Na zaufanym urządzeniu każdy, kto je odblokuje, otworzy Twój sejf <b>bez hasła głównego</b>. Na cudzym lub współdzielonym sprzęcie — nie włączaj.
+</div>
 
 <!-- ============ BEZPIECZEŃSTWO ============ -->
 <h2 id="bezpieczenstwo">🛡️ Bezpieczeństwo — przeczytaj</h2>
@@ -281,6 +298,14 @@
 <details>
   <summary>„Nieprawidłowe hasło główne” przy łączeniu komputera z Dyskiem</summary>
   <p>Komputer i telefon mają różne hasła główne. Muszą być takie same. Jeśli na komputerze nie masz jeszcze ważnych haseł, najprościej ustawić je od nowa tak, by pasowały do telefonu — w razie potrzeby poproś o pomoc.</p>
+</details>
+<details>
+  <summary>Kliknąłem „Synchronizuj” na telefonie, ale nie widzę haseł z komputera</summary>
+  <p>Synchronizacja idzie przez Dysk Google. Jeśli <b>komputer nie jest jeszcze podłączony do Dysku</b> (zakładka „☁️ Dysk” → „Połącz z Dyskiem Google”), jego hasła nigdy nie trafiły na Dysk — więc telefon nie ma ich skąd pobrać. Najpierw podłącz komputer do Dysku (tym samym hasłem głównym co telefon); potem hasła pojawią się na telefonie same lub po kliknięciu „Synchronizuj”.</p>
+</details>
+<details>
+  <summary>Aplikacja na telefonie nie pokazuje nowej funkcji / starej wersji</summary>
+  <p>To pamięć podręczna PWA. Zamknij aplikację całkowicie (przesuń w górę z listy uruchomionych) i otwórz 2 razy. Jeśli nie pomoże: w Chrome otwórz adres aplikacji → menu ⋮ → „Załaduj ponownie”. Ostatecznie: kłódka/ⓘ obok adresu → „Ustawienia witryny” → „Usuń dane” (sejf jest bezpieczny na Dysku — zalogujesz się ponownie).</p>
 </details>
 <details>
   <summary>Adres aplikacji pokazuje błąd 404</summary>
