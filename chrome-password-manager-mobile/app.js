@@ -366,7 +366,8 @@ async function copyText(text, button) {
 // ---------- krok 1: client ID ----------
 
 $("clientIdSaveBtn").addEventListener("click", () => {
-  const value = $("clientIdInput").value.trim();
+  // Usuwamy wszystkie odstępy — klawiatury mobilne często wstawiają spacje.
+  const value = $("clientIdInput").value.replace(/\s+/g, "");
   if (!value.endsWith(".apps.googleusercontent.com")) {
     return showError("configError", "To nie wygląda na identyfikator klienta OAuth (powinien kończyć się na .apps.googleusercontent.com).");
   }
