@@ -1,7 +1,11 @@
 // Service worker: pozwala otworzyć aplikację bez internetu (powłoka + kod).
 // Dane sejfu są trzymane w localStorage (zaszyfrowane), nie tutaj.
+//
+// Strategia "network-first" dla własnych plików: gdy jest internet, zawsze
+// pobieramy najświeższą wersję (dzięki temu aktualizacje wchodzą same),
+// a z pamięci podręcznej korzystamy tylko offline.
 
-const CACHE = "sejf-hasel-v1";
+const CACHE = "sejf-hasel-v2";
 const SHELL = [
   "./",
   "./index.html",
@@ -28,9 +32,15 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
-  // Tylko własne pliki aplikacji — zapytania do Google zawsze idą do sieci.
+  // Zapytania do Google zawsze idą do sieci — nie dotykamy ich.
   if (url.origin !== location.origin) return;
   event.respondWith(
-    caches.match(event.request).then((cached) => cached || fetch(event.request))
+    fetch(event.request)
+      .then((resp) => {
+        const copy = resp.clone();
+        caches.open(CACHE).then((cache) => cache.put(event.request, copy)).catch(() => {});
+        return resp;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
