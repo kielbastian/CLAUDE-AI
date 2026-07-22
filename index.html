@@ -771,7 +771,7 @@
 <body>
 <div class="bg"><div class="glow g1"></div><div class="glow g2"></div><div class="glow g3"></div></div>
 <div class="win-ctrl" id="winCtrl">
-  <span class="wc-title">CNC MANAGER — MAREK KULCZYCKI</span>
+  <span class="wc-title">PLIKI CNC — MAREK KULCZYCKI</span>
   <button class="win-btn" id="btnWinMin" title="Minimalizuj">&#8211;</button>
   <button class="win-btn" id="btnWinMax" title="Maksymalizuj">&#9633;</button>
   <button class="win-btn close" id="btnWinClose" title="Zamknij">&#10005;</button>
@@ -787,7 +787,7 @@
           <path d="M12 2v3M12 19v3M2 12h3M19 12h3"></path>
         </svg>
       </div>
-      <h1>CNC Manager</h1>
+      <h1>PLIKI CNC</h1>
     </div>
     <span class="machine">Marek&nbsp;Kulczycki</span>
     <div class="search-wrap">
@@ -899,6 +899,14 @@
             Widok pokazuje foldery zamiast programów. Kliknięcie folderu otwiera go w Eksploratorze.
           </div>
         </div>
+        <div class="set-sec">
+          <span class="set-label">Pomijaj foldery (nie skanuj)</span>
+          <input id="ignoreInput" class="sketch-in" type="text" autocomplete="off"
+                 placeholder="np. testowe, druki, kopia, backup" style="margin-top:0">
+          <div style="font-size:.68rem;color:var(--mut);line-height:1.5">
+            Foldery, których nazwa zawiera któreś z tych słów (po przecinku), są pomijane w skanowaniu i nie pokazują się na listach.
+          </div>
+        </div>
       </div>
     </div>
     <button class="btn btn-primary" id="btnNew">
@@ -947,11 +955,11 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path>
         </svg>
-        Otwórz folder rysunków PDF
+        Folder Szkice
       </button>
       <input id="sketchInput" class="sketch-in" type="text" autocomplete="off"
              placeholder="Szkic do otwarcia, np. SZ2349"
-             title="Wpisz numer/nazwę szkicu i naciśnij „Otwórz folder rysunków PDF” — otworzy się jego folder">
+             title="Wpisz numer/nazwę szkicu i naciśnij „Folder Szkice” — otworzy się jego folder">
     </div>
     <div class="panel">
       <h3>Zajęte numery O</h3>
@@ -1095,6 +1103,43 @@
         </svg>
         Usuń
       </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── modal: potwierdzenie zamknięcia aplikacji ────────────────── -->
+<div class="modal" id="mQuit">
+  <div class="dialog" style="max-width:460px">
+    <div class="dialog-head">
+      <h2>Zamknąć CNC Manager?</h2>
+    </div>
+    <div class="dialog-body">
+      <div style="font-size:.93rem;line-height:1.65">Czy na pewno chcesz zamknąć aplikację?</div>
+    </div>
+    <div class="dialog-foot">
+      <button class="btn" id="qtNo">Anuluj</button>
+      <button class="btn btn-danger" id="qtYes">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 6 6 18M6 6l12 12"></path>
+        </svg>
+        Zamknij
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── modal: numer O już zajęty (przy wklejaniu / imporcie kodu) ── -->
+<div class="modal" id="mOnum">
+  <div class="dialog" style="max-width:480px">
+    <div class="dialog-head">
+      <h2>Numer O już zajęty</h2>
+    </div>
+    <div class="dialog-body">
+      <div id="onText" style="font-size:.93rem;line-height:1.65;white-space:pre-line"></div>
+    </div>
+    <div class="dialog-foot">
+      <button class="btn" id="onFree">Przydziel wolny</button>
+      <button class="btn btn-primary" id="onSwap">Zamień — zachowaj ten numer</button>
     </div>
   </div>
 </div>
@@ -1243,6 +1288,13 @@ function rootPathOf(p) {
 function diskCountOf(key) { return programs.filter(p => p.source === "disk" && p.root === key).length; }
 /* czy program należy do aktualnie oglądanego folderu */
 function inView(p) { return folderView === "all" || p.source !== "disk" || p.root === folderView; }
+/* foldery pomijane (fragmenty nazw, po fold) — nie skanowane i nie pokazywane */
+let ignoredDirs = [];
+function isIgnoredDir(dir) {
+  if (!ignoredDirs.length || !dir) return false;
+  const d = fold(dir);
+  return ignoredDirs.some(t => t && d.includes(t));
+}
 function saveFolders() {
   localStorage.setItem("cncFolders", JSON.stringify(folders.map(f => ({ key: f.key, path: f.path, name: f.name }))));
   localStorage.setItem("cncActiveFolder", activeFolderKey || "");
@@ -1501,6 +1553,7 @@ function mergeScanFolder(folder, found) {
   const diskIds = new Set();
   let added = 0;
   found.forEach(x => {
+    if (isIgnoredDir(x.dir)) return;   // pomiń foldery z listy „Pomijaj foldery"
     const id = "d:" + key + ":" + (x.dir ? x.dir + "/" : "") + x.file;
     diskIds.add(id);
     const p = byId(id);
@@ -2047,15 +2100,16 @@ function hayOf(p) {
 }
 
 /* unikalne foldery (dir) programów — do widoku folderów i statystyk.
-   Przy aktywnym wyszukiwaniu filtruje po nazwie folderu we wszystkich folderach. */
+   Zawsze w obrębie aktywnego folderu; przy wyszukiwaniu dodatkowo filtruje po nazwie folderu. */
 function currentFolders() {
   const map = new Map();
   const searching = queryTokens.length > 0;
   for (const p of programs) {
     if (p.source !== "disk" || !p.dir) continue;
-    if (!searching && !inView(p)) continue;
+    if (isIgnoredDir(p.dir)) continue;
+    if (!inView(p)) continue;
     if (searching) { const hay = fold(p.dir); if (!queryTokens.every(w => hay.includes(w))) continue; }
-    const k = (p.root || "") + " " + p.dir;
+    const k = (p.root || "") + " " + p.dir;
     let e = map.get(k);
     if (!e) { e = { dir: p.dir, root: p.root, count: 0 }; map.set(k, e); }
     e.count++;
@@ -2064,9 +2118,10 @@ function currentFolders() {
 }
 
 function matches(p) {
-  // filtr folderu obowiązuje przy przeglądaniu; przy aktywnym wyszukiwaniu
-  // szukamy we WSZYSTKICH folderach (żeby zawsze znaleźć program)
-  if (!queryTokens.length && !inView(p)) return false;
+  if (isIgnoredDir(p.dir)) return false;   // pomijane foldery
+  // filtr folderu obowiązuje ZAWSZE — również przy wyszukiwaniu.
+  // Programy z innych folderów pojawią się dopiero po przełączeniu folderu w statystykach.
+  if (!inView(p)) return false;
   if (filter === "fav" && !p.fav) return false;
   if (filter.startsWith("tag:") && !(p.tags || []).includes(filter.slice(4))) return false;
   if (!queryTokens.length) return true;
@@ -2215,7 +2270,7 @@ function renderGrid() {
 }
 
 function renderSidebar() {
-  const vis = programs.filter(inView);   // statystyki i numery dotyczą oglądanego folderu
+  const vis = programs.filter(p => inView(p) && !isIgnoredDir(p.dir));   // statystyki — bez pomijanych folderów
   // filtry
   const allTags = [...new Set(vis.flatMap(p => p.tags || []))].sort((a, b) => a.localeCompare(b, "pl"));
   const chips = [
@@ -2474,6 +2529,7 @@ function openModal(id) { document.getElementById(id).classList.add("open"); }
 function closeModal(id) {
   document.getElementById(id).classList.remove("open");
   if (id === "mConfirm" && cfResolve) { const r = cfResolve; cfResolve = null; r(false); }
+  if (id === "mOnum" && onumResolve) { const r = onumResolve; onumResolve = null; r("free"); }
 }
 
 /* własne okno potwierdzenia — systemowe confirm() psuje fokus okna w Electronie */
@@ -2491,6 +2547,28 @@ document.getElementById("cfYes").addEventListener("click", () => {
   if (r) r(true);
 });
 document.getElementById("cfNo").addEventListener("click", () => closeModal("mConfirm"));
+
+/* wybór przy zajętym numerze O: "replace" = zachowaj numer, "free" = przydziel wolny */
+let onumResolve = null;
+function askOnumTaken(onum) {
+  return new Promise(res => {
+    onumResolve = res;
+    document.getElementById("onText").textContent =
+      "Numer " + onum + " jest już zajęty przez inny program.\n\n" +
+      "„Zamień” — zachowa ten numer.\n„Przydziel wolny” — nada pierwszy wolny numer.";
+    openModal("mOnum");
+  });
+}
+document.getElementById("onSwap").addEventListener("click", () => {
+  const r = onumResolve; onumResolve = null;
+  closeModal("mOnum");
+  if (r) r("replace");
+});
+document.getElementById("onFree").addEventListener("click", () => {
+  const r = onumResolve; onumResolve = null;
+  closeModal("mOnum");
+  if (r) r("free");
+});
 
 /* ════════════════════ zdarzenia ════════════════════ */
 document.getElementById("btnNew").addEventListener("click", () => openEdit(null));
@@ -2613,6 +2691,15 @@ function applyFolderSearch(on) {
   render();   // przełącz widok programy ↔ foldery
   syncSettingsUI();
 }
+/* ustawia listę pomijanych folderów, usuwa je z biblioteki i odświeża */
+function applyIgnoredDirs(str) {
+  localStorage.setItem("cncIgnoreDirs", str || "");
+  ignoredDirs = String(str || "").split(",").map(s => fold(s.trim())).filter(Boolean);
+  const before = programs.length;
+  programs = programs.filter(p => !isIgnoredDir(p.dir));
+  if (programs.length !== before) save();
+  render();
+}
 function syncSettingsUI() {
   const light = document.body.classList.contains("light");
   document.querySelectorAll(".set-mode[data-mode]").forEach(b =>
@@ -2656,6 +2743,17 @@ if (localStorage.getItem("cncTheme") === "light") document.body.classList.add("l
 applyAccent(localStorage.getItem("cncAccent") || "default");
 applyMotion(localStorage.getItem("cncMotion") !== "off");
 applyFolderSearch(localStorage.getItem("cncFolderMode") === "on");   // domyślnie wyłączone (widok programów)
+/* pomijane foldery — wczytaj listę i podłącz pole w ustawieniach */
+ignoredDirs = (localStorage.getItem("cncIgnoreDirs") || "").split(",").map(s => fold(s.trim())).filter(Boolean);
+{
+  const ii = document.getElementById("ignoreInput");
+  if (ii) {
+    ii.value = localStorage.getItem("cncIgnoreDirs") || "";
+    let ignTimer = null;
+    ii.addEventListener("input", () => { clearTimeout(ignTimer); ignTimer = setTimeout(() => applyIgnoredDirs(ii.value), 350); });
+    ii.addEventListener("click", e => e.stopPropagation());
+  }
+}
 /* widget wyszukiwania — przywróć stan (pokaż, jeśli był włączony) */
 widgetEnabled = localStorage.getItem("cncWidget") === "on";
 if (widgetEnabled && window.native && window.native.toggleWidget) window.native.toggleWidget(true, widgetPayload());
@@ -2781,6 +2879,60 @@ codeTa.addEventListener("drop", async e => {
   const f = e.dataTransfer && e.dataTransfer.files[0];
   if (f) await applyDroppedFile(f);
 });
+
+/* wklejenie SAMEGO G-kodu w pole kodu — odczyt danych jak przy wrzucaniu pliku.
+   Działa tylko dla NOWEGO programu (przy edycji nie ruszamy pól). */
+let pasteBusy = false;
+codeTa.addEventListener("paste", () => {
+  if (editId) return;                 // edycja istniejącego — zwykłe wklejanie tekstu
+  setTimeout(applyPastedCode, 0);     // najpierw pozwól przeglądarce wstawić tekst
+});
+async function applyPastedCode() {
+  if (pasteBusy || editId) return;
+  const ta = document.getElementById("fCode");
+  let code = ta.value;
+  const meta = parseGcodeMeta(code);
+  if (!meta.onum && !meta.name && !meta.detail && !meta.drawing) return;   // to nie wygląda na program
+
+  // uzupełnij puste rubryki — nie nadpisujemy tego, co użytkownik już wpisał
+  const nameEl = document.getElementById("fName");
+  if (!nameEl.value.trim() && meta.name) {
+    nameEl.value = meta.name;
+    nameEl.classList.remove("bad");
+    document.getElementById("hName").classList.remove("show");
+  }
+  const det = document.getElementById("fDetail");
+  if (!det.value.trim() && meta.detail) det.value = meta.detail;
+  const dr = document.getElementById("fDrawing");
+  if (!dr.value.trim() && meta.drawing) dr.value = meta.drawing;
+
+  // numer O odczytany z kodu
+  const onumEl = document.getElementById("fOnum");
+  if (meta.onum) {
+    const n = onumInt(meta.onum);
+    const taken = !isNaN(n) && programs.some(p => p.id !== editId && onumInt(p.onum) === n);
+    if (taken) {
+      pasteBusy = true;
+      const choice = await askOnumTaken(meta.onum);
+      pasteBusy = false;
+      if (choice === "replace") {
+        onumEl.value = meta.onum;
+        toast("Zachowano numer " + meta.onum);
+      } else {
+        const free = nextFreeOnum();
+        code = replaceOnumInCode(code, free);
+        ta.value = code;
+        onumEl.value = free;
+        toast("Numer " + meta.onum + " zajęty — przydzielono wolny " + free);
+      }
+    } else {
+      onumEl.value = meta.onum;
+      toast("Odczytano dane z kodu — " + meta.onum);
+    }
+    checkOnumDup();
+  }
+  if (pdfRoot) doPdfSearch(false);
+}
 
 /* przeciągnięcie plików gdziekolwiek na stronę; karta podświetla się,
    gdy nad nią wisisz z plikiem */
@@ -3011,6 +3163,13 @@ if (window.native && window.native.minimize) {
   document.getElementById("btnWinMin").addEventListener("click", () => window.native.minimize());
   document.getElementById("btnWinMax").addEventListener("click", () => window.native.toggleMaximize());
   document.getElementById("btnWinClose").addEventListener("click", () => window.native.close());
+}
+
+/* potwierdzenie zamknięcia aplikacji — stylizowane okno zamiast systemowego */
+if (window.native && window.native.onAskClose) {
+  window.native.onAskClose(() => openModal("mQuit"));
+  document.getElementById("qtNo").addEventListener("click", () => closeModal("mQuit"));
+  document.getElementById("qtYes").addEventListener("click", () => window.native.confirmClose());
 }
 
 /* zapis zmian dokonanych w osobnym oknie podglądu (edycja w miejscu) —

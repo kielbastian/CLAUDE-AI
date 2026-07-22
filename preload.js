@@ -15,6 +15,9 @@ contextBridge.exposeInMainWorld("native", {
   minimize: () => ipcRenderer.send("win-minimize"),
   toggleMaximize: () => ipcRenderer.send("win-toggle-maximize"),
   close: () => ipcRenderer.send("win-close"),
+  // potwierdzenie zamknięcia aplikacji (stylizowane okno w aplikacji)
+  onAskClose: (cb) => ipcRenderer.on("app-ask-close", () => cb()),
+  confirmClose: () => ipcRenderer.send("app-confirm-close"),
   openDetail: (payload) => ipcRenderer.invoke("open-detail", payload),
   getDetailData: () => ipcRenderer.invoke("get-detail-data"),
   detailAction: (msg) => ipcRenderer.send("detail-action", msg),

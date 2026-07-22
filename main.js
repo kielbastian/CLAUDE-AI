@@ -1,11 +1,27 @@
-const { app, BrowserWindow, session, Menu, ipcMain, dialog, shell, screen, globalShortcut } = require("electron");
+const { app, BrowserWindow, session, Menu, Tray, nativeImage, ipcMain, dialog, shell, screen, globalShortcut } = require("electron");
 const path = require("path");
 const fs = require("fs/promises");
+const fsSync = require("fs");
+
+/* zapamiętane położenie widgetu (plik w danych aplikacji) */
+function widgetPosPath() { return path.join(app.getPath("userData"), "widget-pos.json"); }
+function readWidgetPos() {
+  try {
+    const o = JSON.parse(fsSync.readFileSync(widgetPosPath(), "utf8"));
+    if (o && Number.isFinite(o.x) && Number.isFinite(o.y)) return o;
+  } catch {}
+  return null;
+}
+function writeWidgetPos(x, y) {
+  try { fsSync.writeFileSync(widgetPosPath(), JSON.stringify({ x, y })); } catch {}
+}
 
 const PROG_RE = /\.(txt|nc|cnc|tap|eia|prg|ngc)$/i;
 
 let win = null;
 let widgetWin = null;                // pływający widget szybkiego wyszukiwania
+let tray = null;                     // ikona w zasobniku systemowym (tray)
+let isQuitting = false;              // czy naprawdę zamykamy aplikację
 let widgetPayload = { theme: "dark", accent: "default" };
 const detailPayloads = new Map();   // id okna podglądu -> dane programu
 
@@ -19,6 +35,7 @@ function createWindow() {
     autoHideMenuBar: true,
     frame: false,
     titleBarStyle: "hidden",
+    skipTaskbar: true,          // brak osobnego przycisku na pasku zadań — dostęp przez ikonę w zasobniku
     title: "CNC Manager",
     icon: path.join(__dirname, "build", "icon.png"),
     webPreferences: {
@@ -28,25 +45,86 @@ function createWindow() {
   win.loadFile("index.html");
 
   attachContextMenu(win);
-  win.on("closed", () => { if (widgetWin && !widgetWin.isDestroyed()) widgetWin.destroy(); });
+
+  /* zapytanie o potwierdzenie przy zamykaniu — stylizowane okno w aplikacji */
+  win.on("close", (e) => {
+    if (isQuitting) return;               // zamknięcie przez tray / potwierdzone – przepuść
+    if (!win.webContents || win.webContents.isDestroyed()) return;
+    e.preventDefault();
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+    win.webContents.send("app-ask-close");
+  });
+
+  win.on("closed", () => {
+    if (widgetWin && !widgetWin.isDestroyed()) widgetWin.destroy();
+    if (tray) { try { tray.destroy(); } catch (e) {} tray = null; }
+  });
 }
 
-/* ── pływający widget szybkiego wyszukiwania (zawsze na wierzchu) ── */
+/* przywołanie / przywrócenie głównego okna */
+function showMainWindow() {
+  if (!win || win.isDestroyed()) { createWindow(); return; }
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
+/* ikona w zasobniku systemowym – domyślnie ląduje w „Pokaż ukryte ikony” */
+function createTray() {
+  if (tray) return tray;
+  try {
+    const iconPath = path.join(__dirname, "build", "icon.png");
+    let img = nativeImage.createFromPath(iconPath);
+    if (!img.isEmpty()) img = img.resize({ width: 16, height: 16 });
+    tray = new Tray(img.isEmpty() ? iconPath : img);
+    tray.setToolTip("CNC Manager");
+    const menu = Menu.buildFromTemplate([
+      { label: "Pokaż okno", click: () => showMainWindow() },
+      { label: "Szukaj (widget)", click: () => setWidget(true, widgetPayload) },
+      { type: "separator" },
+      { label: "Zamknij", click: () => { isQuitting = true; app.quit(); } }
+    ]);
+    tray.setContextMenu(menu);
+    tray.on("click", () => showMainWindow());
+    tray.on("double-click", () => showMainWindow());
+  } catch (e) {}
+  return tray;
+}
+
+/* ── pływający widget szybkiego wyszukiwania ── */
 function createWidgetWindow() {
   const wa = screen.getPrimaryDisplay().workArea;
   const W = 400, H = 58;
+
+  /* pozycja: zapamiętana lub domyślna (środek u góry ekranu głównego) */
+  let px = Math.round(wa.x + (wa.width - W) / 2);
+  let py = wa.y + 48;
+  const saved = readWidgetPos();
+  if (saved) {
+    /* przypnij do widocznego obszaru najbliższego monitora (obsługa wielu ekranów) */
+    const area = screen.getDisplayNearestPoint({ x: saved.x, y: saved.y }).workArea;
+    px = Math.min(Math.max(saved.x, area.x), area.x + area.width - W);
+    py = Math.min(Math.max(saved.y, area.y), area.y + area.height - H);
+  }
+
   widgetWin = new BrowserWindow({
     width: W, height: H,
-    x: Math.round(wa.x + (wa.width - W) / 2),
-    y: wa.y + 48,
+    x: px,
+    y: py,
     useContentSize: true,
     frame: false, titleBarStyle: "hidden", transparent: true, resizable: false, movable: true,
     minimizable: false, maximizable: false, fullscreenable: false,
-    skipTaskbar: true, alwaysOnTop: true, hasShadow: false, show: false,
+    skipTaskbar: true, hasShadow: false, show: false,
     title: "Szukaj — CNC Manager",
     webPreferences: { preload: path.join(__dirname, "preload.js") }
   });
-  widgetWin.setAlwaysOnTop(true, "screen-saver");
+  widgetWin.on("moved", () => {
+    if (!widgetWin || widgetWin.isDestroyed()) return;
+    const b = widgetWin.getBounds();
+    writeWidgetPos(b.x, b.y);
+  });
   widgetWin.on("closed", () => { widgetWin = null; });
   attachContextMenu(widgetWin);
   widgetWin.loadFile("widget.html");
@@ -57,7 +135,6 @@ function showWidget(payload) {
   if (!widgetWin || widgetWin.isDestroyed()) createWidgetWindow();
   const doShow = () => {
     widgetWin.show();
-    widgetWin.setAlwaysOnTop(true, "screen-saver");
     widgetWin.focus();
     widgetWin.webContents.send("widget-theme", widgetPayload);
   };
@@ -278,6 +355,12 @@ ipcMain.on("win-close", (e) => {
   const w = BrowserWindow.fromWebContents(e.sender);
   if (w) w.close();
 });
+/* użytkownik potwierdził zamknięcie w oknie aplikacji */
+ipcMain.on("app-confirm-close", () => {
+  isQuitting = true;
+  if (win && !win.isDestroyed()) win.close();
+  else app.quit();
+});
 
 /* ── osobne okno podglądu programu ── */
 ipcMain.handle("open-detail", (e, payload) => {
@@ -345,10 +428,13 @@ app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler((wc, permission, cb) => cb(true));
   session.defaultSession.setPermissionCheckHandler(() => true);
   createWindow();
+  createTray();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
+
+app.on("before-quit", () => { isQuitting = true; });
 
 app.on("will-quit", () => { try { globalShortcut.unregisterAll(); } catch (e) {} });
 
