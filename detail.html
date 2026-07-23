@@ -294,6 +294,7 @@
   .bp-legend span{display:inline-flex;align-items:center;gap:7px}
   .bp-swatch{display:inline-block;width:22px;height:0;border-top:2px solid #ffd60a}
   .bp-swatch.rap{border-top:2px dashed rgba(255,255,255,.8)}
+  .bp-swatch.hole{border-top-color:#ffb454}
   .bp-empty{
     position:absolute;inset:0;display:grid;place-items:center;z-index:2;pointer-events:none;
     color:#fff;font-size:.95rem;text-align:center;padding:30px;text-shadow:0 1px 6px rgba(0,0,0,.5);
@@ -427,6 +428,11 @@
         <path d="M4 12h4M11 12h2M16 12h4"></path></svg>
       Dojazdy
     </button>
+    <button class="bp-btn on" id="bpHoles" title="Pokaż wiercenia i gwintowanie (otwory osiowe)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3v9"></path><path d="M8 12h8l-4 9z"></path></svg>
+      Otwory
+    </button>
     <button class="bp-btn on" id="bpGrid" title="Siatka">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M3 9h18M3 15h18M9 3v18M15 3v18"></path></svg>
@@ -443,6 +449,7 @@
   <div class="bp-legend">
     <span><i class="bp-swatch"></i>Obróbka (posuw)</span>
     <span><i class="bp-swatch rap"></i>Dojazd (szybki)</span>
+    <span><i class="bp-swatch hole"></i>Wiercenie / gwint</span>
   </div>
   <div class="bp-empty" id="bpEmpty" style="display:none">Brak ruchów tokarskich (płaszczyzna G18) do narysowania w tym programie.</div>
 </div>
@@ -689,7 +696,7 @@ document.getElementById("btnSketch").addEventListener("click", async () => {
   let ctx = null, dpr = 1;
   let model = null;            // { feeds, rapids, empty, zmin, zmax, rmax, maxDia, length }
   let T = { S: 1, tx: 0, ty: 0 }; // transformacja model → ekran
-  const opts = { mirror: true, rapids: true, grid: true };
+  const opts = { mirror: true, rapids: true, grid: true, holes: true };
   let open = false, drag = null, hover = null;
   const mouse = { x: 0, y: 0 };
 
@@ -698,17 +705,23 @@ document.getElementById("btnSketch").addEventListener("click", async () => {
 
   /* — parser — */
   function parse(code) {
-    const feeds = [], rapids = [];
+    const feeds = [], rapids = [], holes = [];
     let plane = 18, motion = 0, x = null, z = null;
+    let lastComment = "", toolComment = "";
     const wre = /([A-Za-z])\s*(-?\d*\.?\d+)/g;
     for (const raw of String(code || "").split(/\r?\n/)) {
+      // opis narzędzia (do średnicy wiertła/gwintownika) — z komentarza przy literze T lub tuż nad nią
+      const cMatch = raw.match(/\(([^)]*)\)/);
+      if (cMatch) lastComment = cMatch[1].trim();
+      if (/(?:^|[^A-Za-z])T\d{1,4}\b/.test(raw)) toolComment = cMatch ? cMatch[1].trim() : lastComment;
+
       const line = raw.replace(/\([^)]*\)/g, " ").trim();
       if (!line) continue;
       let m, words = []; wre.lastIndex = 0;
       while ((m = wre.exec(line))) words.push([m[1].toUpperCase(), parseFloat(m[2])]);
       if (!words.length) continue;
 
-      let np = null, nm = null, g53 = false, home = false, nonmove = false;
+      let np = null, nm = null, g53 = false, home = false, nonmove = false, drill = 0;
       let nx = x, nz = z, R = null, I = null, K = null, axis = false;
       for (const [L, V] of words) {
         if (L === "G") {
@@ -717,7 +730,8 @@ document.getElementById("btnSketch").addEventListener("click", async () => {
           else if (g === 28 || g === 30) home = true;
           else if (g === 17) np = 17; else if (g === 18) np = 18; else if (g === 19) np = 19;
           else if (g === 0) nm = 0; else if (g === 1) nm = 1; else if (g === 2) nm = 2; else if (g === 3) nm = 3;
-          else if (g === 4 || g === 10 || (g >= 70 && g <= 89) || g === 92) nonmove = true; // cykle/dwell/ustawienia
+          else if (g >= 81 && g <= 89) drill = g;   // cykl wiercenia/gwintowania → otwór osiowy
+          else if (g === 4 || g === 10 || (g >= 70 && g <= 80) || g === 92) nonmove = true; // roughing/dwell/threading
         }
         else if (L === "X") { nx = V; axis = true; }
         else if (L === "Z") { nz = V; axis = true; }
@@ -726,10 +740,21 @@ document.getElementById("btnSketch").addEventListener("click", async () => {
         else if (L === "R") R = V; else if (L === "I") I = V; else if (L === "K") K = V;
       }
 
+      // cykl wiercenia / gwintowania sztywnego → otwór osiowy (X≈0, wzdłuż osi Z)
+      if (drill) {
+        const isTap = (drill === 84 || drill === 74);
+        let dia = drillDia(toolComment, isTap);
+        if (dia == null) dia = holes.length ? holes[holes.length - 1].dia : 6;
+        const zDepth = (nz != null ? nz : (z != null ? z : 0));
+        addHole(holes, dia, 0, zDepth, isTap, toolComment);
+        x = null; z = null;
+        continue;
+      }
+
       if (np !== null && np !== plane) { plane = np; x = null; z = null; if (nm !== null) motion = nm; continue; }
       if (nm !== null) motion = nm;
       if (g53 || home || nonmove) { if (g53 || home) { x = null; z = null; } continue; }
-      if (plane !== 18) continue;      // rysujemy tylko zarys tokarski
+      if (plane !== 18) continue;      // ruchy rysujemy tylko w płaszczyźnie tokarskiej
       if (!axis) continue;
 
       const known = (x != null && z != null);
@@ -743,7 +768,33 @@ document.getElementById("btnSketch").addEventListener("click", async () => {
       }
       x = (nx != null ? nx : x); z = (nz != null ? nz : z);
     }
-    return finalize(feeds, rapids);
+    return finalize(feeds, rapids, holes);
+  }
+
+  /* średnica z opisu narzędzia: „WIERTLO 10.2" → 10.2, „GWINTOWNIK M12" → 12 */
+  function drillDia(comment, isTap) {
+    if (!comment) return null;
+    const c = comment.replace(",", ".");
+    if (isTap) { const t = c.match(/M\s?(\d+(?:\.\d+)?)/i); if (t) return parseFloat(t[1]); }
+    const n = c.match(/(\d+(?:\.\d+)?)/);
+    return n ? parseFloat(n[1]) : null;
+  }
+
+  /* zarys otworu (górna strona, r≥0): walec + stożek wiertła lub płaskie dno gwintownika */
+  function addHole(holes, dia, zTop, zDepth, isTap, comment) {
+    const rad = Math.max(0.1, dia / 2);
+    const zHi = Math.max(zTop, zDepth), zLo = Math.min(zTop, zDepth); // zLo = dno
+    const segs = [];
+    if (!isTap) {
+      const tip = Math.min(0.6 * rad, zHi - zLo);                     // stożek wiertła ~118°
+      const zBody = zLo + tip;
+      segs.push({ a: { z: zHi, r: rad }, b: { z: zBody, r: rad } });  // walec
+      segs.push({ a: { z: zBody, r: rad }, b: { z: zLo, r: 0 } });    // stożek do wierzchołka
+    } else {
+      segs.push({ a: { z: zHi, r: rad }, b: { z: zLo, r: rad } });    // walec (gwint)
+      segs.push({ a: { z: zLo, r: rad }, b: { z: zLo, r: 0 } });      // płaskie dno
+    }
+    holes.push({ dia, rad, zTop: zHi, zDepth: zLo, isTap, comment: comment || "", segs });
   }
 
   /* — łuk G2/G3 → punkty (w przestrzeni z,promień) — */
@@ -771,15 +822,19 @@ document.getElementById("btnSketch").addEventListener("click", async () => {
     return out;
   }
 
-  function finalize(feeds, rapids) {
-    const all = []; feeds.forEach(s => { all.push(s.a, s.b); }); rapids.forEach(s => { all.push(s.a, s.b); });
-    if (!all.length) return { feeds, rapids, empty: true };
+  function finalize(feeds, rapids, holes) {
+    holes = holes || [];
+    const all = [];
+    feeds.forEach(s => { all.push(s.a, s.b); });
+    rapids.forEach(s => { all.push(s.a, s.b); });
+    holes.forEach(h => h.segs.forEach(s => { all.push(s.a, s.b); }));
+    if (!all.length) return { feeds, rapids, holes, empty: true };
     let zmin = 1e9, zmax = -1e9, rmax = -1e9;
     all.forEach(p => { zmin = Math.min(zmin, p.z); zmax = Math.max(zmax, p.z); rmax = Math.max(rmax, p.r); });
     let fz0 = 1e9, fz1 = -1e9, fr = 0;
     feeds.forEach(s => [s.a, s.b].forEach(p => { fz0 = Math.min(fz0, p.z); fz1 = Math.max(fz1, p.z); fr = Math.max(fr, p.r); }));
     zmin = Math.min(zmin, 0); zmax = Math.max(zmax, 0);
-    return { feeds, rapids, empty: false, zmin, zmax, rmax: Math.max(rmax, 0), maxDia: fr * 2, length: (fz1 > fz0 ? fz1 - fz0 : 0) };
+    return { feeds, rapids, holes, empty: false, zmin, zmax, rmax: Math.max(rmax, 0), maxDia: fr * 2, length: (fz1 > fz0 ? fz1 - fz0 : 0) };
   }
 
   /* — dopasowanie widoku — */
@@ -817,6 +872,14 @@ document.getElementById("btnSketch").addEventListener("click", async () => {
     if (opts.mirror) { ctx.globalAlpha = .34; strokeSegs(model.feeds, "#ffd60a", 1.4, null, true); ctx.globalAlpha = 1; }
     if (opts.rapids) strokeSegs(model.rapids, "rgba(255,255,255,.72)", 1, [5, 4], false);
     strokeSegs(model.feeds, "#ffd60a", 1.7, null, false);
+
+    // wiercenia / gwintowanie (otwory osiowe)
+    if (opts.holes && model.holes.length) {
+      const hs = [];
+      model.holes.forEach(h => h.segs.forEach(s => hs.push(s)));
+      if (opts.mirror) { ctx.globalAlpha = .5; strokeSegs(hs, "#ffb454", 1.5, null, true); ctx.globalAlpha = 1; }
+      strokeSegs(hs, "#ffb454", 1.8, null, false);
+    }
 
     drawOrigin();
     if (hover) drawHover();
@@ -872,7 +935,8 @@ document.getElementById("btnSketch").addEventListener("click", async () => {
     if (!model || model.empty) { el.innerHTML = ""; return; }
     const n = model.feeds.length + model.rapids.length;
     el.innerHTML = 'Ø max: <b>' + model.maxDia.toFixed(1) + ' mm</b> &nbsp;•&nbsp; Długość: <b>' +
-      model.length.toFixed(1) + ' mm</b> &nbsp;•&nbsp; Segmenty: <b>' + n + '</b>';
+      model.length.toFixed(1) + ' mm</b> &nbsp;•&nbsp; Segmenty: <b>' + n + '</b>' +
+      (model.holes.length ? ' &nbsp;•&nbsp; Otwory: <b>' + model.holes.length + '</b>' : '');
   }
 
   function ensureSized(cb) { if (canvas.clientWidth > 0) cb(); else requestAnimationFrame(() => ensureSized(cb)); }
@@ -915,6 +979,7 @@ document.getElementById("btnSketch").addEventListener("click", async () => {
     };
     for (const s of model.feeds) for (const sg of sides) consider(s, sg);
     if (opts.rapids) for (const s of model.rapids) for (const sg of sides) consider(s, sg);
+    if (opts.holes) for (const h of model.holes) for (const s of h.segs) for (const sg of sides) consider(s, sg);
     return bestV || best;
   }
 
@@ -949,6 +1014,7 @@ document.getElementById("btnSketch").addEventListener("click", async () => {
   function syncBtns() {
     document.getElementById("bpMirror").classList.toggle("on", opts.mirror);
     document.getElementById("bpRapids").classList.toggle("on", opts.rapids);
+    document.getElementById("bpHoles").classList.toggle("on", opts.holes);
     document.getElementById("bpGrid").classList.toggle("on", opts.grid);
   }
 
@@ -981,6 +1047,7 @@ document.getElementById("btnSketch").addEventListener("click", async () => {
   document.getElementById("bpFit").addEventListener("click", () => { hover = null; hideTip(); resize(); fit(); });
   document.getElementById("bpMirror").addEventListener("click", () => { opts.mirror = !opts.mirror; hover = null; hideTip(); syncBtns(); fit(); });
   document.getElementById("bpRapids").addEventListener("click", () => { opts.rapids = !opts.rapids; hover = null; hideTip(); syncBtns(); draw(); });
+  document.getElementById("bpHoles").addEventListener("click", () => { opts.holes = !opts.holes; hover = null; hideTip(); syncBtns(); draw(); });
   document.getElementById("bpGrid").addEventListener("click", () => { opts.grid = !opts.grid; hover = null; hideTip(); syncBtns(); draw(); });
   document.getElementById("bpClose").addEventListener("click", closeBp);
   document.addEventListener("keydown", e => {
