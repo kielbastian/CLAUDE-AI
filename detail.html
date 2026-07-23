@@ -295,6 +295,7 @@
   .bp-swatch{display:inline-block;width:22px;height:0;border-top:2px solid #ffd60a}
   .bp-swatch.rap{border-top:2px dashed rgba(255,255,255,.8)}
   .bp-swatch.hole{border-top-color:#ffb454}
+  .bp-swatch.thr{border-top-color:#ff77c8}
   .bp-empty{
     position:absolute;inset:0;display:grid;place-items:center;z-index:2;pointer-events:none;
     color:#fff;font-size:.95rem;text-align:center;padding:30px;text-shadow:0 1px 6px rgba(0,0,0,.5);
@@ -433,6 +434,11 @@
         <path d="M12 3v9"></path><path d="M8 12h8l-4 9z"></path></svg>
       Otwory
     </button>
+    <button class="bp-btn on" id="bpThreads" title="Pokaż gwintowanie (G76 / G92 / G32)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 8l4 4-4 4M9 8l4 4-4 4M15 8l4 4-4 4"></path></svg>
+      Gwinty
+    </button>
     <button class="bp-btn on" id="bpGrid" title="Siatka">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M3 9h18M3 15h18M9 3v18M15 3v18"></path></svg>
@@ -449,7 +455,8 @@
   <div class="bp-legend">
     <span><i class="bp-swatch"></i>Obróbka (posuw)</span>
     <span><i class="bp-swatch rap"></i>Dojazd (szybki)</span>
-    <span><i class="bp-swatch hole"></i>Wiercenie / gwint</span>
+    <span><i class="bp-swatch hole"></i>Wiercenie</span>
+    <span><i class="bp-swatch thr"></i>Gwint</span>
   </div>
   <div class="bp-empty" id="bpEmpty" style="display:none">Brak ruchów tokarskich (płaszczyzna G18) do narysowania w tym programie.</div>
 </div>
@@ -696,7 +703,7 @@ document.getElementById("btnSketch").addEventListener("click", async () => {
   let ctx = null, dpr = 1;
   let model = null;            // { feeds, rapids, empty, zmin, zmax, rmax, maxDia, length }
   let T = { S: 1, tx: 0, ty: 0 }; // transformacja model → ekran
-  const opts = { mirror: true, rapids: true, grid: true, holes: true };
+  const opts = { mirror: true, rapids: true, grid: true, holes: true, threads: true };
   let open = false, drag = null, hover = null;
   const mouse = { x: 0, y: 0 };
 
@@ -705,9 +712,16 @@ document.getElementById("btnSketch").addEventListener("click", async () => {
 
   /* — parser — */
   function parse(code) {
-    const feeds = [], rapids = [], holes = [];
+    const feeds = [], rapids = [], holes = [], threads = [];
     let plane = 18, motion = 0, x = null, z = null;
-    let lastComment = "", toolComment = "";
+    let lastComment = "", toolComment = "", thr = null;
+    const flushThread = () => {
+      if (!thr || thr.rootX == null) { thr = null; return; }
+      const rootR = thr.rootX / 2;
+      const crestR = (thr.K != null && thr.K > 0) ? rootR + thr.K : rootR + 0.6134 * (thr.pitch || 1);
+      addThread(threads, thr.zStart, thr.zEnd, rootR, crestR, thr.pitch);
+      thr = null;
+    };
     const wre = /([A-Za-z])\s*(-?\d*\.?\d+)/g;
     for (const raw of String(code || "").split(/\r?\n/)) {
       // opis narzędzia (do średnicy wiertła/gwintownika) — z komentarza przy literze T lub tuż nad nią
@@ -721,8 +735,8 @@ document.getElementById("btnSketch").addEventListener("click", async () => {
       while ((m = wre.exec(line))) words.push([m[1].toUpperCase(), parseFloat(m[2])]);
       if (!words.length) continue;
 
-      let np = null, nm = null, g53 = false, home = false, nonmove = false, drill = 0;
-      let nx = x, nz = z, R = null, I = null, K = null, axis = false;
+      let np = null, nm = null, g53 = false, home = false, nonmove = false, drill = 0, thread = 0;
+      let nx = x, nz = z, R = null, I = null, K = null, Fval = null, axis = false;
       for (const [L, V] of words) {
         if (L === "G") {
           const g = Math.round(V);
@@ -731,13 +745,44 @@ document.getElementById("btnSketch").addEventListener("click", async () => {
           else if (g === 17) np = 17; else if (g === 18) np = 18; else if (g === 19) np = 19;
           else if (g === 0) nm = 0; else if (g === 1) nm = 1; else if (g === 2) nm = 2; else if (g === 3) nm = 3;
           else if (g >= 81 && g <= 89) drill = g;   // cykl wiercenia/gwintowania → otwór osiowy
-          else if (g === 4 || g === 10 || (g >= 70 && g <= 80) || g === 92) nonmove = true; // roughing/dwell/threading
+          else if (g === 76 || g === 92 || g === 32 || g === 33 || g === 34) thread = g; // gwintowanie zewn./wewn.
+          else if (g === 4 || g === 10 || g === 70 || g === 71 || g === 72 || g === 73 || g === 74 || g === 75 || (g >= 77 && g <= 80)) nonmove = true; // roughing/dwell
         }
         else if (L === "X") { nx = V; axis = true; }
         else if (L === "Z") { nz = V; axis = true; }
         else if (L === "U") { if (x != null) nx = x + V; axis = true; } // przyrostowy X (średnica)
         else if (L === "W") { if (z != null) nz = z + V; axis = true; } // przyrostowy Z
-        else if (L === "R") R = V; else if (L === "I") I = V; else if (L === "K") K = V;
+        else if (L === "R") R = V; else if (L === "I") I = V; else if (L === "K") K = V; else if (L === "F") Fval = V;
+      }
+
+      // gwintowanie: G76 (jednoblokowy) lub G92/G32/G33/G34 (wieloprzejściowe) → jeden symbol gwintu
+      if (thread === 76) {
+        flushThread();
+        const zEnd = (nz != null ? nz : z), root = (nx != null ? nx : x);
+        if (z != null && root != null) {
+          const rootR = root / 2;
+          const crestR = (K != null && K > 0) ? rootR + K : rootR + 0.6134 * (Fval || 1);
+          addThread(threads, z, zEnd, rootR, crestR, Fval || 1);
+        }
+        x = null; z = null; continue;
+      }
+      if (thread) {
+        if (!thr) thr = { zStart: (z != null ? z : (nz != null ? nz : 0)), zEnd: (nz != null ? nz : z), rootX: (nx != null ? nx : x), pitch: Fval, K: null };
+        else {
+          if (nx != null) thr.rootX = (thr.rootX != null) ? Math.min(thr.rootX, nx) : nx;
+          if (nz != null) thr.zEnd = nz;
+          if (Fval != null) thr.pitch = Fval;
+        }
+        x = null; z = null; continue;
+      }
+      // aktywny gwint: dojazdy (G00) i gołe przejścia X pomijamy; każda inna linia domyka gwint
+      if (thr) {
+        if (nm === 0 && !g53 && !home && !drill) { x = null; z = null; continue; }
+        if (nx != null && nz == null && np === null && nm === null && !g53 && !home && !drill && !nonmove) {
+          thr.rootX = (thr.rootX != null) ? Math.min(thr.rootX, nx) : nx;
+          x = null; z = null; continue;
+        }
+        flushThread();
       }
 
       // cykl wiercenia / gwintowania sztywnego → otwór osiowy (X≈0, wzdłuż osi Z)
@@ -768,7 +813,27 @@ document.getElementById("btnSketch").addEventListener("click", async () => {
       }
       x = (nx != null ? nx : x); z = (nz != null ? nz : z);
     }
-    return finalize(feeds, rapids, holes);
+    flushThread();
+    return finalize(feeds, rapids, holes, threads);
+  }
+
+  /* symbol gwintu: linia wierzchołków (major) + ząbki zygzakiem co pół podziałki (zamiast każdego przejścia) */
+  function addThread(threads, zStart, zEnd, rootR, crestR, pitch) {
+    const zA = Math.min(zStart, zEnd), zB = Math.max(zStart, zEnd);
+    if (!(zB - zA > 0.01) || !(rootR > 0)) return;
+    if (!(crestR > rootR)) crestR = rootR + Math.max(0.2, 0.6134 * (pitch || 1));
+    const p = (pitch && pitch > 0.05) ? pitch : (zB - zA) / 12;
+    const half = p / 2;
+    const teeth = Math.min(600, Math.max(2, Math.round((zB - zA) / half)));
+    const segs = [{ a: { z: zA, r: crestR }, b: { z: zB, r: crestR } }]; // linia wierzchołków
+    let prev = { z: zB, r: crestR };
+    for (let i = 1; i <= teeth; i++) {
+      const zz = Math.max(zA, zB - i * half);
+      const rr = (i % 2) ? rootR : crestR;
+      segs.push({ a: prev, b: { z: zz, r: rr } });
+      prev = { z: zz, r: rr };
+    }
+    threads.push({ zA, zB, rootR, crestR, dia: crestR * 2, minDia: rootR * 2, pitch: p, segs });
   }
 
   /* średnica z opisu narzędzia: „WIERTLO 10.2" → 10.2, „GWINTOWNIK M12" → 12 */
@@ -822,19 +887,20 @@ document.getElementById("btnSketch").addEventListener("click", async () => {
     return out;
   }
 
-  function finalize(feeds, rapids, holes) {
-    holes = holes || [];
+  function finalize(feeds, rapids, holes, threads) {
+    holes = holes || []; threads = threads || [];
     const all = [];
     feeds.forEach(s => { all.push(s.a, s.b); });
     rapids.forEach(s => { all.push(s.a, s.b); });
     holes.forEach(h => h.segs.forEach(s => { all.push(s.a, s.b); }));
-    if (!all.length) return { feeds, rapids, holes, empty: true };
+    threads.forEach(t => t.segs.forEach(s => { all.push(s.a, s.b); }));
+    if (!all.length) return { feeds, rapids, holes, threads, empty: true };
     let zmin = 1e9, zmax = -1e9, rmax = -1e9;
     all.forEach(p => { zmin = Math.min(zmin, p.z); zmax = Math.max(zmax, p.z); rmax = Math.max(rmax, p.r); });
     let fz0 = 1e9, fz1 = -1e9, fr = 0;
     feeds.forEach(s => [s.a, s.b].forEach(p => { fz0 = Math.min(fz0, p.z); fz1 = Math.max(fz1, p.z); fr = Math.max(fr, p.r); }));
     zmin = Math.min(zmin, 0); zmax = Math.max(zmax, 0);
-    return { feeds, rapids, holes, empty: false, zmin, zmax, rmax: Math.max(rmax, 0), maxDia: fr * 2, length: (fz1 > fz0 ? fz1 - fz0 : 0) };
+    return { feeds, rapids, holes, threads, empty: false, zmin, zmax, rmax: Math.max(rmax, 0), maxDia: fr * 2, length: (fz1 > fz0 ? fz1 - fz0 : 0) };
   }
 
   /* — dopasowanie widoku — */
@@ -879,6 +945,14 @@ document.getElementById("btnSketch").addEventListener("click", async () => {
       model.holes.forEach(h => h.segs.forEach(s => hs.push(s)));
       if (opts.mirror) { ctx.globalAlpha = .5; strokeSegs(hs, "#ffb454", 1.5, null, true); ctx.globalAlpha = 1; }
       strokeSegs(hs, "#ffb454", 1.8, null, false);
+    }
+
+    // gwintowanie (symbol gwintu)
+    if (opts.threads && model.threads.length) {
+      const ts = [];
+      model.threads.forEach(t => t.segs.forEach(s => ts.push(s)));
+      if (opts.mirror) { ctx.globalAlpha = .5; strokeSegs(ts, "#ff77c8", 1.2, null, true); ctx.globalAlpha = 1; }
+      strokeSegs(ts, "#ff77c8", 1.4, null, false);
     }
 
     drawOrigin();
@@ -936,7 +1010,8 @@ document.getElementById("btnSketch").addEventListener("click", async () => {
     const n = model.feeds.length + model.rapids.length;
     el.innerHTML = 'Ø max: <b>' + model.maxDia.toFixed(1) + ' mm</b> &nbsp;•&nbsp; Długość: <b>' +
       model.length.toFixed(1) + ' mm</b> &nbsp;•&nbsp; Segmenty: <b>' + n + '</b>' +
-      (model.holes.length ? ' &nbsp;•&nbsp; Otwory: <b>' + model.holes.length + '</b>' : '');
+      (model.holes.length ? ' &nbsp;•&nbsp; Otwory: <b>' + model.holes.length + '</b>' : '') +
+      (model.threads.length ? ' &nbsp;•&nbsp; Gwinty: <b>' + model.threads.length + '</b>' : '');
   }
 
   function ensureSized(cb) { if (canvas.clientWidth > 0) cb(); else requestAnimationFrame(() => ensureSized(cb)); }
@@ -980,6 +1055,7 @@ document.getElementById("btnSketch").addEventListener("click", async () => {
     for (const s of model.feeds) for (const sg of sides) consider(s, sg);
     if (opts.rapids) for (const s of model.rapids) for (const sg of sides) consider(s, sg);
     if (opts.holes) for (const h of model.holes) for (const s of h.segs) for (const sg of sides) consider(s, sg);
+    if (opts.threads) for (const t of model.threads) for (const s of t.segs) for (const sg of sides) consider(s, sg);
     return bestV || best;
   }
 
@@ -1015,6 +1091,7 @@ document.getElementById("btnSketch").addEventListener("click", async () => {
     document.getElementById("bpMirror").classList.toggle("on", opts.mirror);
     document.getElementById("bpRapids").classList.toggle("on", opts.rapids);
     document.getElementById("bpHoles").classList.toggle("on", opts.holes);
+    document.getElementById("bpThreads").classList.toggle("on", opts.threads);
     document.getElementById("bpGrid").classList.toggle("on", opts.grid);
   }
 
@@ -1048,6 +1125,7 @@ document.getElementById("btnSketch").addEventListener("click", async () => {
   document.getElementById("bpMirror").addEventListener("click", () => { opts.mirror = !opts.mirror; hover = null; hideTip(); syncBtns(); fit(); });
   document.getElementById("bpRapids").addEventListener("click", () => { opts.rapids = !opts.rapids; hover = null; hideTip(); syncBtns(); draw(); });
   document.getElementById("bpHoles").addEventListener("click", () => { opts.holes = !opts.holes; hover = null; hideTip(); syncBtns(); draw(); });
+  document.getElementById("bpThreads").addEventListener("click", () => { opts.threads = !opts.threads; hover = null; hideTip(); syncBtns(); draw(); });
   document.getElementById("bpGrid").addEventListener("click", () => { opts.grid = !opts.grid; hover = null; hideTip(); syncBtns(); draw(); });
   document.getElementById("bpClose").addEventListener("click", closeBp);
   document.addEventListener("keydown", e => {
