@@ -302,6 +302,16 @@
     position:absolute;left:50%;top:60px;translate:-50% 0;z-index:2;pointer-events:none;
     font-size:.72rem;color:rgba(255,255,255,.7);text-shadow:0 1px 4px rgba(0,0,0,.6);
   }
+  .bp-tip{
+    position:absolute;z-index:4;display:none;pointer-events:none;white-space:nowrap;
+    background:rgba(8,11,22,.9);border:1px solid rgba(255,255,255,.28);border-radius:9px;
+    padding:7px 10px;font-size:.8rem;color:#e9edf7;line-height:1.35;
+    box-shadow:0 6px 20px rgba(0,0,0,.45);backdrop-filter:blur(6px);
+  }
+  .bp-tip-row{font-family:ui-monospace,Consolas,"Cascadia Mono",monospace}
+  .bp-tip-row span{display:inline-block;width:15px;color:#8d96ad;font-weight:700}
+  .bp-tip-row b{color:#fff;font-weight:700}
+  .bp-tip-sub{color:#8d96ad;font-size:.72rem;margin-top:1px}
 </style>
 </head>
 <body>
@@ -427,7 +437,8 @@
       Zamknij
     </button>
   </div>
-  <div class="bp-hint">Kółko myszy = powiększenie · przeciągnij = przesuń</div>
+  <div class="bp-hint">Kółko myszy = powiększenie · przeciągnij = przesuń · najedź na tor = wymiar</div>
+  <div id="bpTip" class="bp-tip"></div>
   <div class="bp-info" id="bpInfo"></div>
   <div class="bp-legend">
     <span><i class="bp-swatch"></i>Obróbka (posuw)</span>
@@ -674,11 +685,13 @@ document.getElementById("btnSketch").addEventListener("click", async () => {
 (function () {
   const ov = document.getElementById("bpOverlay");
   const canvas = document.getElementById("bpCanvas");
+  const tip = document.getElementById("bpTip");
   let ctx = null, dpr = 1;
   let model = null;            // { feeds, rapids, empty, zmin, zmax, rmax, maxDia, length }
   let T = { S: 1, tx: 0, ty: 0 }; // transformacja model → ekran
   const opts = { mirror: true, rapids: true, grid: true };
-  let open = false, drag = null;
+  let open = false, drag = null, hover = null;
+  const mouse = { x: 0, y: 0 };
 
   const SX = z => z * T.S + T.tx;
   const SY = r => -r * T.S + T.ty;
@@ -806,6 +819,7 @@ document.getElementById("btnSketch").addEventListener("click", async () => {
     strokeSegs(model.feeds, "#ffd60a", 1.7, null, false);
 
     drawOrigin();
+    if (hover) drawHover();
   }
 
   function drawGrid(W, H) {
@@ -863,6 +877,59 @@ document.getElementById("btnSketch").addEventListener("click", async () => {
 
   function ensureSized(cb) { if (canvas.clientWidth > 0) cb(); else requestAnimationFrame(() => ensureSized(cb)); }
 
+  /* — odczyt wymiaru po najechaniu na tor — */
+  function fmtDim(v) { return (Math.round(v * 1000) / 1000).toString(); }
+  function hideTip() { tip.style.display = "none"; }
+  function showTip(z, r) {
+    tip.innerHTML =
+      '<div class="bp-tip-row"><span>Ø</span><b>' + fmtDim(2 * r) + '</b> mm</div>' +
+      '<div class="bp-tip-row"><span>Z</span><b>' + fmtDim(z) + '</b> mm</div>' +
+      '<div class="bp-tip-row bp-tip-sub"><span>R</span>' + fmtDim(r) + ' mm</div>';
+    tip.style.display = "block";
+    const W = canvas.clientWidth, H = canvas.clientHeight, pad = 16;
+    let x = mouse.x + pad, y = mouse.y + pad;
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    if (x + w > W - 6) x = mouse.x - pad - w;
+    if (y + h > H - 6) y = mouse.y - pad - h;
+    tip.style.left = Math.max(6, x) + "px"; tip.style.top = Math.max(56, y) + "px";
+  }
+
+  /* najbliższy punkt/tor do kursora → faktyczny wymiar w tym miejscu.
+     Priorytet: wierzchołek (punkt programowany), potem rzut na odcinek. */
+  function hitTest(cx, cy) {
+    if (!model || model.empty) return null;
+    let best = null, bestD = 16 * 16, bestV = null, bestVD = 11 * 11;
+    const sides = opts.mirror ? [1, -1] : [1];
+    const consider = (seg, sign) => {
+      const ax = SX(seg.a.z), ay = SY(sign * seg.a.r), bx = SX(seg.b.z), by = SY(sign * seg.b.r);
+      let d = (ax - cx) * (ax - cx) + (ay - cy) * (ay - cy);
+      if (d < bestVD) { bestVD = d; bestV = { z: seg.a.z, r: seg.a.r, sign }; }
+      d = (bx - cx) * (bx - cx) + (by - cy) * (by - cy);
+      if (d < bestVD) { bestVD = d; bestV = { z: seg.b.z, r: seg.b.r, sign }; }
+      const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
+      let t = L2 ? ((cx - ax) * dx + (cy - ay) * dy) / L2 : 0;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      const px = ax + t * dx, py = ay + t * dy;
+      d = (px - cx) * (px - cx) + (py - cy) * (py - cy);
+      if (d < bestD) { bestD = d; best = { z: seg.a.z + t * (seg.b.z - seg.a.z), r: seg.a.r + t * (seg.b.r - seg.a.r), sign }; }
+    };
+    for (const s of model.feeds) for (const sg of sides) consider(s, sg);
+    if (opts.rapids) for (const s of model.rapids) for (const sg of sides) consider(s, sg);
+    return bestV || best;
+  }
+
+  function drawHover() {
+    const hx = SX(hover.z), hy = SY(hover.sign * hover.r);
+    ctx.save();
+    ctx.setLineDash([4, 3]); ctx.lineWidth = 1; ctx.strokeStyle = "rgba(255,255,255,.55)";
+    ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(hx, SY(0)); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath(); ctx.arc(hx, hy, 4.5, 0, 2 * Math.PI);
+    ctx.fillStyle = "#22d3ee"; ctx.fill();
+    ctx.lineWidth = 1.6; ctx.strokeStyle = "#08111f"; ctx.stroke();
+    ctx.restore();
+  }
+
   function openBp() {
     if (!prog) return;
     document.getElementById("bpTitle").textContent = "Podgląd konturu — " + (prog.name || "program");
@@ -874,9 +941,10 @@ document.getElementById("btnSketch").addEventListener("click", async () => {
     model = parse(prog.code || "");
     document.getElementById("bpEmpty").style.display = model.empty ? "grid" : "none";
     syncBtns();
+    hover = null; hideTip();
     ensureSized(() => { resize(); fit(); info(); });
   }
-  function closeBp() { ov.style.display = "none"; open = false; }
+  function closeBp() { ov.style.display = "none"; open = false; hover = null; hideTip(); }
 
   function syncBtns() {
     document.getElementById("bpMirror").classList.toggle("on", opts.mirror);
@@ -892,22 +960,33 @@ document.getElementById("btnSketch").addEventListener("click", async () => {
     const f = e.deltaY < 0 ? 1.12 : 1 / 1.12;
     const mz = (cx - T.tx) / T.S, mr = -(cy - T.ty) / T.S;
     T.S *= f; T.tx = cx - mz * T.S; T.ty = cy + mr * T.S;
-    draw();
+    hover = null; hideTip(); draw();
   }, { passive: false });
-  canvas.addEventListener("mousedown", e => { drag = { x: e.clientX, y: e.clientY, tx: T.tx, ty: T.ty }; canvas.classList.add("drag"); });
+  canvas.addEventListener("mousedown", e => { drag = { x: e.clientX, y: e.clientY, tx: T.tx, ty: T.ty }; canvas.classList.add("drag"); hover = null; hideTip(); });
   window.addEventListener("mousemove", e => { if (!drag) return; T.tx = drag.tx + (e.clientX - drag.x); T.ty = drag.ty + (e.clientY - drag.y); draw(); });
   window.addEventListener("mouseup", () => { drag = null; canvas.classList.remove("drag"); });
   window.addEventListener("resize", () => { if (open) { resize(); } });
 
-  document.getElementById("bpFit").addEventListener("click", () => { resize(); fit(); });
-  document.getElementById("bpMirror").addEventListener("click", () => { opts.mirror = !opts.mirror; syncBtns(); fit(); });
-  document.getElementById("bpRapids").addEventListener("click", () => { opts.rapids = !opts.rapids; syncBtns(); draw(); });
-  document.getElementById("bpGrid").addEventListener("click", () => { opts.grid = !opts.grid; syncBtns(); draw(); });
+  // najechanie na tor → znacznik + odczyt wymiaru (Ø / Z / R)
+  canvas.addEventListener("mousemove", e => {
+    if (drag || !open || !model || model.empty) return;
+    const r = canvas.getBoundingClientRect();
+    mouse.x = e.clientX - r.left; mouse.y = e.clientY - r.top;
+    const hit = hitTest(mouse.x, mouse.y);
+    if (hit) { hover = hit; showTip(hit.z, hit.r); } else { hover = null; hideTip(); }
+    draw();
+  });
+  canvas.addEventListener("mouseleave", () => { hover = null; hideTip(); if (open) draw(); });
+
+  document.getElementById("bpFit").addEventListener("click", () => { hover = null; hideTip(); resize(); fit(); });
+  document.getElementById("bpMirror").addEventListener("click", () => { opts.mirror = !opts.mirror; hover = null; hideTip(); syncBtns(); fit(); });
+  document.getElementById("bpRapids").addEventListener("click", () => { opts.rapids = !opts.rapids; hover = null; hideTip(); syncBtns(); draw(); });
+  document.getElementById("bpGrid").addEventListener("click", () => { opts.grid = !opts.grid; hover = null; hideTip(); syncBtns(); draw(); });
   document.getElementById("bpClose").addEventListener("click", closeBp);
   document.addEventListener("keydown", e => {
     if (!open) return;
     if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeBp(); }
-    else if (e.key === "0" || e.key.toLowerCase() === "f") { e.preventDefault(); resize(); fit(); }
+    else if (e.key === "0" || e.key.toLowerCase() === "f") { e.preventDefault(); hover = null; hideTip(); resize(); fit(); }
   }, true);
 
   window.__openBackplot = openBp;
