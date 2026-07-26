@@ -268,59 +268,98 @@
     }
   }
 
-  // ---------- przechwytywanie wysłania formularza ----------
+  // ---------- przechwytywanie danych logowania ----------
 
-  function captureCredentials(sourceNode) {
-    const container = sourceNode instanceof HTMLFormElement ? sourceNode : containerOf(sourceNode);
-    const passwords = passwordFields(container).filter((f) => f.value);
-    if (!passwords.length) return;
-    // Przy rejestracji (2 pola hasła) bierzemy pierwsze — to jest właściwe hasło.
-    const password = passwords[0].value;
-    const usernameField = findUsernameField(container, passwords[0]);
-    send({
-      type: "PENDING_SAVE_SET",
-      data: {
-        url: location.href,
-        username: usernameField?.value || "",
-        password,
-      },
-    });
-    // Jeśli strona nie przeładuje się (SPA), sami dopytamy o zapis.
-    setTimeout(maybeOfferSave, 1600);
+  // Ostatnio wpisane dane — na wypadek nietypowych stron (gry, SPA), gdzie
+  // pole hasła bywa czyszczone albo przycisk logowania to zwykły <div>.
+  let lastCreds = null;
+
+  const SUBMIT_HINT = /zaloguj|logu|login|log[\s-]?in|sign[\s-]?in|submit|wejd|wchod|graj|play|dalej|kontynu|continue|next|enter|ok\b/i;
+
+  function collectCredentials(scope) {
+    const root = scope || document;
+    const passwords = passwordFields(root).filter((f) => f.value);
+    if (!passwords.length) return null;
+    // Przy rejestracji (2 pola hasła) bierzemy pierwsze — to właściwe hasło.
+    const usernameField = findUsernameField(root, passwords[0]);
+    return { url: location.href, username: usernameField?.value || "", password: passwords[0].value };
   }
 
+  // Zapamiętuje dane do wysłania (bez pokazywania paska — to robi maybeOfferSave).
+  function rememberCredentials(sourceNode) {
+    const container = sourceNode instanceof HTMLFormElement ? sourceNode : containerOf(sourceNode);
+    const creds = collectCredentials(container) || collectCredentials(document) || lastCreds;
+    if (!creds) return null;
+    lastCreds = creds;
+    send({ type: "PENDING_SAVE_SET", data: creds });
+    return creds;
+  }
+
+  // Wygląda na przycisk/link, którym zatwierdza się logowanie?
+  function looksLikeSubmit(el) {
+    const b = el.closest(
+      'button, input[type="submit"], input[type="button"], [role="button"], a, [class*="btn"], [class*="button"], [class*="submit"], [class*="login"]'
+    );
+    if (b) {
+      if (b.tagName === "BUTTON" || (b.tagName === "INPUT" && /submit|button/.test(b.type))) return true;
+      return SUBMIT_HINT.test((b.textContent || b.value || "") + " " + b.className + " " + (b.id || ""));
+    }
+    return SUBMIT_HINT.test(el.textContent || "");
+  }
+
+  // Klasyczne wysłanie formularza.
   document.addEventListener(
     "submit",
     (event) => {
-      if (event.target instanceof HTMLFormElement) captureCredentials(event.target);
-    },
-    true
-  );
-
-  document.addEventListener(
-    "click",
-    (event) => {
-      const btn = event.target instanceof Element
-        ? event.target.closest('button, input[type="submit"], [role="button"]')
-        : null;
-      if (btn) captureCredentials(btn);
-    },
-    true
-  );
-
-  document.addEventListener(
-    "keydown",
-    (event) => {
-      if (
-        event.key === "Enter" &&
-        event.target instanceof HTMLInputElement &&
-        event.target.type === "password"
-      ) {
-        captureCredentials(event.target);
+      if (event.target instanceof HTMLFormElement && rememberCredentials(event.target)) {
+        setTimeout(maybeOfferSave, 1600);
       }
     },
     true
   );
+
+  // Dowolne kliknięcie: zapamiętaj dane, a jeśli to wygląda na przycisk
+  // logowania — dopytaj o zapis także bez przeładowania strony (SPA/gry).
+  document.addEventListener(
+    "click",
+    (event) => {
+      if (!(event.target instanceof Element)) return;
+      if (!collectCredentials(document)) return;
+      rememberCredentials(event.target);
+      if (looksLikeSubmit(event.target)) setTimeout(maybeOfferSave, 1600);
+    },
+    true
+  );
+
+  // Enter w dowolnym polu (login też zatwierdza logowanie).
+  document.addEventListener(
+    "keydown",
+    (event) => {
+      if (event.key === "Enter" && event.target instanceof HTMLInputElement) {
+        if (rememberCredentials(event.target)) setTimeout(maybeOfferSave, 1600);
+      }
+    },
+    true
+  );
+
+  // Na bieżąco zapamiętuj wpisywane hasło (nim strona je wyczyści).
+  document.addEventListener(
+    "input",
+    (event) => {
+      const t = event.target;
+      if (t instanceof HTMLInputElement && t.type === "password" && t.value) {
+        const creds = collectCredentials(containerOf(t)) || collectCredentials(document);
+        if (creds) lastCreds = creds;
+      }
+    },
+    true
+  );
+
+  // Ostatnia szansa: przy opuszczaniu strony wyślij zapamiętane dane,
+  // żeby po przeładowaniu można było zaproponować zapis.
+  window.addEventListener("pagehide", () => {
+    if (lastCreds) send({ type: "PENDING_SAVE_SET", data: lastCreds });
+  });
 
   // ---------- pasek: pytanie o zapis hasła ----------
 
