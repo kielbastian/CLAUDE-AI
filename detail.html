@@ -727,7 +727,8 @@ document.getElementById("btnSketch").addEventListener("click", async () => {
       // opis narzędzia (do średnicy wiertła/gwintownika) — z komentarza przy literze T lub tuż nad nią
       const cMatch = raw.match(/\(([^)]*)\)/);
       if (cMatch) lastComment = cMatch[1].trim();
-      if (/(?:^|[^A-Za-z])T\d{1,4}\b/.test(raw)) toolComment = cMatch ? cMatch[1].trim() : lastComment;
+      const hasTool = /(?:^|[^A-Za-z])T\d{1,4}\b/.test(raw);
+      if (hasTool) toolComment = cMatch ? cMatch[1].trim() : lastComment;
 
       const line = raw.replace(/\([^)]*\)/g, " ").trim();
       if (!line) continue;
@@ -775,11 +776,14 @@ document.getElementById("btnSketch").addEventListener("click", async () => {
         }
         x = null; z = null; continue;
       }
-      // aktywny gwint: dojazdy (G00) i gołe przejścia X pomijamy; każda inna linia domyka gwint
+      // aktywny gwint: domykamy TYLKO na realnym końcu operacji (zmiana narzędzia,
+      // G53/G28, zmiana płaszczyzny, ruch skrawający G01/2/3, cykl wiercenia).
+      // Linie S/M/F, komentarze i dojazdy G00 nie kończą gwintu — inaczej każde
+      // przejście stawało się osobnym gwintem (wachlarz linii).
       if (thr) {
-        if (nm === 0 && !g53 && !home && !drill) { x = null; z = null; continue; }
-        if (nx != null && nz == null && np === null && nm === null && !g53 && !home && !drill && !nonmove) {
-          thr.rootX = (thr.rootX != null) ? Math.min(thr.rootX, nx) : nx;
+        const brk = hasTool || g53 || home || drill || np !== null || nm === 1 || nm === 2 || nm === 3;
+        if (!brk) {
+          if (nx != null && nz == null && nm === null) thr.rootX = (thr.rootX != null) ? Math.min(thr.rootX, nx) : nx;
           x = null; z = null; continue;
         }
         flushThread();
