@@ -520,7 +520,7 @@ function replaceOnumInCode(code, onum) {
 }
 /* wyłuskuje numer O z kodu, gdy pole „Numer O” jest puste */
 function onumFromCode(code) {
-  const m = String(code || "").match(/^[ \t]*[Oo](\d{1,5})/m);
+  const m = String(code || "").match(/^[ \t]*[Oo](\d{1,8})/m);
   return m ? "O" + m[1] : "";
 }
 

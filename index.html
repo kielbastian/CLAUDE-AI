@@ -221,6 +221,10 @@
   .btn-danger:active{box-shadow:0 0 0 3px rgba(248,113,113,.25)}
   .btn-sm{padding:8px 14px;font-size:.82rem;border-radius:10px}
   .btn:disabled{opacity:.5;pointer-events:none}
+  /* przycisk w trakcie pracy (np. Odśwież podczas skanowania folderów) */
+  .btn.busy{opacity:.65;pointer-events:none}
+  .btn.busy svg{animation:btnSpin .9s linear infinite;transform-origin:50% 50%}
+  @keyframes btnSpin{to{transform:rotate(360deg)}}
   .btn .dot{width:8px;height:8px;border-radius:50%;flex:none;display:none}
   .btn.connected{border-color:rgba(52,211,153,.45)}
   .btn.connected .dot{display:block;background:var(--ok);box-shadow:0 0 8px var(--ok)}
@@ -1219,7 +1223,9 @@ const byId = id => programs.find(p => p.id === id);
 const uid = () => "p" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
 /* ════════════════════ analiza G-kodu ════════════════════ */
-const onumInt = s => { const m = String(s || "").match(/\d+/); return m ? parseInt(m[0], 10) : NaN; };
+/* numer O jako liczba — czyta pełny ciąg cyfr (także długie numery, np. O0123244),
+   zera wiodące bez znaczenia; bierze numer z początku, nie przypadkowe cyfry z tekstu */
+const onumInt = s => { const m = String(s || "").trim().match(/^[Oo]?\s*(\d+)/); return m ? parseInt(m[1], 10) : NaN; };
 const collapse = s => String(s || "").replace(/\s+/g, " ").trim();
 /* zamiana polskich znaków na łacińskie — „tłok” znajdzie „tlok” i odwrotnie */
 const PLCH = { "ą": "a", "ć": "c", "ę": "e", "ł": "l", "ń": "n", "ó": "o", "ś": "s", "ź": "z", "ż": "z" };
@@ -1233,7 +1239,7 @@ function sanitizeName(s) {
 /* wyciąga z kodu: numer O, nazwę z nawiasów obok numeru, nazwę detalu, numer rysunku SZ#### */
 function parseGcodeMeta(code) {
   const meta = { onum: "", name: "", detail: "", drawing: "" };
-  const m = String(code || "").match(/^[ \t]*[Oo](\d{1,5})[ \t]*(?:\(([^)]*)\))?/m);
+  const m = String(code || "").match(/^[ \t]*[Oo](\d{1,8})[ \t]*(?:\(([^)]*)\))?/m);
   if (m) { meta.onum = "O" + m[1]; meta.name = collapse(m[2]); }
   const dm = String(code || "").slice(0, 800).match(/\bSZ[-\s]?(\d{2,6})\b/i);
   if (dm) meta.drawing = "SZ" + dm[1];
@@ -1510,7 +1516,8 @@ async function restoreFolders() {
 
 /* skanuje wskazany folder (podfoldery z programami + pliki luzem) */
 async function rescanFolderKey(key) {
-  const f = folderOf(key); if (!f) return;
+  const f = folderOf(key);
+  if (!f) { toast("Nie znaleziono folderu do odświeżenia — połącz go ponownie"); return; }
   let found = [];
   if (window.native) {
     try { found = await window.native.scanPrograms(f.path); }
@@ -1539,10 +1546,16 @@ async function rescanFolderKey(key) {
   mergeScanFolder(f, found);
 }
 
-/* odświeżenie: aktywny folder (albo wszystkie, gdy widok „Wszystkie foldery") */
+/* odświeżenie: skanuje WSZYSTKIE połączone foldery, niezależnie od tego, który jest
+   aktywny i co jest w widoku (wcześniej skanowany był tylko aktywny folder, więc
+   „Odśwież" pozornie nic nie robiło, gdy oglądany był inny folder) */
 async function rescanFolder() {
-  if (folderView === "all" && window.native) { for (const f of folders.slice()) await rescanFolderKey(f.key); return; }
-  if (activeFolderKey) await rescanFolderKey(activeFolderKey);
+  if (window.native && folders.length) {
+    for (const f of folders.slice()) await rescanFolderKey(f.key);
+    return;
+  }
+  const key = activeFolderKey || (fsRoot && fsRoot.key) || (folders[0] && folders[0].key);
+  if (key) await rescanFolderKey(key);
 }
 
 /* scala wynik skanowania folderu z biblioteką (programy dyskowe namespace'owane kluczem
@@ -2822,11 +2835,26 @@ document.getElementById("sketchInput").addEventListener("keydown", e => {
   if (e.key === "Enter") { e.preventDefault(); document.getElementById("btnOpenPdfDir").click(); }
 });
 
-/* przycisk Odśwież — ponowny skan obu folderów */
+/* przycisk Odśwież — ponowny skan wszystkich folderów z programami i folderu PDF.
+   Na koniec ZAWSZE czyści cache miniaturek i przerysowuje widok, żeby zmiany na
+   dysku (nowe pliki .nc/.txt, nowe podfoldery) były widoczne od razu — bez
+   przełączania widoku Programy/Foldery. */
 document.getElementById("btnRefresh").addEventListener("click", async () => {
-  if (!folders.length && !pdfRoot) { toast("Najpierw połącz folder z programami"); return; }
-  if (folders.length) await rescanFolder();
-  if (pdfRoot) await scanPdfFolder();
+  if (!folders.length && !fsRoot && !pdfRoot) { toast("Najpierw połącz folder z programami"); return; }
+  const btn = document.getElementById("btnRefresh");
+  if (btn.dataset.busy === "1") return;   // nie uruchamiaj drugiego skanu w trakcie
+  btn.dataset.busy = "1"; btn.classList.add("busy");
+  try {
+    if (folders.length || fsRoot) await rescanFolder();
+    if (pdfRoot) await scanPdfFolder();
+  } catch (e) {
+    toast("Odświeżanie nie powiodło się: " + ((e && e.message) || e));
+  } finally {
+    btn.dataset.busy = ""; btn.classList.remove("busy");
+    thumbByCard.clear();
+    updateFolderUI(false);
+    render();
+  }
 });
 
 /* okno „Dodaj rysunek PDF” z poziomu karty */
