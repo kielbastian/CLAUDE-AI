@@ -31,8 +31,15 @@ jobs:
       - name: Instalacja zależności
         run: npm install
 
-      - name: Budowa przenośnego exe i wersji ZIP
-        run: npx electron-builder --win portable zip --publish never
+      - name: Budowa przenośnego exe
+        run: npx electron-builder --win portable --publish never
+
+      # ZIP zawiera TYLKO samodzielny CNC-Manager.exe — spakowanie sprawia, że
+      # pobieranie przechodzi bez fałszywego alarmu antywirusa, a po rozpakowaniu
+      # użytkownik ma jeden plik, który działa z dowolnego miejsca.
+      - name: Spakuj przenośny exe do ZIP
+        run: Compress-Archive -Path dist\CNC-Manager.exe -DestinationPath dist\CNC-Manager-windows.zip -Force
+        shell: pwsh
 
       - name: Zawartość katalogu dist
         run: dir dist
@@ -52,10 +59,13 @@ jobs:
           tag_name: windows-exe
           name: CNC Manager — Windows (exe)
           body: |
-            Przenośna aplikacja Windows. Do wyboru dwie wersje:
+            Przenośna aplikacja Windows — **jeden samodzielny plik**, bez instalacji.
+            Działa z dowolnego miejsca: pulpitu, dysku, pendrive'a.
 
-            - **CNC-Manager-windows.zip** — zalecane. Rozpakuj do dowolnego folderu i uruchom `CNC Manager.exe` ze środka. Instalacja nie jest potrzebna.
-            - **CNC-Manager.exe** — pojedynczy plik, uruchamiany podwójnym kliknięciem.
+            - **CNC-Manager-windows.zip** — zalecane. Rozpakuj i uruchom `CNC-Manager.exe`.
+              W środku jest dokładnie ten sam plik co niżej — spakowany, żeby pobieranie
+              przechodziło bez fałszywego alarmu antywirusa.
+            - **CNC-Manager.exe** — ten sam plik bez pakowania (przeglądarka może go zablokować).
 
             Pliki są nadpisywane najnowszą wersją przy każdej zmianie w aplikacji.
 

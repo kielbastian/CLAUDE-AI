@@ -54,9 +54,17 @@ Workflow `.github/workflows/build-windows.yml`:
 - **filtr ścieżek**: `index.html`, `detail.html`, `widget.html`, `preload.js`,
   `main.js`, `package.json`, `vendor/**`, `build/**`, sam workflow
   → zmiany w `docs/**` **nie** uruchamiają builda
-- `npx electron-builder --win portable` → `dist/CNC-Manager.exe`
-- publikacja do release'a o tagu **`windows-exe`**, plik nadpisywany za każdym razem
+- `npx electron-builder --win portable` → `dist/CNC-Manager.exe` (jeden samodzielny plik)
+- krok `Compress-Archive` pakuje ten exe do `dist/CNC-Manager-windows.zip`
+- publikacja do release'a o tagu **`windows-exe`** — oba pliki, nadpisywane za każdym razem
 - czas builda: ~2,5 min
+
+**Dlaczego ZIP:** niepodpisany portable exe (samorozpakowujący stub NSIS) bywa
+blokowany przez Defendera/przeglądarkę jako fałszywy alarm; spakowany przechodzi.
+Próbowano też targetu `zip` electron-buildera (archiwum z rozpakowaną aplikacją),
+ale użytkownik odrzucił to rozwiązanie — exe z takiego archiwum nie działa po
+przeniesieniu samego pliku (brakuje `ffmpeg.dll` i reszty). Ma zostać
+**jeden samodzielny exe, tylko spakowany**.
 
 Stały link do pobrania (nie zmienia się):
 `https://github.com/kielbastian/CLAUDE-AI/releases/download/windows-exe/CNC-Manager.exe`

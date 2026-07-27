@@ -27,9 +27,8 @@
       "build/icon.png"
     ],
     "win": {
-      "target": ["portable", "zip"],
-      "icon": "build/icon.ico",
-      "artifactName": "CNC-Manager-windows.${ext}"
+      "target": ["portable"],
+      "icon": "build/icon.ico"
     },
     "portable": {
       "artifactName": "CNC-Manager.exe"
