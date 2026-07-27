@@ -695,6 +695,12 @@
                             <div class="sub" style="font-size:11px;color:var(--text-dim);">
                                 Wpisuj wartości bezpośrednio: Ø X, długość Z, faza/promień na narożu.
                             </div>
+                            <div class="seg" id="seg_dims_target" style="padding:2px;">
+                                <input type="radio" id="dimt_ext" name="dims_target" value="TURN" checked>
+                                <label for="dimt_ext" style="padding:7px 8px;">⌭ Zewnętrzne (toczenie)</label>
+                                <input type="radio" id="dimt_int" name="dims_target" value="BORE">
+                                <label for="dimt_int" style="padding:7px 8px;">◎ Wewnętrzne (wytaczanie)</label>
+                            </div>
                             <div class="tbl-wrap">
                                 <table class="coord">
                                     <thead>
@@ -992,6 +998,7 @@
         let profile = [];
         let boreProfile = [];              // profil wytaczania rysowany w tym samym szkicowniku
         let sketchTarget = 'TURN';         // 'TURN' | 'BORE' — do którego profilu trafiają rysowane punkty
+        let tableTarget = 'TURN';          // 'TURN' | 'BORE' — który profil pokazuje/edytuje tabela wymiarowania
         let simulationPath = [];
         let animationId = null, simIndex = 0, currentSimPos = { x: 0, z: 0 }, isAnimating = false;
 
@@ -1018,6 +1025,13 @@
         function boreSketchOn() { const el = document.getElementById('bore_sketch'); return !!(el && el.checked); }
         function drawTarget() { return (boreSketchOn() && sketchTarget === 'BORE') ? 'BORE' : 'TURN'; }
         function activeSketch() { return drawTarget() === 'BORE' ? boreProfile : profile; }
+        // Profil pokazywany/edytowany w tabeli wymiarowania (zewn. toczenie lub wewn. wytaczanie)
+        function tableProfile() { return tableTarget === 'BORE' ? boreProfile : profile; }
+        // Po edycji w tabeli: dla wytaczania odśwież tylko rysunek/opis, dla toczenia pełny refresh
+        function afterTableChange() {
+            if (tableTarget === 'BORE') { renderTable(); drawCAD(); updateBoreInfo(); }
+            else { syncBlank(); refreshAll(); }
+        }
 
         /* ---------- Toasts ---------- */
         function toast(msg, type = 'info') {
@@ -1061,9 +1075,10 @@
            ============================================================ */
         function renderTable() {
             const body = document.getElementById('coord_body');
+            const arr = tableProfile();
             body.innerHTML = '';
             activeRowIdx = null;
-            profile.forEach((pt, i) => {
+            arr.forEach((pt, i) => {
                 const tr = document.createElement('tr');
                 if (pt.groove) tr.className = 'grv';
                 tr.innerHTML = `
@@ -1118,22 +1133,22 @@
                     e.stopPropagation();
                     const dd = opt.closest('.corner-dd');
                     const i = parseInt(dd.dataset.i);
-                    if (!profile[i]) return;
-                    profile[i].corner = opt.dataset.value;
+                    const a = tableProfile();
+                    if (!a[i]) return;
+                    a[i].corner = opt.dataset.value;
                     closeAllCornerMenus();
                     setActiveRow(null);
-                    syncBlank();
-                    refreshAll();
+                    afterTableChange();
                 });
             });
             body.querySelectorAll('[data-del]').forEach(el => {
                 el.addEventListener('click', () => {
                     const idx = parseInt(el.dataset.del);
-                    profile.splice(idx, 1);
-                    refreshAll();
+                    tableProfile().splice(idx, 1);
+                    afterTableChange();
                 });
             });
-            document.getElementById('chip_pts').innerText = profile.length + ' punktów';
+            document.getElementById('chip_pts').innerText = arr.length + ' punktów';
         }
 
         function cornerLabel(c) { return c === 'C' ? 'Faza C' : c === 'R' ? 'Promień R' : '—'; }
@@ -1169,18 +1184,18 @@
         function onTableEdit(e) {
             const i = parseInt(e.target.dataset.i);
             const k = e.target.dataset.k;
-            if (!profile[i]) return;
+            const arr = tableProfile();
+            if (!arr[i]) return;
             if (k === 'corner') {
-                profile[i].corner = e.target.value;
+                arr[i].corner = e.target.value;
             } else {
                 let val = parseFloat(e.target.value);
                 if (isNaN(val)) val = 0;
                 if (k === 'x' && val < 0) val = 0;
                 if (k === 'cval' && val < 0) val = 0;
-                profile[i][k] = val;
+                arr[i][k] = val;
             }
-            syncBlank();
-            refreshAll();
+            afterTableChange();
         }
 
         function syncBlank() {
@@ -1418,7 +1433,7 @@
             if (arr.length && pt.x === last.x && pt.z === last.z) return;
 
             arr.push({ x: pt.x, z: pt.z, corner: 'none', cval: 0, groove: false });
-            if (drawBore) { drawCAD(); updateBoreInfo(); }
+            if (drawBore) { drawCAD(); updateBoreInfo(); if (tableTarget === 'BORE') renderTable(); }
             else { syncBlank(); refreshAll(); }
         });
 
@@ -1644,7 +1659,7 @@
                 // węzły
                 profile.forEach((pt, i) => {
                     const px = getZPix(pt.z), py = getXPix(pt.x);
-                    if (i === activeRowIdx) {
+                    if (i === activeRowIdx && tableTarget !== 'BORE') {
                         // punkt edytowany w tabeli — wyróżnienie
                         ctx.strokeStyle = '#facc15'; ctx.lineWidth = 2;
                         ctx.beginPath(); ctx.arc(px, py, 9, 0, 2 * Math.PI); ctx.stroke();
@@ -1672,6 +1687,12 @@
                 ctx.stroke();
                 boreProfile.forEach((pt, i) => {
                     const px = getZPix(pt.z), py = getXPix(pt.x);
+                    if (i === activeRowIdx && tableTarget === 'BORE') {
+                        ctx.strokeStyle = '#facc15'; ctx.lineWidth = 2;
+                        ctx.beginPath(); ctx.arc(px, py, 9, 0, 2 * Math.PI); ctx.stroke();
+                        ctx.fillStyle = 'rgba(250, 204, 21, 0.25)';
+                        ctx.beginPath(); ctx.arc(px, py, 9, 0, 2 * Math.PI); ctx.fill();
+                    }
                     ctx.fillStyle = '#fdba74';
                     ctx.beginPath(); ctx.arc(px, py, 4, 0, 2 * Math.PI); ctx.fill();
                     ctx.fillStyle = '#0b1120'; ctx.font = 'bold 9px monospace';
@@ -2856,9 +2877,11 @@
         });
 
         document.getElementById('btn_add_row').addEventListener('click', () => {
-            const last = profile.length ? profile[profile.length - 1] : { x: isInternal() ? 20 : 0, z: 0 };
-            profile.push({ x: last.x, z: last.z - 10, corner: 'none', cval: 0, groove: false });
-            refreshAll();
+            const arr = tableProfile();
+            const dflt = tableTarget === 'BORE' ? 24 : (isInternal() ? 20 : 0);
+            const last = arr.length ? arr[arr.length - 1] : { x: dflt, z: 0 };
+            arr.push({ x: last.x, z: last.z - 10, corner: 'none', cval: 0, groove: false });
+            afterTableChange();
         });
         document.getElementById('btn_load_demo').addEventListener('click', () => {
             profile = isInternal() ? demoInternal() : demoExternal();
@@ -2868,6 +2891,7 @@
         document.getElementById('btn_clear_cad').addEventListener('click', () => {
             if (drawTarget() === 'BORE') {
                 boreProfile = []; drawCAD(); updateBoreInfo();
+                if (tableTarget === 'BORE') renderTable();
                 toast('Wyczyszczono profil wytaczania.', 'info');
                 return;
             }
@@ -2881,6 +2905,7 @@
             if (drawTarget() === 'BORE') {
                 if (boreProfile.length) boreProfile.pop();
                 drawCAD(); updateBoreInfo();
+                if (tableTarget === 'BORE') renderTable();
                 return;
             }
             if (profile.length) profile.pop();
@@ -2997,6 +3022,17 @@
             sketchTarget = e.target.value;
             document.getElementById('badge_mode').innerHTML = 'Tryb: <b>' + (sketchTarget === 'BORE' ? 'Rysowanie wytaczania' : 'Rysowanie') + '</b>';
             drawCAD();
+        }));
+        // Wymiarowanie: przełączanie tabeli między toczeniem (zewn.) a wytaczaniem (wewn.)
+        document.querySelectorAll('input[name="dims_target"]').forEach(r => r.addEventListener('change', (e) => {
+            tableTarget = e.target.value;
+            if (tableTarget === 'BORE' && !boreSketchOn()) {
+                // włącz wytaczanie w szkicowniku, aby edytowany profil był używany i rysowany
+                document.getElementById('bore_sketch').checked = true;
+                document.getElementById('op_ext').checked = true;
+                updateModeUI(); updateSketchTargetUI(); updateBoreInfo();
+            }
+            renderTable(); drawCAD();
         }));
         updateBoreInfo();
         updateSketchTargetUI();
