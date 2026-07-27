@@ -498,20 +498,21 @@
         .tab-panel { display: none; }
         .tab-panel.active { display: flex; flex-direction: column; gap: 15px; }
 
-        /* Parametry i Gwint: pola jednej wielkości, zwarte (nie za długie), zawijane */
-        #tab_params.active, #tab_thread.active {
+        /* Parametry / Gwint / Wytaczanie: pola jednej wielkości, zwarte, zawijane */
+        #tab_params.active, #tab_thread.active, #tab_bore.active {
             display: flex; flex-direction: row; flex-wrap: wrap; gap: 12px 14px; align-content: start;
         }
-        #tab_params .grid-2, #tab_thread .grid-2 { display: contents; }
+        #tab_params .grid-2, #tab_thread .grid-2, #tab_bore .grid-2 { display: contents; }
         #tab_params > .field, #tab_params .grid-2 > .field,
-        #tab_thread > .field, #tab_thread .grid-2 > .field {
+        #tab_thread > .field, #tab_thread .grid-2 > .field,
+        #tab_bore > .field, #tab_bore .grid-2 > .field {
             flex: 1 1 168px; min-width: 150px; width: auto;
         }
         /* elementy pełnej szerokości */
         #tab_params > .field:has(.seg), #tab_thread .field:has(.seg),
         #tab_thread .field:has(#thread_dd),
-        #tab_params > .sub, #tab_thread > .sub,
-        #btn_generate, #btn_gen_thread, #error_box, .combine-check, .thread-info,
+        #tab_params > .sub, #tab_thread > .sub, #tab_bore > .sub,
+        #btn_generate, #btn_gen_thread, #btn_gen_bore, #error_box, .combine-check, .thread-info,
         #thread_custom_wrap {
             flex: 1 1 100%; width: 100%;
         }
@@ -599,6 +600,7 @@
                             <button class="tab active" data-tab="params">⚙️ Parametry</button>
                             <button class="tab" data-tab="dims">📐 Wymiarowanie</button>
                             <button class="tab" data-tab="thread">🔩 Gwint</button>
+                            <button class="tab" data-tab="bore">◎ Wytaczanie</button>
                         </div>
                         <div class="card-body tab-panel active" id="tab_params">
 
@@ -810,6 +812,67 @@
 
                             <div id="thread_info" class="thread-info"></div>
                             <button class="btn-primary" id="btn_gen_thread">🔩 Generuj kod gwintu</button>
+                        </div>
+
+                        <!-- ZAKŁADKA: Wytaczanie wewnętrzne (G71/G70) — wstawiane jak gwint -->
+                        <div class="card-body tab-panel" id="tab_bore">
+                            <div class="sub" style="font-size:11px;color:var(--text-dim);">
+                                Prosty otwór walcowy: podaj średnicę i głębokość — kod G71/G70 dopisze się osobno lub po toczeniu.
+                            </div>
+                            <div class="grid-2">
+                                <div class="field">
+                                    <label>Średnica otworu Ø (mm)</label>
+                                    <input type="number" id="bore_dia" value="30" step="0.1" min="0.5">
+                                </div>
+                                <div class="field">
+                                    <label>Głębokość otworu Z (mm)</label>
+                                    <input type="number" id="bore_len" value="25" step="0.5" min="0.5">
+                                </div>
+                                <div class="field">
+                                    <label>Otwór wstępny Ø (mm)</label>
+                                    <input type="number" id="bore_pilot" value="20" step="0.5" min="0.5">
+                                </div>
+                                <div class="field">
+                                    <label>Głębokość skrawania ap (mm)</label>
+                                    <input type="number" id="bore_ap" value="1.50" step="0.1" min="0.05">
+                                </div>
+                                <div class="field">
+                                    <label>Prędkość Vc (m/min)</label>
+                                    <input type="number" id="bore_vc" value="150" min="1">
+                                </div>
+                                <div class="field">
+                                    <label>Maks. obroty (G50)</label>
+                                    <input type="number" id="bore_g50" value="2500" min="1">
+                                </div>
+                                <div class="field">
+                                    <label>Posuw zgrubny (mm/obr)</label>
+                                    <input type="number" id="bore_frough" value="0.15" step="0.01">
+                                </div>
+                                <div class="field">
+                                    <label>Posuw wykańczający (mm/obr)</label>
+                                    <input type="number" id="bore_ffin" value="0.08" step="0.01">
+                                </div>
+                                <div class="field">
+                                    <label>Naddatek wykań. X (I)</label>
+                                    <input type="number" id="bore_allow" value="0.30" step="0.05">
+                                </div>
+                                <div class="field">
+                                    <label>Narzędzie i korektor (T)</label>
+                                    <input type="text" id="bore_tool" value="505">
+                                </div>
+                                <div class="field">
+                                    <label>Wyjście / dobieg Z (mm)</label>
+                                    <input type="number" id="bore_safe_z" value="5.00" step="0.5">
+                                </div>
+                            </div>
+
+                            <label class="combine-check">
+                                <input type="checkbox" id="bore_combine">
+                                <span>Połącz z toczeniem (profil z zakładki Parametry) — jeden program</span>
+                            </label>
+
+                            <div id="bore_info" class="thread-info"></div>
+                            <button class="btn-primary" id="btn_gen_bore">◎ Generuj kod wytaczania</button>
                         </div>
                     </div>
                 </div>
@@ -2547,6 +2610,92 @@
         }
 
         /* ============================================================
+           WYTACZANIE WEWNĘTRZNE — wstawiane jak gwint (parametrycznie)
+           ============================================================ */
+        // Prosty otwór walcowy G71/G70 (bez nagłówka/stopki programu). Zwraca { lines, label } lub null.
+        function boreBody() {
+            const dia = parseFloat(document.getElementById('bore_dia').value);
+            const len = Math.abs(parseFloat(document.getElementById('bore_len').value));
+            const pilot = parseFloat(document.getElementById('bore_pilot').value);
+            const ap = parseFloat(document.getElementById('bore_ap').value);
+            const vc = parseFloat(document.getElementById('bore_vc').value);
+            const g50 = parseFloat(document.getElementById('bore_g50').value);
+            const fRough = parseFloat(document.getElementById('bore_frough').value);
+            const fFin = parseFloat(document.getElementById('bore_ffin').value);
+            const allowX = parseFloat(document.getElementById('bore_allow').value);
+            const tool = (document.getElementById('bore_tool').value || '505').trim();
+            const safeZ = parseFloat(document.getElementById('bore_safe_z').value);
+
+            if (!(dia > 0) || !(len > 0)) { showError('Wytaczanie: podaj średnicę i głębokość otworu.'); return null; }
+            if (!(pilot > 0) || pilot >= dia) { showError('Wytaczanie: otwór wstępny musi być mniejszy od średnicy docelowej.'); return null; }
+            if (!(ap > 0)) { showError('Wytaczanie: podaj głębokość skrawania ap.'); return null; }
+
+            const P = 10, Q = 20, zEnd = -len, approachX = Math.max(pilot - 2, 1), allowZ = 0.1;
+            const g = [];
+            g.push('(WYTACZANIE WEWN. Fi' + fmt(dia) + ' x ' + fmt(len) + ')');
+            g.push('T' + tool + ' (NOZ WYTACZAK)');
+            g.push('G54');
+            g.push('G50 S' + g50);
+            g.push('G96 S' + Math.round(vc) + ' M03');
+            g.push('G00 Z' + fmtNC(safeZ) + ' M08');
+            g.push('G00 X' + fmtNC(approachX));
+            g.push('');
+            g.push(`G71 P${P} Q${Q} D${fmtNC(ap)} I${fmtNC(-Math.abs(allowX))} K${fmtNC(allowZ)} F${fmtNC(fRough)}`);
+            g.push(`N${P} G00 X${fmtNC(dia)} Z0.`);
+            g.push(`G01 Z${fmtNC(zEnd)} F${fmtNC(fFin)}`);
+            g.push(`N${Q} G00 X${fmtNC(approachX)}`);
+            g.push('');
+            g.push(`G70 P${P} Q${Q} F${fmtNC(fFin)}`);
+            g.push('G00 Z' + fmtNC(safeZ) + ' M09');
+            g.push('M05');
+            return { lines: g, label: 'WYTACZANIE Fi' + fmt(dia) };
+        }
+
+        function generateBoreCode() {
+            if (document.getElementById('bore_combine').checked) { generateBoreCombined(); return; }
+            const bb = boreBody();
+            if (!bb) return;
+            const g = ['%', 'O1006 (' + bb.label + ')', 'G21 G18', 'G40 G80 G99', '']
+                .concat(bb.lines)
+                .concat(['G00 G53 X0. Y0.', 'G53 Z0.', 'M30', '%']);
+            renderOutput(g); revealOutput();
+            simulationPath = [];
+            if (stepMode) setStepMode(false);
+            toast('Wygenerowano kod wytaczania.', 'ok');
+        }
+
+        // Toczenie + wytaczanie w jednym programie (jak toczenie + gwint)
+        function generateBoreCombined() {
+            const t = turningBody();
+            if (!t) return;
+            const bb = boreBody();
+            if (!bb) return;
+            const g = ['%', 'O1005 (TOCZENIE + ' + bb.label + ')', 'G21 G18', 'G40 G80 G99', '']
+                .concat(t.lines)
+                .concat(['G00 G53 X0. Y0.', 'G53 Z0.', 'M05', '', '(--- ZMIANA NARZEDZIA: WYTACZAK ---)'])
+                .concat(bb.lines)
+                .concat(['', 'G00 G53 X0 Y0', 'G53 Z0', 'M30', '%']);
+            renderOutput(g); revealOutput();
+            const s = t.sim;
+            buildSimPath(s.internal, s.dBlank, s.dPilot, s.ap, s.allowX, s.safeZ, s.approachX, s.zMin, s.maxX, s.minX);
+            if (!isAnimating && simulationPath.length) currentSimPos = { ...simulationPath[0] };
+            toast('Wygenerowano: toczenie + wytaczanie.', 'ok');
+        }
+
+        function updateBoreInfo() {
+            const el = document.getElementById('bore_info');
+            if (!el) return;
+            const dia = parseFloat(document.getElementById('bore_dia').value);
+            const pilot = parseFloat(document.getElementById('bore_pilot').value);
+            const len = Math.abs(parseFloat(document.getElementById('bore_len').value));
+            const ap = parseFloat(document.getElementById('bore_ap').value);
+            const tool = (document.getElementById('bore_tool').value || '505').trim();
+            if (!(dia > 0) || !(pilot > 0) || !(len > 0) || !(ap > 0) || pilot >= dia) { el.innerHTML = ''; return; }
+            const passes = Math.max(1, Math.ceil(((dia - pilot) / 2) / ap));
+            el.innerHTML = `Otwór <b>Ø${fmt(dia)}</b> z Ø${fmt(pilot)}, głęb. <b>${fmt(len)} mm</b> · ~<b>${passes}</b> przejść zgrubnych (ap ${fmt(ap)}) · narzędzie <b>T${tool}</b>`;
+        }
+
+        /* ============================================================
            UI: przełączniki, przyciski
            ============================================================ */
         function updateModeUI() {
@@ -2694,6 +2843,7 @@
             document.getElementById('tab_params').classList.toggle('active', name === 'params');
             document.getElementById('tab_dims').classList.toggle('active', name === 'dims');
             document.getElementById('tab_thread').classList.toggle('active', name === 'thread');
+            document.getElementById('tab_bore').classList.toggle('active', name === 'bore');
         }
         document.querySelectorAll('.card-tabs .tab').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
 
@@ -2718,6 +2868,12 @@
         document.getElementById('btn_gen_thread').addEventListener('click', generateThreadCode);
         renderThreadMenu();
         updateThreadInfo();
+
+        // Wytaczanie wewnętrzne (jak gwint)
+        ['bore_dia', 'bore_pilot', 'bore_len', 'bore_ap', 'bore_tool'].forEach(id =>
+            document.getElementById(id).addEventListener('input', updateBoreInfo));
+        document.getElementById('btn_gen_bore').addEventListener('click', generateBoreCode);
+        updateBoreInfo();
 
         // Tryb krokowy
         document.getElementById('btn_step_mode').addEventListener('click', () => setStepMode(!stepMode));
