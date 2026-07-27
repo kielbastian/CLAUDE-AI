@@ -867,11 +867,11 @@
                             </div>
 
                             <label class="combine-check">
-                                <input type="checkbox" id="bore_sketch">
+                                <input type="checkbox" id="bore_sketch" checked>
                                 <span>Rysuj profil wytaczania w szkicowniku (razem z toczeniem)</span>
                             </label>
                             <label class="combine-check">
-                                <input type="checkbox" id="bore_combine">
+                                <input type="checkbox" id="bore_combine" checked>
                                 <span>Połącz z toczeniem (profil z zakładki Parametry) — jeden program</span>
                             </label>
 
@@ -2702,7 +2702,10 @@
             }
             if (!(ap > 0)) { showError('Wytaczanie: podaj głębokość skrawania ap.'); return null; }
 
-            const P = 10, Q = 20, approachX = Math.max(pilot - 2, 1), allowZ = 0.1;
+            // Inne numery bloków niż toczenie (P10/Q20) — losowe, nigdy 10/20
+            const P = 30 + 10 * Math.floor(Math.random() * 7); // 30..90
+            const Q = P + 10;
+            const approachX = Math.max(pilot - 2, 1), allowZ = 0.1;
             const g = [];
             g.push('(WYTACZANIE WEWN. Fi' + fmt(dia) + ' x ' + fmt(len) + ')');
             g.push('T' + tool + ' (NOZ WYTACZAK)');
