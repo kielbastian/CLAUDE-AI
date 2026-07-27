@@ -1814,16 +1814,27 @@ async function openAddPdf(id) {
   renderApList();
   openModal("mAddPdf");
 }
-/* zapisuje upuszczony plik PDF do podfolderu programu */
+/* katalog programu (przeglądarka): pusty p.dir = program leży w głównym folderze */
+async function progDirHandle(p, create) {
+  if (!fsRoot) return null;
+  return p.dir ? await fsRoot.getDirectoryHandle(p.dir, { create: !!create }) : fsRoot;
+}
+/* ścieżka pliku w folderze programu — bez podwójnych ukośników, gdy p.dir jest pusty */
+function progFilePath(p, name) {
+  const root = rootPathOf(p);
+  return root ? [root, p.dir, name].filter(Boolean).join("/") : null;
+}
+
+/* zapisuje upuszczony plik PDF do folderu programu */
 async function savePdfFileToProgram(p, file) {
-  if (!fsRoot || !p.dir) return false;
+  if (!fsRoot || !p) return false;
   try {
     const buf = await file.arrayBuffer();
     if (window.native) {
       const r = await window.native.writeBinary(rootPathOf(p), p.dir, file.name, new Uint8Array(buf));
-      if (!(r && r.ok)) return false;
+      if (!(r && r.ok)) { fsLastError = (r && r.error) || "zapis pliku nie powiódł się"; return false; }
     } else {
-      const dh = await fsRoot.getDirectoryHandle(p.dir, { create: true });
+      const dh = await progDirHandle(p, true);
       const fh = await dh.getFileHandle(file.name, { create: true });
       const w = await fh.createWritable();
       await w.write(buf);
@@ -1837,13 +1848,13 @@ async function savePdfFileToProgram(p, file) {
 
 /* usuwa rysunek PDF z podfolderu programu */
 async function removePdfFromProgram(p, name) {
-  if (!fsRoot || !p.dir || !name) return false;
+  if (!fsRoot || !p || !name) return false;
   try {
     if (window.native) {
       const r = await window.native.deleteFile(rootPathOf(p), p.dir, name);
       if (!(r && r.ok)) return false;
     } else {
-      const dh = await fsRoot.getDirectoryHandle(p.dir);
+      const dh = await progDirHandle(p);
       await dh.removeEntry(name);
     }
     p.pdfs = (p.pdfs || []).filter(x => x !== name);
@@ -1876,16 +1887,16 @@ async function makeThumb(file) {
 }
 
 async function pdfFileOf(p) {
-  if (!fsRoot || !p.dir || !(p.pdfs && p.pdfs.length)) return null;
+  if (!fsRoot || !p || !(p.pdfs && p.pdfs.length)) return null;
   if (window.native) {
     try {
-      const r = await window.native.readFile(rootPathOf(p) + "/" + p.dir + "/" + p.pdfs[0]);
+      const r = await window.native.readFile(progFilePath(p, p.pdfs[0]));
       if (!(r && r.ok)) return null;
       return new File([r.data], p.pdfs[0], { type: "application/pdf", lastModified: Math.round(r.mtime) });
     } catch (e) { return null; }
   }
   try {
-    const dh = await fsRoot.getDirectoryHandle(p.dir);
+    const dh = await progDirHandle(p);
     const fh = await dh.getFileHandle(p.pdfs[0]);
     return await fh.getFile();
   } catch (e) { return null; }
@@ -1974,18 +1985,18 @@ async function openOriginal(id) {
 
 /* kopiuje wybrany rysunek PDF do podfolderu programu */
 async function copyPdfToProgram(p, entry) {
-  if (!fsRoot || !p.dir || !entry) return false;
+  if (!fsRoot || !p || !entry) { fsLastError = "brak połączonego folderu albo rysunku"; return false; }
   if (window.native) {
     const r = await window.native.copyFile(entry.abs, rootPathOf(p), p.dir, entry.name)
-      .catch(() => ({ ok: false }));
-    if (!(r && r.ok)) return false;
+      .catch(e => ({ ok: false, error: String((e && e.message) || e) }));
+    if (!(r && r.ok)) { fsLastError = (r && r.error) || "kopiowanie nie powiodło się"; return false; }
     p.pdfs = [entry.name, ...(p.pdfs || []).filter(x => x !== entry.name)];
     thumbByCard.delete(p.id);
     return true;
   }
   try {
     const src = await entry.handle.getFile();
-    const dh = await fsRoot.getDirectoryHandle(p.dir, { create: true });
+    const dh = await progDirHandle(p, true);
     const fh = await dh.getFileHandle(entry.name, { create: true });
     const w = await fh.createWritable();
     await w.write(await src.arrayBuffer());
@@ -1993,7 +2004,7 @@ async function copyPdfToProgram(p, entry) {
     p.pdfs = [entry.name, ...(p.pdfs || []).filter(x => x !== entry.name)];
     thumbByCard.delete(p.id);
     return true;
-  } catch (e) { return false; }
+  } catch (e) { fsLastError = (e && e.message) || String(e); return false; }
 }
 
 /* ════════════════ wczytywanie plików przez przeciągnięcie ════════════════ */
@@ -2874,14 +2885,24 @@ document.getElementById("apAccept").addEventListener("click", async () => {
   const p = byId(apProgramId);
   if (!p) return;
   if (!apSelected) { toast("Najpierw kliknij rysunek na liście"); return; }
-  const ok = await copyPdfToProgram(p, apSelected);
+  const btn = document.getElementById("apAccept");
+  if (btn.dataset.busy === "1") return;
+  btn.dataset.busy = "1"; btn.classList.add("busy");
+  fsLastError = "";
+  const name = apSelected.name;
+  let ok = false;
+  try { ok = await copyPdfToProgram(p, apSelected); }
+  catch (e) { fsLastError = (e && e.message) || String(e); }
+  btn.dataset.busy = ""; btn.classList.remove("busy");
   if (ok) {
     save();
-    closeModal("mAddPdf");
-    render();
-    toast("Dodano rysunek " + apSelected.name + " do „" + p.dir + "”");
+    closeModal("mAddPdf");   // zamknij okno zaraz po udanym skopiowaniu
+    thumbByCard.delete(p.id);
+    render();                // karta pokazuje rysunek od razu, bez odświeżania
+    loadThumbs();            // dociągnij miniaturkę nowo dodanego rysunku
+    toast("Dodano rysunek " + name + " do „" + (p.dir || "folderu głównego") + "”");
   } else {
-    toast("Nie udało się skopiować rysunku");
+    toast("Nie udało się skopiować rysunku" + (fsLastError ? ": " + fsLastError : ""));
   }
 });
 
