@@ -1262,6 +1262,13 @@ const uid = () => "p" + Date.now().toString(36) + Math.random().toString(36).sli
    zera wiodące bez znaczenia; bierze numer z początku, nie przypadkowe cyfry z tekstu */
 const onumInt = s => { const m = String(s || "").trim().match(/^[Oo]?\s*(\d+)/); return m ? parseInt(m[1], 10) : NaN; };
 const collapse = s => String(s || "").replace(/\s+/g, " ").trim();
+/* polska odmiana liczebnika: 1 plik, 2-4 pliki, 5+ plików (z wyjątkiem 12-14) */
+function plural(n, one, few, many) {
+  const a = Math.abs(n), d = a % 10, s = a % 100;
+  if (a === 1) return one;
+  if (d >= 2 && d <= 4 && (s < 12 || s > 14)) return few;
+  return many;
+}
 /* zamiana polskich znaków na łacińskie — „tłok” znajdzie „tlok” i odwrotnie */
 const PLCH = { "ą": "a", "ć": "c", "ę": "e", "ł": "l", "ń": "n", "ó": "o", "ś": "s", "ź": "z", "ż": "z" };
 const fold = s => String(s || "").toLowerCase().replace(/[ąćęłńóśźż]/g, ch => PLCH[ch]);
@@ -1511,13 +1518,14 @@ async function restoreFolders() {
     if (activeFolder()) fsRoot = { native: true, path: activeFolder().path, name: activeFolder().name, key: activeFolderKey };
     saveFolders();
     updateFolderUI(false);
-    for (const f of folders) await rescanFolderKey(f.key);
+    // skan przy starcie — bez komunikatu dla każdego folderu z osobna
+    for (const f of folders) await rescanFolderKey(f.key, true);
     try {
       const r2 = JSON.parse(localStorage.getItem("cncPdfPath") || "null");
       if (r2 && await window.native.exists(r2.path)) {
         pdfRoot = { native: true, path: r2.path, name: r2.name };
         updatePdfUI(false);
-        await scanPdfFolder();
+        await scanPdfFolder(true);
       }
     } catch (e) {}
     render();
@@ -1549,10 +1557,11 @@ async function restoreFolders() {
   render();
 }
 
-/* skanuje wskazany folder (podfoldery z programami + pliki luzem) */
-async function rescanFolderKey(key) {
+/* skanuje wskazany folder (podfoldery z programami + pliki luzem);
+   quiet = bez komunikatu o tym folderze (przy odświeżaniu wielu naraz) */
+async function rescanFolderKey(key, quiet) {
   const f = folderOf(key);
-  if (!f) { toast("Nie znaleziono folderu do odświeżenia — połącz go ponownie"); return; }
+  if (!f) { if (!quiet) toast("Nie znaleziono folderu do odświeżenia — połącz go ponownie"); return; }
   let found = [];
   if (window.native) {
     try { found = await window.native.scanPrograms(f.path); }
@@ -1578,24 +1587,27 @@ async function rescanFolderKey(key) {
       }
     } catch (e) { toast("Nie udało się odczytać folderu"); return; }
   }
-  mergeScanFolder(f, found);
+  return mergeScanFolder(f, found, quiet);
 }
 
 /* odświeżenie: skanuje WSZYSTKIE połączone foldery, niezależnie od tego, który jest
    aktywny i co jest w widoku (wcześniej skanowany był tylko aktywny folder, więc
    „Odśwież" pozornie nic nie robiło, gdy oglądany był inny folder) */
-async function rescanFolder() {
+async function rescanFolder(quiet) {
+  const sum = { folders: 0, files: 0, added: 0 };
+  const add = r => { if (r) { sum.folders++; sum.files += r.files; sum.added += r.added; } };
   if (window.native && folders.length) {
-    for (const f of folders.slice()) await rescanFolderKey(f.key);
-    return;
+    for (const f of folders.slice()) add(await rescanFolderKey(f.key, quiet));
+    return sum;
   }
   const key = activeFolderKey || (fsRoot && fsRoot.key) || (folders[0] && folders[0].key);
-  if (key) await rescanFolderKey(key);
+  if (key) add(await rescanFolderKey(key, quiet));
+  return sum;
 }
 
 /* scala wynik skanowania folderu z biblioteką (programy dyskowe namespace'owane kluczem
    folderu) — NIGDY nie zmienia automatycznie przypisania rysunków PDF */
-function mergeScanFolder(folder, found) {
+function mergeScanFolder(folder, found, quiet) {
   thumbByCard.clear();   // po przeskanowaniu dysku odśwież miniaturki od zera
   const key = folder.key;
   const diskIds = new Set();
@@ -1632,7 +1644,8 @@ function mergeScanFolder(folder, found) {
   programs = programs.filter(p => !(p.source === "disk" && p.root === key) || diskIds.has(p.id));
   save();
   render();
-  toast("Folder „" + folder.name + "”: " + found.length + " plików" + (added ? ", nowych: " + added : ""));
+  if (!quiet) toast("Folder „" + folder.name + "”: " + found.length + " plików" + (added ? ", nowych: " + added : ""));
+  return { files: found.length, added };
 }
 
 let fsLastError = "";
@@ -1723,7 +1736,7 @@ async function disconnectPdfFolder() {
 }
 
 /* skanuje folder rysunków (z podfolderami) i zapamiętuje listę PDF-ów */
-async function scanPdfFolder() {
+async function scanPdfFolder(quiet) {
   if (!pdfRoot) return;
   pdfFiles = [];
   if (pdfRoot.native) {
@@ -1746,7 +1759,7 @@ async function scanPdfFolder() {
     }
     await walk(pdfRoot, "", 0);
   }
-  toast("Folder rysunków „" + pdfRoot.name + "”: " + pdfFiles.length + " plików PDF");
+  if (!quiet) toast("Folder rysunków „" + pdfRoot.name + "”: " + pdfFiles.length + " plików PDF");
 }
 
 /* szuka rysunku po numerze (SZ2456) i po nazwie z nawiasów obok numeru O */
@@ -2890,16 +2903,25 @@ document.getElementById("btnRefresh").addEventListener("click", async () => {
   const btn = document.getElementById("btnRefresh");
   if (btn.dataset.busy === "1") return;   // nie uruchamiaj drugiego skanu w trakcie
   btn.dataset.busy = "1"; btn.classList.add("busy");
+  let sum = null, pdfs = null;
   try {
-    if (folders.length || fsRoot) await rescanFolder();
-    if (pdfRoot) await scanPdfFolder();
+    // quiet = pojedyncze foldery nie meldują osobno; na końcu jeden komunikat zbiorczy
+    if (folders.length || fsRoot) sum = await rescanFolder(true);
+    if (pdfRoot) { await scanPdfFolder(true); pdfs = pdfFiles.length; }
   } catch (e) {
     toast("Odświeżanie nie powiodło się: " + ((e && e.message) || e));
+    sum = null;
   } finally {
     btn.dataset.busy = ""; btn.classList.remove("busy");
     thumbByCard.clear();
     updateFolderUI(false);
     render();
+  }
+  if (sum) {
+    toast("Odświeżono " + sum.folders + " " + plural(sum.folders, "folder", "foldery", "folderów")
+      + ": " + sum.files + " " + plural(sum.files, "plik", "pliki", "plików")
+      + (sum.added ? ", nowych: " + sum.added : "")
+      + (pdfs !== null ? " · rysunki PDF: " + pdfs : ""));
   }
 });
 
