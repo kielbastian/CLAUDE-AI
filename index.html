@@ -202,7 +202,7 @@
         }
         .card-head h2 { font-family: 'Orbitron','Rajdhani',sans-serif; font-size: 12.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
         .card-head .sub { font-size: 11px; color: var(--text-dim); font-weight: 500; }
-        .card-head .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+        .card-head .right { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
         .card-body { padding: 18px; display: flex; flex-direction: column; gap: 15px; }
 
         /* ---------- Form ---------- */
@@ -867,6 +867,10 @@
                             </div>
 
                             <label class="combine-check">
+                                <input type="checkbox" id="bore_sketch">
+                                <span>Rysuj profil wytaczania w szkicowniku (razem z toczeniem)</span>
+                            </label>
+                            <label class="combine-check">
                                 <input type="checkbox" id="bore_combine">
                                 <span>Połącz z toczeniem (profil z zakładki Parametry) — jeden program</span>
                             </label>
@@ -888,6 +892,12 @@
                                 <div class="sub">PPM (lub Shift+LPM) = przesuwanie, kółko = zoom. Najedź na punkt lub linię, aby zobaczyć wymiar. Siatka w realnych mm — węzły na 0.1 / 0.5 / 1 mm (gęstsza przy przybliżeniu).</div>
                             </div>
                             <div class="right">
+                                <div class="seg accent" id="seg_sketch_target" style="padding:2px; display:none;" title="Który profil rysujesz">
+                                    <input type="radio" id="target_turn" name="sketch_target" value="TURN" checked>
+                                    <label for="target_turn" style="padding:7px 10px;">⌭ Toczenie</label>
+                                    <input type="radio" id="target_bore" name="sketch_target" value="BORE">
+                                    <label for="target_bore" style="padding:7px 10px;">◎ Wytaczanie</label>
+                                </div>
                                 <div class="seg" id="seg_tool" style="padding:2px;">
                                     <input type="radio" id="tool_sketch" name="cad_tool" value="SKETCH" checked>
                                     <label for="tool_sketch" style="padding:7px 10px;">✏️ Rysuj</label>
@@ -980,6 +990,8 @@
            profile[i] = { x: diameter, z: length, corner: 'none'|'C'|'R', cval: number, groove: bool }
            ============================================================ */
         let profile = [];
+        let boreProfile = [];              // profil wytaczania rysowany w tym samym szkicowniku
+        let sketchTarget = 'TURN';         // 'TURN' | 'BORE' — do którego profilu trafiają rysowane punkty
         let simulationPath = [];
         let animationId = null, simIndex = 0, currentSimPos = { x: 0, z: 0 }, isAnimating = false;
 
@@ -1002,6 +1014,10 @@
         function cadTool() { return document.querySelector('input[name="cad_tool"]:checked').value; }        // SKETCH / FREEHAND / FILLET
         function codeMode() { return document.querySelector('input[name="code_mode"]:checked').value; }      // CYCLE / BLOCKS
         function isInternal() { return opType() === 'INT'; }
+        // Rysowanie wytaczania w tym samym szkicowniku (osobny profil boreProfile)
+        function boreSketchOn() { const el = document.getElementById('bore_sketch'); return !!(el && el.checked); }
+        function drawTarget() { return (boreSketchOn() && sketchTarget === 'BORE') ? 'BORE' : 'TURN'; }
+        function activeSketch() { return drawTarget() === 'BORE' ? boreProfile : profile; }
 
         /* ---------- Toasts ---------- */
         function toast(msg, type = 'info') {
@@ -1243,9 +1259,10 @@
             if (zVal > 0) zVal = 0;
             if (xVal < 0) xVal = 0;
 
-            // orto/45° snap wg poprzedniego punktu (tylko szkic)
-            if (profile.length > 0 && !isAnimating && cadTool() === 'SKETCH') {
-                const last = profile[profile.length - 1];
+            // orto/45° snap wg poprzedniego punktu aktywnego profilu (tylko szkic)
+            const orthoArr = activeSketch();
+            if (orthoArr.length > 0 && !isAnimating && cadTool() === 'SKETCH') {
+                const last = orthoArr[orthoArr.length - 1];
                 const dZ = zVal - last.z;
                 const dX_rad = (xVal - last.x) / 2;
                 if (dZ !== 0 || dX_rad !== 0) {
@@ -1389,18 +1406,20 @@
 
             const pt = getMouseCoordinates(e);
 
-            // SKETCH
-            const last = profile.length ? profile[profile.length - 1] : { x: isInternal() ? 20 : 0, z: 0 };
-            if (profile.length && pt.z > last.z) { showError('Nowy punkt musi iść w lewo (Z ≤ poprzedniemu).'); return; }
-            if (codeMode() === 'CYCLE' && g71Type() === '1' && profile.length) {
+            // SKETCH — do aktywnego profilu (toczenie lub wytaczanie)
+            const drawBore = drawTarget() === 'BORE';
+            const arr = drawBore ? boreProfile : profile;
+            const last = arr.length ? arr[arr.length - 1] : { x: (drawBore || isInternal()) ? 20 : 0, z: 0 };
+            if (arr.length && pt.z > last.z) { showError('Nowy punkt musi iść w lewo (Z ≤ poprzedniemu).'); return; }
+            if (!drawBore && codeMode() === 'CYCLE' && g71Type() === '1' && profile.length) {
                 if (!isInternal() && pt.x < last.x) { showError('Typ 1: średnica (X) nie może maleć. Użyj Typ 2 dla podcięć.'); return; }
                 if (isInternal() && pt.x > last.x) { showError('Typ 1 (wytaczanie): średnica otworu nie może rosnąć w głąb. Użyj Typ 2.'); return; }
             }
-            if (profile.length && pt.x === last.x && pt.z === last.z) return;
+            if (arr.length && pt.x === last.x && pt.z === last.z) return;
 
-            profile.push({ x: pt.x, z: pt.z, corner: 'none', cval: 0, groove: false });
-            syncBlank();
-            refreshAll();
+            arr.push({ x: pt.x, z: pt.z, corner: 'none', cval: 0, groove: false });
+            if (drawBore) { drawCAD(); updateBoreInfo(); }
+            else { syncBlank(); refreshAll(); }
         });
 
         // Wyłącz menu kontekstowe na płótnie — PPM służy do przesuwania widoku
@@ -1424,8 +1443,9 @@
                 drawCAD();
             } else {
                 currentMouseGrid = getMouseCoordinates(e);
-                hoverPointIdx = mouseInCanvas ? nearestProfilePoint(e) : -1;
-                hoverSegIdx = (mouseInCanvas && hoverPointIdx < 0) ? nearestSegmentIndex(e) : -1;
+                const bore = drawTarget() === 'BORE';
+                hoverPointIdx = (mouseInCanvas && !bore) ? nearestProfilePoint(e) : -1;
+                hoverSegIdx = (mouseInCanvas && !bore && hoverPointIdx < 0) ? nearestSegmentIndex(e) : -1;
                 canvas.style.cursor = hoverPointIdx >= 0 ? 'pointer'
                     : (cadTool() === 'INSERT' && hoverSegIdx >= 0) ? 'copy'
                     : (cadTool() === 'FILLET' || hoverSegIdx >= 0) ? 'pointer' : 'crosshair';
@@ -1641,11 +1661,40 @@
                 drawAutoDims();
             }
 
+            // profil wytaczania (pomarańczowy) — rysowany w tym samym szkicowniku
+            if (boreSketchOn() && boreProfile.length) {
+                const brender = buildRenderPath(boreProfile);
+                ctx.lineWidth = 3; ctx.lineJoin = 'round';
+                ctx.strokeStyle = '#fb923c';
+                ctx.beginPath();
+                ctx.moveTo(getZPix(brender[0].z), getXPix(brender[0].x));
+                for (let i = 1; i < brender.length; i++) ctx.lineTo(getZPix(brender[i].z), getXPix(brender[i].x));
+                ctx.stroke();
+                boreProfile.forEach((pt, i) => {
+                    const px = getZPix(pt.z), py = getXPix(pt.x);
+                    ctx.fillStyle = '#fdba74';
+                    ctx.beginPath(); ctx.arc(px, py, 4, 0, 2 * Math.PI); ctx.fill();
+                    ctx.fillStyle = '#0b1120'; ctx.font = 'bold 9px monospace';
+                    ctx.fillText(i, px - 3, py + 3);
+                });
+                // wymiary segmentów
+                ctx.font = '10px monospace';
+                for (let i = 1; i < boreProfile.length; i++) {
+                    const a = boreProfile[i - 1], b = boreProfile[i];
+                    const midZ = (getZPix(a.z) + getZPix(b.z)) / 2, midX = (getXPix(a.x) + getXPix(b.x)) / 2;
+                    ctx.fillStyle = '#fdba74';
+                    if (Math.abs(a.z - b.z) < 0.1 && Math.abs(a.x - b.x) > 0.1) ctx.fillText('Ø' + fmt(b.x), midZ + 6, midX);
+                    else if (Math.abs(a.x - b.x) < 0.1 && Math.abs(a.z - b.z) > 0.1) ctx.fillText(fmt(Math.abs(b.z - a.z)), midZ - 6, midX - 6);
+                }
+            }
+
             // podgląd linii — tylko gdy kursor jest nad polem szkicu i nie przyciągamy punktu
-            if (!isAnimating && mouseInCanvas && hoverPointIdx < 0 && cadTool() === 'SKETCH' && profile.length) {
-                const last = profile[profile.length - 1];
+            const previewArr = activeSketch();
+            const previewColor = drawTarget() === 'BORE' ? '#fb923c' : '#22c55e';
+            if (!isAnimating && mouseInCanvas && hoverPointIdx < 0 && cadTool() === 'SKETCH' && previewArr.length) {
+                const last = previewArr[previewArr.length - 1];
                 if (currentMouseGrid.z <= last.z) {
-                    ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
+                    ctx.strokeStyle = previewColor; ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
                     ctx.beginPath();
                     ctx.moveTo(getZPix(last.z), getXPix(last.x));
                     ctx.lineTo(getZPix(currentMouseGrid.z), getXPix(currentMouseGrid.x));
@@ -1660,7 +1709,7 @@
                     // długość rysowanej linii
                     const segL = Math.hypot(dz, dr);
                     const lenTxt = segL > 0.05 ? '  L' + fmt(Math.round(segL * 100) / 100) : '';
-                    ctx.fillStyle = '#22c55e'; ctx.font = '11px monospace';
+                    ctx.fillStyle = previewColor; ctx.font = '11px monospace';
                     ctx.fillText(`Ø${fmt(currentMouseGrid.x)}  Z${fmt(currentMouseGrid.z)}${angTxt}${lenTxt}`,
                         getZPix(currentMouseGrid.z) + 10, getXPix(currentMouseGrid.x) - 8);
                 }
@@ -1852,6 +1901,14 @@
                 g.push(`G01 Z${fmtNC(first.z)} F${fmtNC(fFin)}`);
             }
             emitMoveLines(g, buildContourMoves(profile), first.x, first.z);
+            g.push(`N${Q} G00 X${fmtNC(approachX)}`);
+        }
+
+        // Kontur G71/G70 z podanego (dowolnego) profilu — typ 2 (dowolny kształt/podcięcia)
+        function emitContourPts(g, pts, approachX, P, Q) {
+            const first = pts[0];
+            g.push(`N${P} G00 X${fmtNC(first.x)} Z${fmtNC(first.z)}`);
+            emitMoveLines(g, buildContourMoves(pts), first.x, first.z);
             g.push(`N${Q} G00 X${fmtNC(approachX)}`);
         }
 
@@ -2614,8 +2671,6 @@
            ============================================================ */
         // Prosty otwór walcowy G71/G70 (bez nagłówka/stopki programu). Zwraca { lines, label } lub null.
         function boreBody() {
-            const dia = parseFloat(document.getElementById('bore_dia').value);
-            const len = Math.abs(parseFloat(document.getElementById('bore_len').value));
             const pilot = parseFloat(document.getElementById('bore_pilot').value);
             const ap = parseFloat(document.getElementById('bore_ap').value);
             const vc = parseFloat(document.getElementById('bore_vc').value);
@@ -2626,11 +2681,28 @@
             const tool = (document.getElementById('bore_tool').value || '505').trim();
             const safeZ = parseFloat(document.getElementById('bore_safe_z').value);
 
-            if (!(dia > 0) || !(len > 0)) { showError('Wytaczanie: podaj średnicę i głębokość otworu.'); return null; }
-            if (!(pilot > 0) || pilot >= dia) { showError('Wytaczanie: otwór wstępny musi być mniejszy od średnicy docelowej.'); return null; }
+            const useSketch = boreSketchOn() && boreProfile.length >= 2;
+            let dia, len, contour;
+            if (useSketch) {
+                // Kontur z rysunku (może mieć stopnie / podcięcia)
+                dia = Math.max(...boreProfile.map(p => p.x));
+                const minDia = Math.min(...boreProfile.map(p => p.x));
+                len = Math.abs(Math.min(...boreProfile.map(p => p.z)));
+                if (!(pilot > 0) || pilot >= minDia) { showError('Wytaczanie: otwór wstępny musi być mniejszy od najmniejszej średnicy szkicu.'); return null; }
+                contour = boreProfile;
+            } else {
+                dia = parseFloat(document.getElementById('bore_dia').value);
+                len = Math.abs(parseFloat(document.getElementById('bore_len').value));
+                if (!(dia > 0) || !(len > 0)) { showError('Wytaczanie: podaj średnicę i głębokość otworu (albo narysuj profil).'); return null; }
+                if (!(pilot > 0) || pilot >= dia) { showError('Wytaczanie: otwór wstępny musi być mniejszy od średnicy docelowej.'); return null; }
+                contour = [
+                    { x: dia, z: 0, corner: 'none', cval: 0, groove: false },
+                    { x: dia, z: -len, corner: 'none', cval: 0, groove: false }
+                ];
+            }
             if (!(ap > 0)) { showError('Wytaczanie: podaj głębokość skrawania ap.'); return null; }
 
-            const P = 10, Q = 20, zEnd = -len, approachX = Math.max(pilot - 2, 1), allowZ = 0.1;
+            const P = 10, Q = 20, approachX = Math.max(pilot - 2, 1), allowZ = 0.1;
             const g = [];
             g.push('(WYTACZANIE WEWN. Fi' + fmt(dia) + ' x ' + fmt(len) + ')');
             g.push('T' + tool + ' (NOZ WYTACZAK)');
@@ -2641,9 +2713,7 @@
             g.push('G00 X' + fmtNC(approachX));
             g.push('');
             g.push(`G71 P${P} Q${Q} D${fmtNC(ap)} I${fmtNC(-Math.abs(allowX))} K${fmtNC(allowZ)} F${fmtNC(fRough)}`);
-            g.push(`N${P} G00 X${fmtNC(dia)} Z0.`);
-            g.push(`G01 Z${fmtNC(zEnd)} F${fmtNC(fFin)}`);
-            g.push(`N${Q} G00 X${fmtNC(approachX)}`);
+            emitContourPts(g, contour, approachX, P, Q);
             g.push('');
             g.push(`G70 P${P} Q${Q} F${fmtNC(fFin)}`);
             g.push('G00 Z' + fmtNC(safeZ) + ' M09');
@@ -2685,14 +2755,37 @@
         function updateBoreInfo() {
             const el = document.getElementById('bore_info');
             if (!el) return;
-            const dia = parseFloat(document.getElementById('bore_dia').value);
             const pilot = parseFloat(document.getElementById('bore_pilot').value);
-            const len = Math.abs(parseFloat(document.getElementById('bore_len').value));
             const ap = parseFloat(document.getElementById('bore_ap').value);
             const tool = (document.getElementById('bore_tool').value || '505').trim();
-            if (!(dia > 0) || !(pilot > 0) || !(len > 0) || !(ap > 0) || pilot >= dia) { el.innerHTML = ''; return; }
+            const sketch = boreSketchOn();
+            let dia, len, minDia;
+            if (sketch && boreProfile.length >= 2) {
+                dia = Math.max(...boreProfile.map(p => p.x));
+                minDia = Math.min(...boreProfile.map(p => p.x));
+                len = Math.abs(Math.min(...boreProfile.map(p => p.z)));
+            } else if (sketch) {
+                el.innerHTML = 'Narysuj profil wytaczania w szkicowniku (przełącznik <b>◎ Wytaczanie</b> nad rysunkiem).';
+                return;
+            } else {
+                dia = parseFloat(document.getElementById('bore_dia').value);
+                minDia = dia;
+                len = Math.abs(parseFloat(document.getElementById('bore_len').value));
+            }
+            if (!(dia > 0) || !(pilot > 0) || !(len > 0) || !(ap > 0) || pilot >= minDia) { el.innerHTML = ''; return; }
             const passes = Math.max(1, Math.ceil(((dia - pilot) / 2) / ap));
-            el.innerHTML = `Otwór <b>Ø${fmt(dia)}</b> z Ø${fmt(pilot)}, głęb. <b>${fmt(len)} mm</b> · ~<b>${passes}</b> przejść zgrubnych (ap ${fmt(ap)}) · narzędzie <b>T${tool}</b>`;
+            const src = sketch ? ' (z rysunku)' : '';
+            el.innerHTML = `Otwór <b>Ø${fmt(dia)}</b>${src} z Ø${fmt(pilot)}, głęb. <b>${fmt(len)} mm</b> · ~<b>${passes}</b> przejść zgrubnych (ap ${fmt(ap)}) · narzędzie <b>T${tool}</b>`;
+        }
+
+        // Pokaż/ukryj przełącznik „Toczenie / Wytaczanie" nad szkicownikiem
+        function updateSketchTargetUI() {
+            const on = boreSketchOn();
+            document.getElementById('seg_sketch_target').style.display = on ? 'flex' : 'none';
+            if (!on) {
+                sketchTarget = 'TURN';
+                document.getElementById('target_turn').checked = true;
+            }
         }
 
         /* ============================================================
@@ -2725,7 +2818,7 @@
                 badge.className = 'badge mode-freehand';
                 canvas.style.cursor = 'crosshair';
             } else {
-                badge.innerHTML = 'Tryb: <b>Rysowanie</b>';
+                badge.innerHTML = 'Tryb: <b>' + (drawTarget() === 'BORE' ? 'Rysowanie wytaczania' : 'Rysowanie') + '</b>';
                 badge.className = 'badge';
                 canvas.style.cursor = 'crosshair';
             }
@@ -2770,6 +2863,11 @@
         });
 
         document.getElementById('btn_clear_cad').addEventListener('click', () => {
+            if (drawTarget() === 'BORE') {
+                boreProfile = []; drawCAD(); updateBoreInfo();
+                toast('Wyczyszczono profil wytaczania.', 'info');
+                return;
+            }
             profile = []; simulationPath = []; codeLines = []; stopAnimation();
             if (stepMode) setStepMode(false);
             renderTable(); drawCAD();
@@ -2777,6 +2875,11 @@
             toast('Wyczyszczono profil.', 'info');
         });
         document.getElementById('btn_undo_cad').addEventListener('click', () => {
+            if (drawTarget() === 'BORE') {
+                if (boreProfile.length) boreProfile.pop();
+                drawCAD(); updateBoreInfo();
+                return;
+            }
             if (profile.length) profile.pop();
             stopAnimation(); refreshAll();
         });
@@ -2873,7 +2976,27 @@
         ['bore_dia', 'bore_pilot', 'bore_len', 'bore_ap', 'bore_tool'].forEach(id =>
             document.getElementById(id).addEventListener('input', updateBoreInfo));
         document.getElementById('btn_gen_bore').addEventListener('click', generateBoreCode);
+        // Rysowanie wytaczania w szkicowniku
+        document.getElementById('bore_sketch').addEventListener('change', (e) => {
+            if (e.target.checked) {
+                // toczenie musi być zewnętrzne, wytaczanie rysujemy osobno
+                document.getElementById('op_ext').checked = true;
+                updateModeUI();
+                sketchTarget = 'BORE';
+                document.getElementById('target_bore').checked = true;
+                toast('Rysujesz teraz profil wytaczania (pomarańczowy). Przełącznik nad rysunkiem zmienia profil.', 'info');
+            }
+            updateSketchTargetUI();
+            updateBoreInfo();
+            drawCAD();
+        });
+        document.querySelectorAll('input[name="sketch_target"]').forEach(r => r.addEventListener('change', (e) => {
+            sketchTarget = e.target.value;
+            document.getElementById('badge_mode').innerHTML = 'Tryb: <b>' + (sketchTarget === 'BORE' ? 'Rysowanie wytaczania' : 'Rysowanie') + '</b>';
+            drawCAD();
+        }));
         updateBoreInfo();
+        updateSketchTargetUI();
 
         // Tryb krokowy
         document.getElementById('btn_step_mode').addEventListener('click', () => setStepMode(!stepMode));
