@@ -361,6 +361,29 @@
             background: transparent; color: var(--text-dim); border: 1px solid var(--stroke);
         }
         #card_output .win-x:hover { background: #ef4444; color: #fff; border-color: #ef4444; }
+
+        /* Pływające okno „Wymiarowanie" (tabela) — jak okno G-code */
+        #dims_float {
+            position: fixed; z-index: 951; margin: 0;
+            width: 480px; height: 440px; min-width: 320px; min-height: 220px;
+            max-width: 96vw; max-height: 90vh;
+            display: flex; flex-direction: column;
+            resize: both; overflow: hidden;
+            background: var(--bg-2);
+            border: 1px solid rgba(var(--ac2-rgb), 0.45);
+            box-shadow: 0 24px 70px rgba(0,0,0,0.62);
+            -webkit-app-region: no-drag;
+        }
+        #dims_float .card-head { cursor: move; user-select: none; flex-shrink: 0; }
+        #dims_float .card-body { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 12px; }
+        #dims_float .win-x {
+            width: 28px; height: 28px; padding: 0; border-radius: 8px; font-size: 16px;
+            background: transparent; color: var(--text-dim); border: 1px solid var(--stroke);
+        }
+        #dims_float .win-x:hover { background: #ef4444; color: #fff; border-color: #ef4444; }
+        /* przycisk „Wymiarowanie" w szkicowniku — tylko na pełnym ekranie */
+        #btn_dims_float { display: none; -webkit-app-region: no-drag; }
+        #card_cad.maximized #btn_dims_float { display: inline-flex; }
         .canvas-overlay {
             position: absolute; top: 12px; left: 12px; display: flex; gap: 8px; flex-wrap: wrap;
             pointer-events: none;
@@ -812,6 +835,7 @@
                                     <input type="radio" id="tool_fillet" name="cad_tool" value="FILLET">
                                     <label for="tool_fillet" style="padding:7px 10px;">◜ Faza / R</label>
                                 </div>
+                                <button class="btn-ghost btn-sm" id="btn_dims_float" title="Otwórz tabelę wymiarowania" style="margin-left:8px;">📐 Wymiarowanie</button>
                                 <button class="btn-ghost btn-sm cad-full-btn" id="btn_cad_full" title="Powiększ szkicownik na całe okno" style="margin-left:8px; font-size:15px;">⛶</button>
                             </div>
                         </div>
@@ -868,6 +892,21 @@
                 </div>
             </div>
         </div>
+    </div>
+
+    <!-- Pływające okno „Wymiarowanie" (przesuwane) — treść wstawiana z zakładki Wymiarowanie -->
+    <div class="card" id="dims_float" style="display:none;">
+        <div class="card-head" id="dims_float_titlebar">
+            <div class="ico">📐</div>
+            <div>
+                <h2>Wymiarowanie</h2>
+                <div class="sub">Przeciągnij nagłówek, rozciągnij za róg</div>
+            </div>
+            <div class="right">
+                <button class="win-x" id="btn_dims_close" title="Zamknij okno (Esc)">✕</button>
+            </div>
+        </div>
+        <div class="card-body" id="dims_float_body"></div>
     </div>
 
     <div id="toasts"></div>
@@ -1817,6 +1856,7 @@
             const modeTag = mode === 'CYCLE' ? ('G71 TYP ' + (type2 ? '2' : '1')) : 'BLOK PO BLOKU';
 
             g.push('T' + tool + ' (' + (internal ? 'NOZ WYTACZAK' : 'NOZ ZEWNETRZNY') + ')');
+            g.push('G54');
             if (isG96) { g.push('G50 S' + g50); g.push('G96 S' + Math.round(speed) + ' M03'); }
             else { g.push('G97 S' + Math.round(speed) + ' M03'); }
 
@@ -1887,7 +1927,8 @@
             const w = 560, h = 480;
             outputWin.style.width = w + 'px'; outputWin.style.height = h + 'px';
             outputWin.style.left = Math.max(12, window.innerWidth - w - 28) + 'px';
-            outputWin.style.top = '96px';
+            // niżej niż nagłówek szkicownika, aby nie zasłaniać przycisków (⛶, Wymiarowanie)
+            outputWin.style.top = '214px';
         }
         function restoreOutputGeom() {
             try {
@@ -1939,6 +1980,75 @@
 
         // zapamiętaj rozmiar po rozciągnięciu (uchwyt w rogu)
         if (window.ResizeObserver) new ResizeObserver(() => saveOutputGeom()).observe(outputWin);
+
+        /* ---------- Uniwersalne pływające okno (przesuwanie + pamięć położenia) ---------- */
+        function makeFloatingWindow(win, bar, key) {
+            function save() {
+                if (win.style.display === 'none') return;
+                try { localStorage.setItem(key, JSON.stringify({ left: win.style.left, top: win.style.top, width: win.offsetWidth + 'px', height: win.offsetHeight + 'px' })); } catch (e) {}
+            }
+            function restore() {
+                try {
+                    const g = JSON.parse(localStorage.getItem(key));
+                    if (g && g.left) { win.style.left = g.left; win.style.top = g.top; if (g.width) win.style.width = g.width; if (g.height) win.style.height = g.height; return true; }
+                } catch (e) {}
+                return false;
+            }
+            function ensureOnScreen() {
+                const w = win.offsetWidth;
+                let left = parseFloat(win.style.left) || 0, top = parseFloat(win.style.top) || 96;
+                left = Math.max(0, Math.min(window.innerWidth - Math.min(w, window.innerWidth), left));
+                top = Math.max(38, Math.min(window.innerHeight - 60, top));
+                win.style.left = left + 'px'; win.style.top = top + 'px';
+            }
+            let drag = null;
+            bar.addEventListener('mousedown', (e) => {
+                if (e.target.closest('button')) return;
+                const r = win.getBoundingClientRect();
+                drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+                e.preventDefault();
+            });
+            window.addEventListener('mousemove', (e) => {
+                if (!drag) return;
+                const w = win.offsetWidth;
+                win.style.left = Math.max(0, Math.min(window.innerWidth - w, e.clientX - drag.dx)) + 'px';
+                win.style.top = Math.max(38, Math.min(window.innerHeight - 40, e.clientY - drag.dy)) + 'px';
+            });
+            window.addEventListener('mouseup', () => { if (drag) { drag = null; save(); } });
+            if (window.ResizeObserver) new ResizeObserver(() => save()).observe(win);
+            return { save, restore, ensureOnScreen };
+        }
+
+        /* ---------- Pływające okno „Wymiarowanie" (tabela punktów) ---------- */
+        const dimsFloat = document.getElementById('dims_float');
+        const dimsBody = document.getElementById('dims_float_body');
+        const dimsTab = document.getElementById('tab_dims');
+        const dimsWin = makeFloatingWindow(dimsFloat, document.getElementById('dims_float_titlebar'), 'camDimsWinGeom');
+        let dimsFloatOpen = false;
+        function placeDimsDefault() {
+            dimsFloat.style.width = '480px'; dimsFloat.style.height = '440px';
+            dimsFloat.style.left = '40px'; dimsFloat.style.top = '120px';
+        }
+        function openDimsFloat() {
+            if (dimsFloatOpen) return;
+            while (dimsTab.firstChild) dimsBody.appendChild(dimsTab.firstChild); // przenieś treść zakładki
+            dimsFloat.style.display = '';
+            if (!dimsFloat.dataset.placed) { if (!dimsWin.restore()) placeDimsDefault(); dimsFloat.dataset.placed = '1'; }
+            dimsWin.ensureOnScreen();
+            dimsFloatOpen = true;
+            renderTable();
+        }
+        function closeDimsFloat() {
+            if (!dimsFloatOpen) return;
+            while (dimsBody.firstChild) dimsTab.appendChild(dimsBody.firstChild); // oddaj treść zakładce
+            dimsFloat.style.display = 'none';
+            dimsFloatOpen = false;
+        }
+        document.getElementById('btn_dims_float').addEventListener('click', () => {
+            dimsFloatOpen ? closeDimsFloat() : openDimsFloat();
+        });
+        document.getElementById('btn_dims_close').addEventListener('click', closeDimsFloat);
+
         function renderOutput(lines) {
             // zbuduj model kroków z modalnym X/Z (średnica)
             codeLines = [];
@@ -2375,6 +2485,7 @@
             const g = [];
             g.push('(NOZ DO GWINTOW ' + (geo.internal ? 'WEWN.' : 'ZEWN.') + ')');
             g.push('T' + tool);
+            g.push('G54');
             g.push('G97 S' + rpm + ' M03');
             g.push('G00 Z' + fz(leadZ));
             g.push('G00 X' + fx(geo.approachDia));
@@ -2531,6 +2642,8 @@
             card.classList.toggle('maximized', on);
             btn.innerHTML = on ? '🗕' : '⛶';
             btn.title = on ? 'Przywróć rozmiar szkicownika' : 'Powiększ szkicownik na całe okno';
+            // wyjście z pełnego ekranu — schowaj okno wymiarowania (treść wraca do zakładki)
+            if (!on) closeDimsFloat();
             // po zmianie układu przelicz rozmiar płótna
             requestAnimationFrame(() => { setupCanvas(); });
         }
@@ -2539,6 +2652,7 @@
         });
         window.addEventListener('keydown', (e) => {
             if (e.key !== 'Escape') return;
+            if (dimsFloatOpen) { closeDimsFloat(); return; }
             if (document.getElementById('card_cad').classList.contains('maximized')) { setCadFull(false); return; }
             if (outputWin.style.display !== 'none') outputWin.style.display = 'none';
         });

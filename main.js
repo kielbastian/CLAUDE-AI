@@ -27,6 +27,24 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
   mainWindow.once('ready-to-show', () => mainWindow.show());
 
+  // Potwierdzenie przed zamknięciem aplikacji.
+  let confirmedClose = false;
+  mainWindow.on('close', (e) => {
+    if (confirmedClose) return;
+    e.preventDefault();
+    const choice = dialog.showMessageBoxSync(mainWindow, {
+      type: 'question',
+      buttons: ['Zamknij', 'Anuluj'],
+      defaultId: 1,
+      cancelId: 1,
+      title: 'Zamknąć aplikację?',
+      message: 'Czy na pewno chcesz zamknąć CAM Generator?',
+      detail: 'Niezapisane programy G-code zostaną utracone.',
+      noLink: true
+    });
+    if (choice === 0) { confirmedClose = true; mainWindow.close(); }
+  });
+
   // Linki zewnętrzne w przeglądarce systemowej.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
