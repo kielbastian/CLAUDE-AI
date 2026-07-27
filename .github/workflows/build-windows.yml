@@ -31,14 +31,20 @@ jobs:
       - name: Instalacja zależności
         run: npm install
 
-      - name: Budowa przenośnego exe
-        run: npx electron-builder --win portable --publish never
+      - name: Budowa przenośnego exe i wersji ZIP
+        run: npx electron-builder --win portable zip --publish never
+
+      - name: Zawartość katalogu dist
+        run: dir dist
+        shell: cmd
 
       - name: Artefakt kompilacji
         uses: actions/upload-artifact@v4
         with:
           name: CNC-Manager-windows
-          path: dist/CNC-Manager.exe
+          path: |
+            dist/CNC-Manager.exe
+            dist/*.zip
 
       - name: Publikacja w Releases
         uses: softprops/action-gh-release@v2
@@ -46,7 +52,21 @@ jobs:
           tag_name: windows-exe
           name: CNC Manager — Windows (exe)
           body: |
-            Przenośna aplikacja Windows — pobierz **CNC-Manager.exe**, zapisz gdziekolwiek i uruchom podwójnym kliknięciem. Instalacja nie jest potrzebna.
+            Przenośna aplikacja Windows. Do wyboru dwie wersje:
 
-            Plik jest nadpisywany najnowszą wersją przy każdej zmianie w aplikacji.
-          files: dist/CNC-Manager.exe
+            - **CNC-Manager-windows.zip** — zalecane. Rozpakuj do dowolnego folderu i uruchom `CNC Manager.exe` ze środka. Instalacja nie jest potrzebna.
+            - **CNC-Manager.exe** — pojedynczy plik, uruchamiany podwójnym kliknięciem.
+
+            Pliki są nadpisywane najnowszą wersją przy każdej zmianie w aplikacji.
+
+            ---
+
+            **Przeglądarka lub antywirus zgłasza wirusa?** To fałszywy alarm.
+            Aplikacja nie jest podpisana certyfikatem (podpis jest płatny), a plik `.exe`
+            rozpakowuje się przy starcie do folderu tymczasowego — taki schemat bywa
+            uznawany za podejrzany przez heurystykę, mimo że kod jest nieszkodliwy.
+            W takiej sytuacji pobierz wersję **ZIP** — zwykle przechodzi bez ostrzeżeń.
+            Cały kod źródłowy i przebieg budowania są jawne w tym repozytorium.
+          files: |
+            dist/CNC-Manager.exe
+            dist/*.zip
