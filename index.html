@@ -210,6 +210,18 @@
         .field { display: flex; flex-direction: column; gap: 6px; }
         /* etykiety w siatce 2-kol. rezerwują dwie linie, więc pola są wyrównane */
         .grid-2 > .field > label { min-height: 2.7em; line-height: 1.3; display: flex; align-items: flex-start; }
+        /* Miniatura pomocnicza (jak grafiki VPS Haas) przy każdym polu */
+        .pic {
+            display: block; width: 100%; max-width: 92px; height: 40px; margin: 1px 0 3px;
+            border: 1px solid var(--stroke); border-radius: 6px; overflow: hidden;
+            background: radial-gradient(120% 120% at 50% 0%, #0d1526 0%, #070b14 100%);
+            transition: transform .12s ease, box-shadow .12s ease;
+        }
+        .pic svg { display: block; width: 100%; height: 100%; }
+        .pic:hover {
+            transform: scale(1.9); transform-origin: left center; position: relative; z-index: 60;
+            box-shadow: 0 10px 26px rgba(0,0,0,.55); border-color: rgba(var(--ac2-rgb),.6);
+        }
         label { font-size: 11.5px; font-weight: 600; color: var(--text-muted); letter-spacing: 0.2px; }
         .hint { font-size: 10.5px; color: var(--text-dim); font-weight: 500; }
         .thread-info {
@@ -1196,6 +1208,126 @@
                 arr[i][k] = val;
             }
             afterTableChange();
+        }
+
+        /* ============================================================
+           MINIATURY POMOCNICZE (styl grafik VPS Haas) — co oznacza dane pole
+           ============================================================ */
+        function dimSvg(type) {
+            const R = '#ef4444', T = '#fecaca';
+            // wspólna scena: oś (linia przerywana), uchwyt (lewo), detal (prostokąt nad osią)
+            const base =
+                '<line x1="0" y1="48" x2="120" y2="48" stroke="#f59e0b" stroke-width="1.4" stroke-dasharray="7 4"/>' +
+                '<rect x="3" y="14" width="20" height="40" rx="2" fill="#5b6b85" stroke="#8794ad"/>' +
+                '<rect x="6" y="23" width="6" height="8" rx="1" fill="#38455e"/>' +
+                '<rect x="6" y="37" width="6" height="8" rx="1" fill="#38455e"/>' +
+                '<rect x="23" y="26" width="66" height="22" fill="#93a3b8" stroke="#cbd5e1" stroke-width="1"/>';
+            const geo = {
+                od:
+                    '<line x1="99" y1="22" x2="99" y2="50" stroke="' + R + '" stroke-width="1.6"/>' +
+                    '<path d="M99 22 l-3 5 h6 z" fill="' + R + '"/><path d="M99 50 l-3 -5 h6 z" fill="' + R + '"/>' +
+                    '<line x1="90" y1="26" x2="108" y2="26" stroke="' + R + '" stroke-width="1"/>' +
+                    '<text x="106" y="44" font-size="14" fill="' + T + '" font-family="monospace">Ø</text>',
+                ap:
+                    '<rect x="40" y="26" width="42" height="5" fill="rgba(239,68,68,.2)" stroke="' + R + '" stroke-dasharray="4 3"/>' +
+                    '<line x1="85" y1="26" x2="85" y2="31" stroke="' + R + '" stroke-width="1.6"/>' +
+                    '<path d="M85 26 l-2.5 3 h5 z" fill="' + R + '"/><path d="M85 31 l-2.5 -3 h5 z" fill="' + R + '"/>' +
+                    '<text x="92" y="33" font-size="11" fill="' + T + '" font-family="monospace">ap</text>',
+                allowX:
+                    '<rect x="40" y="22" width="42" height="4" fill="rgba(239,68,68,.28)" stroke="' + R + '" stroke-dasharray="3 2"/>' +
+                    '<line x1="86" y1="22" x2="86" y2="26" stroke="' + R + '" stroke-width="1.6"/>' +
+                    '<path d="M86 22 l-2.5 3 h5 z" fill="' + R + '"/><path d="M86 26 l-2.5 -3 h5 z" fill="' + R + '"/>' +
+                    '<text x="92" y="26" font-size="11" fill="' + T + '" font-family="monospace">I</text>',
+                allowZ:
+                    '<rect x="89" y="26" width="4" height="22" fill="rgba(239,68,68,.28)" stroke="' + R + '" stroke-dasharray="3 2"/>' +
+                    '<line x1="89" y1="37" x2="101" y2="37" stroke="' + R + '" stroke-width="1.6"/>' +
+                    '<path d="M89 37 l3 -2.5 v5 z" fill="' + R + '"/><path d="M101 37 l-3 -2.5 v5 z" fill="' + R + '"/>' +
+                    '<text x="96" y="24" font-size="11" fill="' + T + '" font-family="monospace">K</text>',
+                safez:
+                    '<line x1="89" y1="37" x2="110" y2="37" stroke="' + R + '" stroke-width="1.6"/>' +
+                    '<path d="M89 37 l4 -3 v6 z" fill="' + R + '"/>' +
+                    '<path d="M112 30 l-7 4 v6 z" fill="#38455e" stroke="#8794ad"/>' +
+                    '<text x="92" y="24" font-size="11" fill="' + T + '" font-family="monospace">Z</text>',
+                holeDia:
+                    '<rect x="40" y="40" width="49" height="8" fill="#0b1120" stroke="' + R + '" stroke-dasharray="4 3"/>' +
+                    '<line x1="80" y1="40" x2="80" y2="48" stroke="' + R + '" stroke-width="1.6"/>' +
+                    '<path d="M80 40 l-2.5 3 h5 z" fill="' + R + '"/><path d="M80 48 l-2.5 -3 h5 z" fill="' + R + '"/>' +
+                    '<text x="92" y="47" font-size="12" fill="' + T + '" font-family="monospace">Ø</text>',
+                boreDia:
+                    '<rect x="36" y="38" width="53" height="10" fill="#0b1120" stroke="' + R + '" stroke-dasharray="4 3"/>' +
+                    '<line x1="78" y1="38" x2="78" y2="48" stroke="' + R + '" stroke-width="1.6"/>' +
+                    '<path d="M78 38 l-2.5 3 h5 z" fill="' + R + '"/><path d="M78 48 l-2.5 -3 h5 z" fill="' + R + '"/>' +
+                    '<text x="92" y="47" font-size="12" fill="' + T + '" font-family="monospace">Ø</text>',
+                boreLen:
+                    '<rect x="36" y="40" width="53" height="8" fill="#0b1120" stroke="#64748b" stroke-dasharray="3 2"/>' +
+                    '<line x1="37" y1="44" x2="88" y2="44" stroke="' + R + '" stroke-width="1.6"/>' +
+                    '<path d="M37 44 l4 -2.5 v5 z" fill="' + R + '"/><path d="M88 44 l-4 -2.5 v5 z" fill="' + R + '"/>' +
+                    '<text x="55" y="40" font-size="11" fill="' + T + '" font-family="monospace">Z</text>'
+            };
+            const solo = {
+                speed:
+                    '<circle cx="60" cy="30" r="16" fill="none" stroke="#93a3b8" stroke-width="2"/>' +
+                    '<path d="M60 14 a16 16 0 0 1 14 8" fill="none" stroke="' + R + '" stroke-width="2.2"/>' +
+                    '<path d="M74 22 l2 -7 -7 2 z" fill="' + R + '"/>' +
+                    '<circle cx="60" cy="30" r="2.5" fill="#cbd5e1"/>',
+                feed:
+                    '<rect x="72" y="18" width="40" height="24" fill="#93a3b8" stroke="#cbd5e1"/>' +
+                    '<line x1="16" y1="30" x2="66" y2="30" stroke="' + R + '" stroke-width="2.4"/>' +
+                    '<path d="M66 30 l-8 -5 v10 z" fill="' + R + '"/>' +
+                    '<text x="20" y="24" font-size="11" fill="' + T + '" font-family="monospace">F</text>',
+                tool:
+                    '<rect x="10" y="26" width="34" height="8" fill="#5b6b85" stroke="#8794ad"/>' +
+                    '<path d="M44 30 l16 -8 v16 z" fill="#38455e" stroke="#cbd5e1"/>' +
+                    '<rect x="72" y="16" width="40" height="28" fill="#93a3b8" stroke="#cbd5e1"/>',
+                limit:
+                    '<path d="M40 42 a20 20 0 0 1 40 0" fill="none" stroke="#93a3b8" stroke-width="2.4"/>' +
+                    '<line x1="60" y1="42" x2="74" y2="28" stroke="' + R + '" stroke-width="2.2"/>' +
+                    '<circle cx="60" cy="42" r="2.5" fill="#cbd5e1"/>' +
+                    '<text x="46" y="54" font-size="9" fill="#94a3b8" font-family="monospace">max</text>'
+            };
+            const inner = geo[type] ? (base + geo[type]) : (solo[type] || base);
+            return '<svg viewBox="0 0 120 60" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">' + inner + '</svg>';
+        }
+
+        // Które pole dostaje jaką grafikę + podpowiedź (tytuł)
+        const DIM_PICS = {
+            d_blank: ['od', 'Średnica surówki / detalu (Ø zewn.)'],
+            d_pilot: ['holeDia', 'Średnica otworu wstępnego (Ø)'],
+            ap: ['ap', 'Głębokość skrawania na przejście'],
+            spindle_speed: ['speed', 'Prędkość / obroty wrzeciona'],
+            g50_limit: ['limit', 'Maks. obroty (G50)'],
+            feed_rough: ['feed', 'Posuw zgrubny'],
+            feed_finish: ['feed', 'Posuw wykańczający'],
+            tool_no: ['tool', 'Narzędzie i korektor'],
+            finish_allowance_x: ['allowX', 'Naddatek wykańczający w X (I)'],
+            finish_allowance_z: ['allowZ', 'Naddatek wykańczający w Z (K)'],
+            safe_z: ['safez', 'Bezpieczny dobieg / start w Z'],
+            bore_dia: ['boreDia', 'Średnica otworu (docelowa Ø)'],
+            bore_len: ['boreLen', 'Głębokość otworu w Z'],
+            bore_pilot: ['holeDia', 'Średnica otworu wstępnego (Ø)'],
+            bore_ap: ['ap', 'Głębokość skrawania na przejście'],
+            bore_vc: ['speed', 'Prędkość / obroty wrzeciona'],
+            bore_g50: ['limit', 'Maks. obroty (G50)'],
+            bore_frough: ['feed', 'Posuw zgrubny'],
+            bore_ffin: ['feed', 'Posuw wykańczający'],
+            bore_allow: ['allowX', 'Naddatek wykańczający w X (I)'],
+            bore_tool: ['tool', 'Narzędzie i korektor'],
+            bore_safe_z: ['safez', 'Bezpieczny dobieg / start w Z']
+        };
+        function injectDimPics() {
+            for (const id in DIM_PICS) {
+                const el = document.getElementById(id);
+                if (!el) continue;
+                const field = el.closest('.field');
+                if (!field || field.querySelector('.pic')) continue;
+                const span = document.createElement('span');
+                span.className = 'pic';
+                span.title = DIM_PICS[id][1];
+                span.innerHTML = dimSvg(DIM_PICS[id][0]);
+                const label = field.querySelector('label');
+                if (label) label.insertAdjacentElement('afterend', span);
+                else field.insertBefore(span, el);
+            }
         }
 
         function syncBlank() {
@@ -3094,6 +3226,7 @@
 
         window.addEventListener('load', () => {
             profile = demoExternal();
+            injectDimPics();
             updateModeUI();
             setupCanvas();
             renderTable();
