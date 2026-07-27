@@ -150,6 +150,23 @@ folderu — co widać w siatce), `folderSearch` (`false` = widok Programy,
   `folderSearch` woła `renderFolderGrid()`
 - programy dyskowe mają `id = "d:" + folderKey + ":" + dir + "/" + file`
 
+### Zapis biblioteki (ważne)
+
+`localStorage` ma ~5 MB i przy większej bibliotece zapis kończył się błędem
+„exceeded the quota", co wywracało odświeżanie. Dlatego:
+
+- **Główne miejsce zapisu to IndexedDB** (`idbSet(LS_KEY, …)`, store `kv`),
+  localStorage trzyma tylko lekką kopię do szybkiego startu i po przepełnieniu
+  jest po cichu porzucany (`lsQuotaHit`).
+- `slimPrograms()` **nie zapisuje `code` programów dyskowych** — kod i tak jest
+  wczytywany z dysku przy starcie (`restoreFolders()` skanuje wszystkie foldery)
+  i przy każdym odświeżeniu. Dane użytkownika (notatki, tagi, ulubione, historia
+  wersji) zapisywane są normalnie.
+- Start: `load()` (szybka kopia z localStorage) → `loadLibrary()` (pełne dane
+  z IndexedDB) → `restoreFolders()` (skan dysku uzupełnia kod).
+- `save()` nigdy nie rzuca wyjątkiem — zapis do IndexedDB jest debounce'owany
+  (250 ms), a błąd localStorage jest połykany.
+
 ### Naprawione w tej sesji
 
 **Odświeżanie:** `rescanFolder()` skanował tylko folder *aktywny* — gdy oglądany

@@ -1209,16 +1209,51 @@ const thumbByCard = new Map();// id -> { name, url } — gotowe miniaturki bez o
 let editId = null;       // id edytowanego programu (null = nowy)
 let viewId = null;       // id programu w podglądzie
 
-function load() {
-  try { programs = JSON.parse(localStorage.getItem(LS_KEY) || "[]"); }
-  catch (e) { programs = []; }
+function dropDemo() {
   // usunięcie przykładowych programów zapisanych przez wcześniejsze wersje aplikacji
   const demo = { p1: "O00125", p2: "O00210", p3: "O00305" };
   const before = programs.length;
   programs = programs.filter(p => demo[p.id] !== p.onum);
-  if (programs.length !== before) save();
+  return programs.length !== before;
 }
-function save() { localStorage.setItem(LS_KEY, JSON.stringify(programs)); }
+function load() {
+  try { programs = JSON.parse(localStorage.getItem(LS_KEY) || "[]"); }
+  catch (e) { programs = []; }
+  if (dropDemo()) save();
+}
+
+/* Biblioteka bywa duża (G-kod + historia wersji), a localStorage ma ~5 MB — przy
+   większej liczbie programów zapis kończył się błędem „exceeded the quota”.
+   Główne miejsce zapisu to więc IndexedDB (limit setek MB), a localStorage trzyma
+   tylko lekką kopię do szybkiego startu. Kod programów dyskowych nie jest
+   zapisywany: i tak jest wczytywany z dysku przy każdym uruchomieniu i skanie. */
+function slimPrograms() {
+  return programs.map(p => (p.source === "disk" && p.code) ? Object.assign({}, p, { code: "" }) : p);
+}
+let libSaveTimer = null, lsQuotaHit = false;
+function save() {
+  const data = slimPrograms();
+  clearTimeout(libSaveTimer);
+  libSaveTimer = setTimeout(() => { idbSet(LS_KEY, data).catch(() => {}); }, 250);
+  if (lsQuotaHit) return;   // po przepełnieniu nie próbuj już zapisywać do localStorage
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify(data));
+  } catch (e) {
+    lsQuotaHit = true;      // dane zostają w IndexedDB — brak kopii w localStorage nie szkodzi
+    try { localStorage.removeItem(LS_KEY); } catch (e2) {}
+  }
+}
+
+/* wczytanie biblioteki z IndexedDB (jeśli jest tam nowsza/pełniejsza kopia) */
+async function loadLibrary() {
+  let fromIdb = null;
+  try { fromIdb = await idbGet(LS_KEY); } catch (e) {}
+  if (Array.isArray(fromIdb) && fromIdb.length >= programs.length) {
+    programs = fromIdb;
+    dropDemo();
+    render();
+  }
+}
 const byId = id => programs.find(p => p.id === id);
 const uid = () => "p" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
@@ -3253,10 +3288,13 @@ if (window.native && window.native.onDetailAction) {
 }
 
 /* ════════════════════ start ════════════════════ */
-load();
+load();            // szybka kopia z localStorage — natychmiastowy widok
 loadFolders();     // migracja + ustawienie aktywnego folderu (synchronicznie)
 render();
-restoreFolders();  // weryfikacja folderów na dysku + skan
+(async () => {
+  await loadLibrary();   // pełna biblioteka z IndexedDB
+  await restoreFolders();// weryfikacja folderów na dysku + skan (uzupełnia kod z dysku)
+})();
 </script>
 </body>
 </html>
