@@ -464,6 +464,23 @@
     border:1px dashed var(--stroke);border-radius:var(--radius);
   }
 
+  /* pasek otwartego folderu (widok „Foldery" → wejście w folder) */
+  .dir-bar{
+    grid-column:1/-1;display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+    padding:11px 14px;margin-bottom:2px;
+    background:var(--grad-soft);border:1px solid rgba(var(--ac2-rgb),.35);
+    border-radius:var(--radius);
+  }
+  .dir-bar .dir-name{
+    font-weight:700;font-size:.92rem;color:var(--txt);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:52vw;
+  }
+  .dir-bar .dir-count{
+    font-size:.78rem;color:var(--mut);background:rgba(255,255,255,.06);
+    border:1px solid var(--stroke);border-radius:999px;padding:2px 10px;
+  }
+  body.light .dir-bar .dir-count{background:rgba(15,23,42,.05)}
+
   /* ── modale ─────────────────────────────────────────────────── */
   .modal{
     position:fixed;inset:0;z-index:100;display:none;
@@ -1201,6 +1218,7 @@ let query = "";
 let queryTokens = [];    // słowa wyszukiwania po normalizacji (bez polskich znaków)
 let filter = "all";      // all | fav | tag:xxx
 let folderSearch = false; // czy szukać także w nazwach folderów (p.dir)
+let openedDir = null;     // otwarty folder w widoku „Foldery": {root, dir} — pokazuje jego programy
 let sortMode = localStorage.getItem("cncSort") || "modNew";
 let viewLimit = parseInt(localStorage.getItem("cncLimit"), 10);
 if (isNaN(viewLimit)) viewLimit = 20;   // ile kart pokazywać naraz (0 = wszystkie)
@@ -1479,6 +1497,7 @@ async function addFolder() {
 /* przełącza widok/aktywny folder (bez skanowania — natychmiast) */
 async function switchFolder(view) {
   folderView = view;
+  openedDir = null;   // zmiana folderu głównego wychodzi z otwartego podfolderu
   if (view !== "all") {
     activeFolderKey = view;
     const f = folderOf(view);
@@ -2191,6 +2210,8 @@ function currentFolders() {
 
 function matches(p) {
   if (isIgnoredDir(p.dir)) return false;   // pomijane foldery
+  // otwarty folder (widok „Foldery" → wejście w folder) — pokazuj tylko jego programy
+  if (openedDir && !(p.source === "disk" && p.root === openedDir.root && p.dir === openedDir.dir)) return false;
   // filtr folderu obowiązuje ZAWSZE — również przy wyszukiwaniu.
   // Programy z innych folderów pojawią się dopiero po przełączeniu folderu w statystykach.
   if (!inView(p)) return false;
@@ -2248,31 +2269,57 @@ function renderFolderGrid() {
 }
 
 /* otwiera folder z widoku folderów w Eksploratorze */
+/* wejście do folderu — pokazuje programy z tego folderu jako karty (z rysunkami),
+   tak samo jak w widoku programów; powrót przyciskiem „Foldery" */
 function openFolderCard(i) {
   const f = folderCards[i]; if (!f) return;
-  const fo = folderOf(f.root);
+  openedDir = { root: f.root, dir: f.dir };
+  viewLimit = parseInt(localStorage.getItem("cncLimit"), 10);
+  if (!(viewLimit >= 0)) viewLimit = 20;
+  document.querySelector(".body,#grid").scrollTop = 0;
+  window.scrollTo(0, 0);
+  render();
+}
+/* powrót z otwartego folderu do listy folderów */
+function closeOpenedDir() {
+  openedDir = null;
+  render();
+}
+/* otwiera otwarty folder w Eksploratorze Windows */
+function openDirInExplorer(d) {
+  if (!d) return;
+  const fo = folderOf(d.root);
   const rootPath = (fo && fo.path) || (fsRoot && fsRoot.path);
   if (window.native && rootPath) {
-    window.native.showInFolder(rootPath + "/" + f.dir).then(r => { if (r && !r.ok) toast("Nie udało się otworzyć folderu"); });
+    window.native.showInFolder(rootPath + "/" + d.dir).then(r => { if (r && !r.ok) toast("Nie udało się otworzyć folderu"); });
   } else toast("Otwieranie folderu działa w aplikacji na Windows");
 }
 
 function renderGrid() {
-  if (folderSearch) { renderFolderGrid(); return; }
+  if (folderSearch && !openedDir) { renderFolderGrid(); return; }
   const grid = document.getElementById("grid");
   const full = sortPrograms(programs.filter(matches));
   const list = viewLimit > 0 ? full.slice(0, viewLimit) : full;
   const moreCount = full.length - list.length;
 
+  // pasek nawigacji, gdy wszedłeś do folderu z widoku „Foldery"
+  const dirBar = openedDir ? `<div class="dir-bar">
+      <button class="btn btn-sm" id="btnBackFolders" title="Wróć do listy folderów">← Foldery</button>
+      <span class="dir-name" title="${esc(openedDir.dir)}">📁 ${esc(openedDir.dir)}</span>
+      <span class="dir-count">${full.length} ${plural(full.length, "program", "programy", "programów")}</span>
+      <span style="flex:1"></span>
+      <button class="btn btn-sm" id="btnDirExplorer" title="Otwórz ten folder w Eksploratorze Windows">Otwórz w Eksploratorze</button>
+    </div>` : "";
+
   if (!list.length) {
-    grid.innerHTML = `<div class="empty">
+    grid.innerHTML = dirBar + `<div class="empty">
       <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3M8 11h6"></path>
       </svg>
       <p>${programs.length ? "Brak programów pasujących do wyszukiwania." : "Biblioteka jest pusta — połącz folder z programami albo przeciągnij tu pliki .txt / .nc."}</p>
     </div>`;
   } else {
-    grid.innerHTML = list.map((p, i) => `
+    grid.innerHTML = dirBar + list.map((p, i) => `
       <article class="card" data-id="${p.id}" style="animation-delay:${Math.min(i * 40, 320)}ms">
         <div class="card-top">
           <h2>${esc(p.name)}</h2>
@@ -2755,6 +2802,7 @@ function applyWidget(on) {
 }
 function applyFolderSearch(on) {
   folderSearch = on;   // on = widok folderów; off = widok programów
+  openedDir = null;    // przełączenie widoku zawsze wychodzi z otwartego folderu
   localStorage.setItem("cncFolderMode", on ? "on" : "off");
   const s = document.getElementById("search");
   if (s) s.placeholder = on
@@ -3170,6 +3218,8 @@ document.getElementById("filters").addEventListener("click", e => {
 });
 
 document.getElementById("grid").addEventListener("click", e => {
+  if (e.target.closest("#btnBackFolders")) { closeOpenedDir(); return; }
+  if (e.target.closest("#btnDirExplorer")) { openDirInExplorer(openedDir); return; }
   const sa = e.target.closest("#btnShowAll");
   if (sa) {
     viewLimit = 0;
