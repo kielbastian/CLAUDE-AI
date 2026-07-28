@@ -177,6 +177,118 @@ $("addBtn").addEventListener("click", async () => {
   renderEntries();
 });
 
+// ---------- import z Chrome (plik CSV) ----------
+
+// Parser CSV zgodny z RFC 4180 (obsługuje cudzysłowy, przecinki i nowe
+// linie wewnątrz pól — hasła bywają dziwne).
+function parseCSV(text) {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') {
+          field += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        field += c;
+      }
+    } else if (c === '"') {
+      inQuotes = true;
+    } else if (c === ",") {
+      row.push(field);
+      field = "";
+    } else if (c === "\n") {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = "";
+    } else if (c !== "\r") {
+      field += c;
+    }
+  }
+  if (field.length || row.length) {
+    row.push(field);
+    rows.push(row);
+  }
+  return rows;
+}
+
+function hostFromUrlLike(value) {
+  const v = (value || "").trim();
+  if (!v) return "";
+  try {
+    return new URL(v).hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return v.toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];
+  }
+}
+
+$("importBtn").addEventListener("click", async () => {
+  const file = $("importFile").files[0];
+  if (!file) return showError("importError", "Najpierw wybierz plik CSV.");
+  showError("importError", "");
+  $("importStatus").classList.add("hidden");
+
+  let text;
+  try {
+    text = (await file.text()).replace(/^﻿/, ""); // usuń ewentualny BOM
+  } catch {
+    return showError("importError", "Nie udało się odczytać pliku.");
+  }
+
+  const rows = parseCSV(text).filter((r) => r.some((c) => c !== ""));
+  if (rows.length < 2) return showError("importError", "Plik nie zawiera haseł.");
+
+  const header = rows[0].map((h) => h.trim().toLowerCase());
+  const col = (names) => {
+    for (const n of names) {
+      const i = header.indexOf(n);
+      if (i >= 0) return i;
+    }
+    return -1;
+  };
+  const iUrl = col(["url", "website", "login_uri", "adres"]);
+  const iUser = col(["username", "login", "użytkownik", "user", "e-mail", "email"]);
+  const iPass = col(["password", "hasło", "haslo", "pass"]);
+  const iName = col(["name", "title", "nazwa"]);
+  if (iPass < 0) {
+    return showError("importError", "Nie rozpoznano kolumny z hasłem — użyj eksportu z Chrome.");
+  }
+
+  const entries = [];
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r];
+    const password = (row[iPass] || "").trim();
+    if (!password) continue;
+    const host =
+      hostFromUrlLike(iUrl >= 0 ? row[iUrl] : "") || hostFromUrlLike(iName >= 0 ? row[iName] : "");
+    if (!host) continue;
+    entries.push({
+      host,
+      url: iUrl >= 0 ? row[iUrl] : "",
+      username: iUser >= 0 ? (row[iUser] || "").trim() : "",
+      password,
+    });
+  }
+  if (!entries.length) return showError("importError", "Nie znaleziono wpisów do importu.");
+
+  const res = await send({ type: "IMPORT_CREDENTIALS", entries });
+  if (!res.ok) return showError("importError", res.error || "Import nie powiódł się.");
+
+  const status = $("importStatus");
+  status.classList.remove("hidden");
+  status.textContent = `Gotowe: dodano ${res.added}, zaktualizowano ${res.updated}, pominięto ${res.skipped}.`;
+  $("importFile").value = "";
+  renderEntries();
+});
+
 // ---------- oczekujące zapisy ----------
 
 async function renderPending() {

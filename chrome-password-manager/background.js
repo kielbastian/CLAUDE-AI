@@ -406,6 +406,55 @@ async function handleMessage(msg, sender) {
       return { ok: true };
     }
 
+    // Import wielu wpisów naraz (np. z pliku CSV wyeksportowanego z Chrome).
+    case "IMPORT_CREDENTIALS": {
+      const key = await getSessionKey();
+      if (!key) return { ok: false, locked: true };
+      const incoming = Array.isArray(msg.entries) ? msg.entries : [];
+      const entries = await readEntries(key);
+      const now = Date.now();
+      let added = 0,
+        updated = 0,
+        skipped = 0;
+      for (const raw of incoming) {
+        const host = normalizeHost(raw.host);
+        const password = raw.password || "";
+        if (!host || !password) {
+          skipped++;
+          continue;
+        }
+        const username = raw.username || "";
+        const existing = entries.find(
+          (e) => e.host === host && e.username === username && !e.deleted
+        );
+        if (existing) {
+          if (existing.password !== password) {
+            existing.password = password;
+            existing.updatedAt = now;
+            updated++;
+          } else {
+            skipped++;
+          }
+        } else {
+          entries.push({
+            id: crypto.randomUUID(),
+            host,
+            url: raw.url || "https://" + host,
+            username,
+            password,
+            createdAt: now,
+            updatedAt: now,
+          });
+          added++;
+        }
+      }
+      if (added || updated) {
+        await writeEntries(key, entries);
+        scheduleSync();
+      }
+      return { ok: true, added, updated, skipped };
+    }
+
     case "DRIVE_STATUS": {
       const data = await chrome.storage.local.get([
         "driveEnabled",

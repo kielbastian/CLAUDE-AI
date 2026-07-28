@@ -73,6 +73,24 @@
         <button id="addBtn" class="primary">Zapisz wpis</button>
         <p id="addError" class="error hidden"></p>
       </details>
+
+      <details id="importBox">
+        <summary>⬆️ Importuj hasła z Chrome (plik CSV)</summary>
+        <p class="muted small">
+          Rozszerzenia nie mają wglądu w hasła zapisane w Chrome, ale możesz je
+          wyeksportować i wgrać tutaj wszystkie naraz:
+        </p>
+        <ol class="import-steps">
+          <li>Otwórz <b>chrome://password-manager/passwords</b></li>
+          <li>„Ustawienia” (⚙️) → <b>„Eksportuj hasła”</b> → zapisz plik CSV.</li>
+          <li>Wybierz ten plik poniżej i kliknij „Importuj”.</li>
+        </ol>
+        <input type="file" id="importFile" accept=".csv,text/csv" />
+        <button id="importBtn" class="primary">Importuj z pliku</button>
+        <p id="importStatus" class="muted small hidden"></p>
+        <p id="importError" class="error hidden"></p>
+        <p class="muted small">⚠️ Po imporcie <b>usuń plik CSV</b> z dysku — zawiera hasła w postaci jawnej.</p>
+      </details>
     </div>
 
     <div id="tabGen" class="hidden">
