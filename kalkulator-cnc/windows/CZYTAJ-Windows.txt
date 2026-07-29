@@ -1,0 +1,65 @@
+============================================
+   KALKULATOR CNC - aplikacja na Windows
+   PROJEKT MARKA KULCZYCKIEGO
+============================================
+
+W folderze powinny lezec RAZEM pliki:
+   kalkulator_cnc.html
+   Kalkulator-CNC.ico
+   install.ps1
+   Zainstaluj-KalkulatorCNC.bat
+
+
+-------------------------------------------------
+INSTALACJA (1 klikniecie)
+-------------------------------------------------
+1. Kliknij dwukrotnie:  Zainstaluj-KalkulatorCNC.bat
+2. Jesli Windows pokaze ostrzezenie SmartScreen:
+   "Wiecej informacji" -> "Uruchom mimo to".
+3. Po chwili pojawi sie napis "Gotowe!".
+
+Efekt:
+ - na PULPICIE pojawi sie ikona "Kalkulator CNC",
+ - ten sam skrot bedzie w MENU START,
+ - mozesz przeciagnac ikone na PASEK ZADAN, zeby przypiac.
+
+Aplikacja otwiera sie we WLASNYM OKNIE (bez paska adresu),
+korzystajac z przegladarki Edge wbudowanej w Windows.
+Pliki aplikacji laduja w:  %LOCALAPPDATA%\KalkulatorCNC
+
+
+-------------------------------------------------
+IKONA NA PASKU ZADAN (gdy widac ikone przegladarki)
+-------------------------------------------------
+W trybie "okna aplikacji" (--app) Windows dla URUCHOMIONEGO
+okna pokazuje czasem ikone Edge - to ograniczenie przegladarki.
+Skrot na pulpicie/Start ma juz nasza ikone.
+
+Aby URUCHOMIONA aplikacja miala na pasku WLASNA ikone, zainstaluj
+ja jako aplikacje Edge (raz, 20 sekund):
+1. Otworz kalkulator_cnc.html w przegladarce Edge.
+2. Menu ... (prawy gorny rog) -> Aplikacje ->
+   "Zainstaluj te witryne jako aplikacje".
+3. Potwierdz nazwe "Kalkulator CNC" i zaznacz przypiecie
+   do paska zadan / utworzenie skrotu.
+Od teraz aplikacja ma wlasna ikone takze na pasku, ma wlasny
+wpis w menu Start i wlasne okno. Stary skrot mozesz usunac.
+
+To samo w Chrome: Menu -> Zapisz i udostepnij ->
+"Zainstaluj te strone jako aplikacje".
+
+
+-------------------------------------------------
+ODINSTALOWANIE
+-------------------------------------------------
+Kliknij dwukrotnie:  Odinstaluj-KalkulatorCNC.bat
+(usuwa skroty i pliki aplikacji)
+Jesli instalowales przez Edge "Zainstaluj te witryne jako
+aplikacje" - odinstaluj ja w: edge://apps
+
+
+-------------------------------------------------
+Uwaga
+-------------------------------------------------
+Aplikacja dziala bez internetu. Przy braku sieci czcionka
+moze byc zapasowa (systemowa) - obliczenia dzialaja normalnie.

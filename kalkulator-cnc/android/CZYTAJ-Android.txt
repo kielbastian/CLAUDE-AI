@@ -1,0 +1,66 @@
+============================================
+   KALKULATOR CNC - aplikacja na Androida
+============================================
+
+W paczce sa pliki:
+   index.html
+   manifest.webmanifest
+   sw.js
+   icon-192.png
+   icon-512.png
+
+To jest aplikacja typu PWA - instaluje sie z wlasna ikona,
+otwiera w osobnym oknie (bez paska adresu) i dziala OFFLINE.
+
+
+====================================================
+SPOSOB 1 - NAJSZYBSZY (bez komputera, bez hostingu)
+====================================================
+1. Wyslij na telefon sam plik index.html
+   (mail, USB, Dysk Google - obojetnie).
+2. Otworz go w przegladarce Chrome na Androidzie.
+3. Menu (trzy kropki, prawy gorny rog) ->
+   "Dodaj do ekranu glownego".
+4. Na ekranie glownym pojawi sie ikona.
+
+Uwaga: w tym trybie dziala obliczanie i kopiowanie kodu.
+Pelne okno aplikacji i pewny tryb offline daje SPOSOB 2.
+
+
+====================================================
+SPOSOB 2 - PEŁNA APKA PWA (wlasne okno + offline)
+====================================================
+Trzeba raz wystawic paczke w internecie (darmowo).
+Najprosciej GitHub Pages:
+1. Zaloz darmowe konto na github.com.
+2. Utworz repozytorium (np. "kalkulator-cnc"), zaznacz Public.
+3. Wgraj WSZYSTKIE pliki z tej paczki do repozytorium
+   (index.html, manifest.webmanifest, sw.js, icon-192.png, icon-512.png).
+4. Settings -> Pages -> Branch: main -> Save.
+5. Po chwili dostaniesz adres typu:
+   https://twojnick.github.io/kalkulator-cnc/
+6. Otworz ten adres w Chrome na telefonie ->
+   menu (trzy kropki) -> "Zainstaluj aplikacje".
+   Dostaniesz prawdziwa ikone i okno aplikacji, dziala offline.
+
+
+====================================================
+SPOSOB 3 - PLIK .APK (do instalacji jak zwykla apka)
+====================================================
+Gdy masz juz adres z internetu (SPOSOB 2, punkt 5):
+1. Wejdz na: https://www.pwabuilder.com
+2. Wklej swoj adres https://... i kliknij Start.
+3. Wybierz Android -> Generate / Download.
+4. Dostaniesz gotowy, podpisany plik .apk (i .aab).
+5. Skopiuj .apk na telefon i zainstaluj
+   (wlacz "Instaluj z nieznanych zrodel", jesli zapyta).
+
+To jest oficjalne narzedzie (Microsoft) - z naszej paczki PWA
+robi gotowy plik APK bez instalowania Android Studio.
+
+
+-------------------------------------------------
+Uwaga
+-------------------------------------------------
+Przy braku internetu czcionka moze byc zapasowa (systemowa) -
+wszystkie obliczenia i generowanie kodu dzialaja normalnie.
