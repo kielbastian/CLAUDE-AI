@@ -69,6 +69,12 @@ swoich gałęziach pozostają nietknięte:
   bez rysunku szuka w folderze rysunków pliku po numerze SZ i kopiuje go do
   folderu programu. Na koniec podsumowanie — ile skopiowano, dla ilu nie
   znaleziono, ile programów nie ma numeru rysunku.
+- **Przycisk „Bez rysunku: N"** pojawia się pod spodem po dopasowaniu i otwiera
+  listę programów, które zostały bez rysunku — w trzech grupach: *nie znaleziono
+  rysunku*, *bez numeru rysunku* i *dopasowane*. Każdy wiersz pokazuje nazwę,
+  numer O, folder i numer rysunku; kliknięcie otwiera program, przycisk obok
+  pozwala wskazać rysunek ręcznie. „Kopiuj listę" wrzuca całą grupę do schowka
+  (kolumny rozdzielone tabulatorem — wklei się do arkusza).
 - **Przycisk „Rysunek"** w oknie podglądu programu otwiera przypisany rysunek
   na pełnym oknie (skala do szerokości, zoom +/−, „Pokaż plik"
   w Eksploratorze). Rysowany przez pdf.js na canvasie, więc podgląd nie zależy
