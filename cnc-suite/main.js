@@ -81,6 +81,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       nodeIntegrationInSubFrames: true,   // preload także w kartach (iframe)
+      plugins: true,                      // wbudowana przeglądarka PDF (<embed>)
       spellcheck: false
     }
   });
@@ -250,7 +251,8 @@ function createDetailWindow(payload) {
     title: (payload && payload.program && payload.program.name) || "Podgląd programu",
     icon: path.join(__dirname, "build", "icon.png"),
     webPreferences: {
-      preload: path.join(__dirname, "preload.js")
+      preload: path.join(__dirname, "preload.js"),
+      plugins: true                       // wbudowana przeglądarka PDF (<embed>)
     }
   });
   detailPayloads.set(dw.id, payload);
@@ -298,10 +300,13 @@ ipcMain.handle("scan-programs", async (e, root) => {
   return found;
 });
 
+/* skanuje drzewo w poszukiwaniu rysunków PDF — używane i dla folderu rysunków,
+   i dla folderu z programami (rysunek leżący obok pliku .nc). Głębokość taka sama
+   jak przy skanowaniu programów, żeby żaden podfolder nie został pominięty. */
 ipcMain.handle("scan-pdfs", async (e, root) => {
   const out = [];
   async function walk(dir, rel, depth) {
-    if (depth > 4) return;
+    if (depth > 8) return;
     let entries;
     try { entries = await fs.readdir(dir, { withFileTypes: true }); } catch { return; }
     for (const ent of entries) {

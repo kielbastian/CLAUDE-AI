@@ -252,6 +252,37 @@
   body.light .toast{color:#1b2333;background:linear-gradient(135deg,rgba(var(--ac1-rgb),.20),rgba(var(--ac2-rgb),.16)),#fff}
   body.light ::-webkit-scrollbar-thumb{background:#c3cbdc}
 
+  /* ── podgląd rysunku PDF z folderu programu ── */
+  .dw-overlay{position:fixed;inset:0;z-index:320;display:flex;flex-direction:column;background:#0b0f1c}
+  .dw-bar{
+    height:44px;flex:none;display:flex;align-items:center;gap:9px;padding:0 10px 0 16px;
+    background:rgba(6,9,20,.92);border-bottom:1px solid var(--stroke);
+    -webkit-app-region:drag;
+  }
+  .dw-bar .dw-title{
+    flex:1;font-weight:700;font-size:.9rem;color:#fff;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .dw-btn{
+    -webkit-app-region:no-drag;flex:none;cursor:pointer;
+    font-family:inherit;font-weight:600;font-size:.8rem;color:#fff;
+    background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.22);
+    border-radius:9px;padding:6px 12px;
+  }
+  .dw-btn:hover{background:rgba(255,255,255,.18)}
+  .dw-btn.close{padding:6px 11px}
+  .dw-btn.close:hover{background:#ef4444;border-color:#ef4444}
+  .dw-bar .dw-zoom{
+    -webkit-app-region:no-drag;flex:none;min-width:52px;text-align:center;
+    font-size:.78rem;font-weight:700;color:#cfd6e6;
+  }
+  .dw-pages{flex:1;overflow:auto;padding:16px;display:flex;flex-direction:column;align-items:center;gap:14px}
+  .dw-pages canvas{
+    background:#fff;border-radius:6px;max-width:none;
+    box-shadow:0 10px 34px rgba(0,0,0,.5);
+  }
+  .dw-pages .dw-msg{margin:auto;color:#8d96ad;font-size:.92rem}
+
   /* ── generator / podgląd konturu 2D (backplot z G-kodu) ── */
   .bp-overlay{position:fixed;inset:0;z-index:300;display:flex;background:#4b52d6}
   .bp-canvas{flex:1;display:block;width:100%;height:100%;cursor:default}
@@ -361,6 +392,13 @@
     </svg>
     Usuń
   </button>
+  <button class="btn" id="btnDrawing" style="display:none" title="Pokaż rysunek PDF leżący w folderze tego programu">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5"></path>
+      <path d="M8.5 17l2.6-3.3 1.9 2.3 1.4-1.7 2.1 2.7z"></path>
+    </svg>
+    Rysunek
+  </button>
   <button class="btn" id="btnSketch" title="Otwórz w Eksploratorze folder szkicu (rysunku) przypisanego do tego programu">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path>
@@ -461,10 +499,26 @@
   <div class="bp-empty" id="bpEmpty" style="display:none">Brak ruchów tokarskich (płaszczyzna G18) do narysowania w tym programie.</div>
 </div>
 
+<!-- ── podgląd rysunku PDF leżącego w folderze programu ───────────── -->
+<div id="dwOverlay" class="dw-overlay" style="display:none">
+  <div class="dw-bar">
+    <span class="dw-title" id="dwTitle">Rysunek</span>
+    <button class="dw-btn" id="dwOut" title="Pomniejsz">−</button>
+    <span class="dw-zoom" id="dwZoom">100%</span>
+    <button class="dw-btn" id="dwIn" title="Powiększ">+</button>
+    <button class="dw-btn" id="dwFit" title="Dopasuj do szerokości">Dopasuj</button>
+    <button class="dw-btn" id="dwFolder" title="Pokaż plik w Eksploratorze">Pokaż plik</button>
+    <button class="dw-btn close" id="dwClose" title="Zamknij (Esc)">✕</button>
+  </div>
+  <div class="dw-pages" id="dwPages"></div>
+</div>
+
 <div id="toast"></div>
 
+<script src="vendor/pdf.min.js"></script>
 <script>
 "use strict";
+if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 const esc = s => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const fmtDate = t => new Date(t).toLocaleDateString("pl-PL", { day: "2-digit", month: "2-digit", year: "numeric" }) +
   " " + new Date(t).toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" });
@@ -508,6 +562,7 @@ function toast(msg) {
 
 let prog = null;
 let pdfDir = null;   // folder z rysunkami PDF (do otwarcia folderu szkicu)
+let progRoot = null; // korzeń folderu z programami (do rysunku leżącego obok programu)
 let editing = false; // czy okno jest w trybie edycji
 
 const collapse = s => String(s || "").replace(/\s+/g, " ").trim();
@@ -526,6 +581,7 @@ function onumFromCode(code) {
 
 function render(p) {
   prog = p;
+  updateDrawingBtn();
   document.title = (p.name || "Podgląd") + " — CNC Manager";
   document.getElementById("tbTitle").textContent = p.name || "";
   const ob = document.getElementById("tbOnum");
@@ -1146,6 +1202,118 @@ document.getElementById("btnBackplot").addEventListener("click", () => {
   window.__openBackplot();
 });
 
+/* ── rysunek PDF leżący w folderze programu ─────────────────────────────────
+   Rysowany przez pdf.js na canvasie, a nie przez <embed> — dzięki temu podgląd
+   nie zależy od wbudowanej wtyczki PDF przeglądarki. */
+let dwDoc = null;      // wczytany dokument pdf.js
+let dwScale = 0;       // 0 = dopasuj do szerokości okna
+let dwRun = 0;         // numer renderowania (przerywa poprzednie)
+
+/* ścieżka do pierwszego rysunku przypisanego do programu */
+function drawingPath() {
+  if (!progRoot || !prog || !(prog.pdfs && prog.pdfs.length)) return null;
+  return [progRoot, prog.dir, prog.pdfs[0]].filter(Boolean).join("/");
+}
+
+/* pokazuje / ukrywa przycisk „Rysunek" zależnie od tego, czy program ma rysunek */
+function updateDrawingBtn() {
+  const btn = document.getElementById("btnDrawing");
+  const path = drawingPath();
+  btn.style.display = path ? "" : "none";
+  if (path) btn.title = "Pokaż rysunek " + prog.pdfs[0] + " z folderu programu";
+}
+
+/* przerysowuje wszystkie strony w bieżącej skali */
+async function drawPages() {
+  const box = document.getElementById("dwPages");
+  if (!dwDoc) return;
+  const run = ++dwRun;
+  box.innerHTML = "";
+  const avail = Math.max(200, box.clientWidth - 32);
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  for (let n = 1; n <= dwDoc.numPages; n++) {
+    const page = await dwDoc.getPage(n);
+    if (run !== dwRun) return;                     // otwarto inny rysunek / zmieniono zoom
+    const v0 = page.getViewport({ scale: 1 });
+    const scale = dwScale || (avail / v0.width);
+    const vp = page.getViewport({ scale: scale * dpr });
+    const c = document.createElement("canvas");
+    c.width = Math.ceil(vp.width);
+    c.height = Math.ceil(vp.height);
+    c.style.width = Math.round(vp.width / dpr) + "px";
+    c.style.height = Math.round(vp.height / dpr) + "px";
+    box.appendChild(c);
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, c.width, c.height);
+    await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    if (run !== dwRun) return;
+    if (n === 1) document.getElementById("dwZoom").textContent = Math.round(scale * 100) + "%";
+  }
+}
+
+function zoomDrawing(mul) {
+  const box = document.getElementById("dwPages");
+  const cur = parseFloat(document.getElementById("dwZoom").textContent) / 100 || 1;
+  dwScale = Math.min(6, Math.max(0.15, cur * mul));
+  drawPages();
+  box.scrollTop = 0;
+}
+
+async function openDrawing() {
+  const path = drawingPath();
+  if (!path) { toast("Ten program nie ma rysunku w swoim folderze"); return; }
+  const box = document.getElementById("dwPages");
+  document.getElementById("dwTitle").textContent = prog.pdfs[0];
+  box.innerHTML = '<div class="dw-msg">Wczytywanie rysunku…</div>';
+  document.getElementById("dwOverlay").style.display = "flex";
+
+  const r = await window.native.readFile(path).catch(e => ({ ok: false, error: String(e) }));
+  if (!(r && r.ok)) {
+    box.innerHTML = '<div class="dw-msg">Nie udało się odczytać pliku ' + esc(prog.pdfs[0]) + "</div>";
+    return;
+  }
+  if (!window.pdfjsLib) {
+    box.innerHTML = '<div class="dw-msg">Brak biblioteki pdf.js — nie można wyświetlić rysunku</div>';
+    return;
+  }
+  try {
+    if (dwDoc) { try { dwDoc.destroy(); } catch (e) {} }
+    dwDoc = await pdfjsLib.getDocument({ data: new Uint8Array(r.data) }).promise;
+    dwScale = 0;                                   // start: dopasuj do szerokości
+    await drawPages();
+  } catch (e) {
+    box.innerHTML = '<div class="dw-msg">Nie udało się otworzyć rysunku: ' + esc((e && e.message) || e) + "</div>";
+  }
+}
+
+function closeDrawing() {
+  dwRun++;
+  document.getElementById("dwOverlay").style.display = "none";
+  document.getElementById("dwPages").innerHTML = "";
+  if (dwDoc) { try { dwDoc.destroy(); } catch (e) {} dwDoc = null; }
+}
+
+document.getElementById("btnDrawing").addEventListener("click", openDrawing);
+document.getElementById("dwClose").addEventListener("click", closeDrawing);
+document.getElementById("dwIn").addEventListener("click", () => zoomDrawing(1.25));
+document.getElementById("dwOut").addEventListener("click", () => zoomDrawing(1 / 1.25));
+document.getElementById("dwFit").addEventListener("click", () => { dwScale = 0; drawPages(); });
+document.getElementById("dwFolder").addEventListener("click", async () => {
+  const path = drawingPath();
+  if (path && window.native.showInFolder) await window.native.showInFolder(path);
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && document.getElementById("dwOverlay").style.display !== "none") {
+    e.preventDefault();
+    closeDrawing();
+  }
+});
+/* zmiana rozmiaru okna — przerysuj tylko przy dopasowaniu do szerokości */
+window.addEventListener("resize", () => {
+  if (dwDoc && !dwScale && document.getElementById("dwOverlay").style.display !== "none") drawPages();
+});
+
 /* skróty klawiszowe w trybie edycji: Ctrl+S = zapisz, Esc = anuluj */
 document.addEventListener("keydown", e => {
   if (!editing) return;
@@ -1163,6 +1331,7 @@ document.addEventListener("keydown", e => {
     if (data.accent && data.accent !== "default") document.body.classList.add("theme-" + data.accent);
     if (data.motion === false) document.body.classList.add("no-motion");
     pdfDir = data.pdfDir || null;
+    progRoot = data.progRoot || null;
     render(data.program);
   } catch (e) {
     document.getElementById("viewPane").innerHTML =

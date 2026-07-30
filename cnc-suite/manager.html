@@ -974,6 +974,17 @@
     </div>
     <div class="panel">
       <h3>Rysunki PDF</h3>
+      <button class="btn" id="btnMatchAll" style="width:100%;justify-content:center"
+              title="Dla każdego programu bez rysunku szuka PDF-a po numerze SZ w folderze rysunków i kopiuje go do folderu programu">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5"></path>
+          <circle cx="11" cy="14" r="2.6"></circle><path d="M13 16l2.4 2.4"></path>
+        </svg>
+        Dopasuj rysunki
+      </button>
+      <div style="font-size:.72rem;color:var(--mut);margin:9px 0 12px;line-height:1.55">
+        Wyszukuje po numerze SZ i kopiuje rysunki do wszystkich programów, które ich jeszcze nie mają.
+      </div>
       <button class="btn" id="btnOpenPdfDir" style="width:100%;justify-content:center">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path>
@@ -1584,9 +1595,22 @@ async function rescanFolderKey(key, quiet) {
   const f = folderOf(key);
   if (!f) { if (!quiet) toast("Nie znaleziono folderu do odświeżenia — połącz go ponownie"); return; }
   let found = [];
+  /* podfolder → nazwy plików PDF, które w nim leżą (rysunek obok programu) */
+  const pdfsByDir = new Map();
+  const notePdf = (dir, name) => {
+    const list = pdfsByDir.get(dir) || [];
+    if (!list.includes(name)) list.push(name);
+    pdfsByDir.set(dir, list);
+  };
   if (window.native) {
     try { found = await window.native.scanPrograms(f.path); }
     catch (e) { toast("Nie udało się odczytać folderu „" + f.name + "”"); return; }
+    try {
+      for (const x of await window.native.scanPdfs(f.path)) {
+        const i = x.rel.lastIndexOf("/");
+        notePdf(i < 0 ? "" : x.rel.slice(0, i), x.name);
+      }
+    } catch (e) {}
   } else {
     const dir = fsRoot;   // przeglądarka: pojedynczy folder = aktywny uchwyt
     if (!dir || !dir.entries) return;
@@ -1595,20 +1619,21 @@ async function rescanFolderKey(key, quiet) {
         if (h.kind === "directory") {
           try {
             for await (const [fn, fh] of h.entries()) {
-              if (fh.kind === "file" && FILE_RE.test(fn)) {
+              if (fh.kind !== "file") continue;
+              if (FILE_RE.test(fn)) {
                 const file = await fh.getFile();
                 found.push({ dir: name, file: fn, code: await file.text(), mtime: file.lastModified });
-              }
+              } else if (/\.pdf$/i.test(fn)) notePdf(name, fn);
             }
           } catch (e) {}
         } else if (h.kind === "file" && FILE_RE.test(name)) {
           const file = await h.getFile();
           found.push({ dir: "", file: name, code: await file.text(), mtime: file.lastModified });
-        }
+        } else if (h.kind === "file" && /\.pdf$/i.test(name)) notePdf("", name);
       }
     } catch (e) { toast("Nie udało się odczytać folderu"); return; }
   }
-  return mergeScanFolder(f, found, quiet);
+  return mergeScanFolder(f, found, quiet, pdfsByDir);
 }
 
 /* odświeżenie: skanuje WSZYSTKIE połączone foldery, niezależnie od tego, który jest
@@ -1626,9 +1651,55 @@ async function rescanFolder(quiet) {
   return sum;
 }
 
+/* czy plik PDF leżący luzem w KORZENIU folderu należy do tego programu?
+   W podfolderze programu przyjmujemy, że rysunek jest jego; w korzeniu leży
+   zwykle wiele niepowiązanych plików, więc wymagamy zgodności nazwy. */
+function pdfBelongsToProgram(p, pdfName) {
+  const norm = s => fold(s || "").replace(/[\s\-_]+/g, "");
+  const base = norm(pdfName.replace(/\.pdf$/i, ""));
+  if (!base) return false;
+  const dn = norm(p.drawing);
+  if (dn && base.includes(dn)) return true;
+  const fileBase = norm((p.file || "").replace(/\.[^.]+$/, ""));
+  if (fileBase.length >= 3 && base.includes(fileBase)) return true;
+  const nm = norm(p.name);
+  if (nm.length >= 4 && base.includes(nm)) return true;
+  const on = norm(p.onum);
+  if (on.length >= 4 && base.includes(on)) return true;
+  return false;
+}
+
+/* dopina do programów rysunki PDF, które leżą w ich własnym folderze, i odpina te,
+   których na dysku już nie ma. Ręcznie dopasowany rysunek jest kopiowany do folderu
+   programu, więc zostaje na swoim miejscu — na początku listy. */
+function syncFolderPdfs(key, pdfsByDir) {
+  if (!pdfsByDir) return 0;
+  let touched = 0;
+  for (const p of programs) {
+    if (p.source !== "disk" || p.root !== key) continue;
+    const dir = p.dir || "";
+    const onDisk = pdfsByDir.get(dir) || [];
+    const before = (p.pdfs || []).join("|");
+    // zostaw tylko te przypisania, których pliki nadal są w folderze programu
+    const list = (p.pdfs || []).filter(n => onDisk.includes(n));
+    // dołóż rysunki z folderu, których jeszcze nie ma na liście
+    for (const n of onDisk) {
+      if (list.includes(n)) continue;
+      if (dir === "" && !pdfBelongsToProgram(p, n)) continue;
+      list.push(n);
+    }
+    if (list.join("|") === before) continue;
+    p.pdfs = list;
+    thumbByCard.delete(p.id);
+    touched++;
+  }
+  return touched;
+}
+
 /* scala wynik skanowania folderu z biblioteką (programy dyskowe namespace'owane kluczem
-   folderu) — NIGDY nie zmienia automatycznie przypisania rysunków PDF */
-function mergeScanFolder(folder, found, quiet) {
+   folderu). Przypisania rysunków PDF idą wyłącznie za tym, co leży na dysku w folderze
+   programu — ręczne dopasowanie kopiuje plik do tego folderu, więc nie ginie. */
+function mergeScanFolder(folder, found, quiet, pdfsByDir) {
   thumbByCard.clear();   // po przeskanowaniu dysku odśwież miniaturki od zera
   const key = folder.key;
   const diskIds = new Set();
@@ -1663,6 +1734,7 @@ function mergeScanFolder(folder, found, quiet) {
   });
   // usuń tylko programy dyskowe TEGO folderu, których już nie ma na dysku
   programs = programs.filter(p => !(p.source === "disk" && p.root === key) || diskIds.has(p.id));
+  syncFolderPdfs(key, pdfsByDir);
   save();
   render();
   if (!quiet) toast("Folder „" + folder.name + "”: " + found.length + " plików" + (added ? ", nowych: " + added : ""));
@@ -2433,7 +2505,11 @@ function openView(id) {
   // w aplikacji desktopowej podgląd otwiera się w osobnym oknie
   if (window.native && window.native.openDetail) {
     const theme = document.body.classList.contains("light") ? "light" : "dark";
-    window.native.openDetail({ program: p, theme, accent: currentAccent(), motion: motionOn(), pdfDir: (pdfRoot && pdfRoot.native) ? pdfRoot.path : null });
+    window.native.openDetail({
+      program: p, theme, accent: currentAccent(), motion: motionOn(),
+      pdfDir: (pdfRoot && pdfRoot.native) ? pdfRoot.path : null,
+      progRoot: rootPathOf(p)   // rysunek PDF leżący w folderze programu
+    });
     return;
   }
   openViewModal(id);
@@ -2922,6 +2998,51 @@ if (window.native && window.native.onWidgetGo) window.native.onWidgetGo(qv => {
   if (window.native.widgetResult) window.native.widgetResult(folderSearch ? currentFolders().length : programs.filter(matches).length);
   document.getElementById("grid").scrollIntoView({ behavior: "smooth", block: "start" });
 });
+
+/* masowe dopasowanie rysunków: dla każdego programu bez rysunku szuka w folderze
+   rysunków PDF-a po numerze SZ i kopiuje go do folderu programu */
+async function matchAllPdfs() {
+  if (!fsRoot) { toast("Najpierw połącz folder z programami"); return; }
+  if (!pdfRoot) {
+    toast("Wskaż folder z rysunkami PDF");
+    await connectPdfFolder();
+    if (!pdfRoot) return;
+  }
+  if (!pdfFiles.length) await scanPdfFolder(true);
+  if (!pdfFiles.length) { toast("W folderze rysunków nie ma plików PDF"); return; }
+
+  const btn = document.getElementById("btnMatchAll");
+  const label = btn.lastChild;
+  const oldLabel = label.textContent;
+  btn.disabled = true;
+  label.textContent = " Dopasowuję… ";
+
+  const norm = s => fold(s || "").replace(/[\s\-_]+/g, "");
+  let added = 0, noMatch = 0, noDrawing = 0;
+  try {
+    for (const p of programs) {
+      if (p.source !== "disk") continue;          // tylko programy z dysku mają swój folder
+      if (!p.dir) continue;                        // luzem w korzeniu — rysunek dopnij ręcznie
+      if (p.pdfs && p.pdfs.length) continue;       // ten już ma rysunek
+      const dn = norm(p.drawing);
+      if (!dn) { noDrawing++; continue; }
+      const match = findPdfMatches(p.drawing, p.name).find(f => norm(f.name).includes(dn));
+      if (!match) { noMatch++; continue; }
+      if (await copyPdfToProgram(p, match)) added++;
+      else noMatch++;
+    }
+  } finally {
+    btn.disabled = false;
+    label.textContent = oldLabel;
+  }
+  save();
+  render();
+  let msg = "Skopiowano rysunki do " + added + " programów";
+  if (noMatch) msg += " · nie znaleziono: " + noMatch;
+  if (noDrawing) msg += " · bez numeru rysunku: " + noDrawing;
+  toast(msg);
+}
+document.getElementById("btnMatchAll").addEventListener("click", matchAllPdfs);
 
 /* otwiera folder rysunków PDF (albo konkretny szkic wpisany w polu) w Eksploratorze */
 document.getElementById("btnOpenPdfDir").addEventListener("click", async () => {

@@ -21,8 +21,9 @@ kalkulatora. CNC Suite buduje się do osobnego pliku `CNC-Suite.exe`
 i publikuje w osobnym release o tagu `cnc-suite-exe`.
 
 Pliki `manager.html`, `generator.html`, `kalkulator.html`, `detail.html`
-i `widget.html` to **kopie** oryginałów. Jedyna zmiana wobec oryginałów to
-jedna linijka w `manager.html` i `generator.html`:
+i `widget.html` to **kopie** oryginałów. `generator.html`, `kalkulator.html`
+i `widget.html` różnią się od oryginałów wyłącznie jedną linijką integracji
+z powłoką:
 
 ```html
 <script src="shell/embed.js"></script>
@@ -32,6 +33,30 @@ jedna linijka w `manager.html` i `generator.html`:
 powłoki: ukrywa własny pasek okna aplikacji (okno obsługuje powłoka) i
 przekazuje skróty przełączania kart. Otwarta samodzielnie — w przeglądarce
 albo w oryginalnym `.exe` — strona zachowuje się dokładnie jak dotąd.
+
+`manager.html` i `detail.html` mają poza tym zmiany funkcjonalne opisane
+w sekcji „Rysunki PDF" niżej. Oryginały na swoich gałęziach pozostają
+nietknięte — poprawki żyją tylko w tej aplikacji.
+
+## Rysunki PDF
+
+- **Rysunek leżący obok programu jest wykrywany sam.** Przy każdym skanowaniu
+  folderu menedżer zbiera pliki `.pdf` z folderów programów i przypisuje je do
+  programów z tego samego folderu — miniaturka na karcie pojawia się bez
+  żadnego klikania. Rysunek usunięty z dysku znika też z karty. Dla programów
+  leżących luzem w korzeniu folderu (gdzie obok leży wiele niepowiązanych
+  plików) rysunek dopina się tylko wtedy, gdy nazwa pliku pasuje do numeru
+  rysunku, numeru O, nazwy programu albo nazwy pliku `.nc`.
+- **Przycisk „Dopasuj rysunki"** w panelu *Rysunki PDF*: dla każdego programu
+  bez rysunku szuka w folderze rysunków pliku po numerze SZ i kopiuje go do
+  folderu programu. Na koniec podsumowanie — ile skopiowano, dla ilu nie
+  znaleziono, ile programów nie ma numeru rysunku.
+- **Przycisk „Rysunek"** w oknie podglądu programu otwiera przypisany rysunek
+  na pełnym oknie (skala do szerokości, zoom +/−, „Pokaż plik"
+  w Eksploratorze). Rysowany przez pdf.js na canvasie, więc podgląd nie zależy
+  od wbudowanej wtyczki PDF.
+- Przycisk **„Folder Szkice"** działa jak dotąd — otwiera w Eksploratorze
+  folder szkicu wpisanego w polu obok.
 
 ## Jak to działa
 
