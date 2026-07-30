@@ -21,8 +21,8 @@ kalkulatora. CNC Suite buduje się do osobnego pliku `CNC-Suite.exe`
 i publikuje w osobnym release o tagu `cnc-suite-exe`.
 
 Pliki `manager.html`, `generator.html`, `kalkulator.html`, `detail.html`
-i `widget.html` to **kopie** oryginałów. `generator.html`, `kalkulator.html`
-i `widget.html` różnią się od oryginałów wyłącznie jedną linijką integracji
+i `widget.html` to **kopie** oryginałów. `widget.html` jest kopią bajt w bajt.
+`manager.html` i `generator.html` mają dodaną jedną linijkę integracji
 z powłoką:
 
 ```html
@@ -34,9 +34,11 @@ powłoki: ukrywa własny pasek okna aplikacji (okno obsługuje powłoka) i
 przekazuje skróty przełączania kart. Otwarta samodzielnie — w przeglądarce
 albo w oryginalnym `.exe` — strona zachowuje się dokładnie jak dotąd.
 
-`manager.html` i `detail.html` mają poza tym zmiany funkcjonalne opisane
-w sekcji „Rysunki PDF" niżej. Oryginały na swoich gałęziach pozostają
-nietknięte — poprawki żyją tylko w tej aplikacji.
+Poza tym zmiany funkcjonalne, wszystkie tylko w tej aplikacji — oryginały na
+swoich gałęziach pozostają nietknięte:
+
+- `manager.html`, `detail.html` — obsługa rysunków PDF, opisana niżej.
+- `kalkulator.html` — dodana sekcja **WIELOBOK**, opisana niżej.
 
 ## Rysunki PDF
 
@@ -128,6 +130,24 @@ Zachowane funkcje systemowe obu aplikacji:
 - menu kontekstowe (kopiuj / wklej) w polach edycji.
 
 Motyw powłoki podąża za ustawieniem jasny/ciemny wybranym w menedżerze.
+
+## Kalkulator CNC — sekcja WIELOBOK
+
+Karta kalkulatora ma dodatkową, siódmą sekcję **WIELOBOK Ø** — liczy najmniejszą
+średnicę przygotówki potrzebną, żeby wyjść z niej zadanym wielobokiem lub
+prostokątem:
+
+- kwadrat, sześciokąt, ośmiokąt — z wymiaru „S" (na płask): `Ø = S / cos(π/n)`
+- prostokąt a×b — z przekątnej: `Ø = √(a² + b²)`
+
+Do tego rysunek z wymiarowaniem (kontur na tle okręgu przygotówki) i promień.
+
+Sekcja pochodzi z wersji kalkulatora z repozytorium `KalkulatorCNC-Android`
+(gałąź `claude/android-tv-program-search-dauefn`, plik
+`cncapp/src/main/assets/index.html`). Przeniesiona została **tylko ta sekcja** —
+tamten plik jest w innych miejscach starszy niż nasz (uboższe tabele pasowań,
+brak korekty odchyłek otworów K/M/N/P/R/S, brak sekcji POSUW), więc podmiana
+całego pliku byłaby krokiem wstecz. Sekcja POSUW F/min zostaje bez zmian.
 
 ## Uruchomienie w trybie deweloperskim
 
