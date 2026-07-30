@@ -838,15 +838,19 @@
       </button>
       <div class="folder-menu" id="folderMenu"></div>
     </div>
-    <button class="btn" id="btnPdf" title="Połącz z folderem, w którym są rysunki PDF">
-      <span class="dot"></span>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path>
-        <path d="M14 3v5h5M9 13h6M9 17h6"></path>
-      </svg>
-      <span id="pdfLabel">Folder PDF</span>
-    </button>
-    <button class="x-btn" id="btnPdfOff" title="Odłącz folder PDF" style="display:none">✕</button>
+    <div class="folder-wrap">
+      <button class="btn" id="btnPdf" title="Wskaż folder (albo kilka folderów), w których są rysunki PDF">
+        <span class="dot"></span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path>
+          <path d="M14 3v5h5M9 13h6M9 17h6"></path>
+        </svg>
+        <span id="pdfLabel">Foldery PDF</span>
+        <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M6 9l6 6 6-6"></path></svg>
+      </button>
+      <div class="folder-menu" id="pdfMenu"></div>
+    </div>
+    <button class="x-btn" id="btnPdfOff" title="Odłącz wszystkie foldery z rysunkami" style="display:none">✕</button>
     <div class="settings-wrap">
       <button class="btn" id="btnSettings" title="Ustawienia wyglądu — motyw i kolory" style="padding:11px 13px">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1349,8 +1353,9 @@ let fsRoot = null;          // aktywny folder (natywnie: {native,path,name,key};
 let folders = [];           // lista folderów [{key,path,name}] (tryb natywny)
 let activeFolderKey = null; // klucz aktywnego folderu (cel nowych programów, skanu)
 let folderView = "all";     // co pokazywać w siatce: "all" albo klucz folderu
-let pdfRoot = null;         // folder z rysunkami PDF
-let pdfFiles = [];          // zeskanowana lista PDF-ów: {name, path, handle}
+let pdfFolders = [];        // foldery z rysunkami PDF: {key,path,name} albo {key,name,handle}
+let pdfRoot = null;         // pierwszy (główny) folder z rysunkami — zgodność z resztą kodu
+let pdfFiles = [];          // PDF-y ze WSZYSTKICH folderów: {name, path, abs|handle, folder}
 let pdfCandidates = [];     // wyniki wyszukiwania rysunku w formularzu
 let selectedPdf = null;     // rysunek wybrany do skopiowania przy zapisie
 let attachedPdfs = [];      // rysunki już leżące w folderze edytowanego programu
@@ -1553,9 +1558,22 @@ async function restoreFolders() {
     // skan przy starcie — bez komunikatu dla każdego folderu z osobna
     for (const f of folders) await rescanFolderKey(f.key, true);
     try {
-      const r2 = JSON.parse(localStorage.getItem("cncPdfPath") || "null");
-      if (r2 && await window.native.exists(r2.path)) {
-        pdfRoot = { native: true, path: r2.path, name: r2.name };
+      let saved = [];
+      try { saved = JSON.parse(localStorage.getItem("cncPdfFolders") || "[]") || []; } catch (e) {}
+      if (!saved.length) {
+        // migracja z wersji z jednym folderem rysunków
+        const r2 = JSON.parse(localStorage.getItem("cncPdfPath") || "null");
+        if (r2 && r2.path) saved = [{ key: pdfKey(), path: r2.path, name: r2.name }];
+      }
+      const alive = [];
+      for (const f of saved) {
+        let ok = false; try { ok = await window.native.exists(f.path); } catch (e) {}
+        if (ok) alive.push({ key: f.key || pdfKey(), path: f.path, name: f.name });
+      }
+      pdfFolders = alive;
+      syncPdfRoot();
+      savePdfFolders();
+      if (pdfFolders.length) {
         updatePdfUI(false);
         await scanPdfFolder(true);
       }
@@ -1577,14 +1595,24 @@ async function restoreFolders() {
     if (st === "granted") await rescanFolderKey(activeFolderKey);
     else toast('Kliknij „' + h.name + '”, aby przywrócić dostęp do folderu');
   }
-  let hp = null;
-  try { hp = await idbGet("pdfRoot"); } catch (e) {}
-  if (hp) {
-    pdfRoot = hp;
-    let st = "prompt";
-    try { st = await hp.queryPermission({ mode: "read" }); } catch (e) {}
-    updatePdfUI(st !== "granted");
-    if (st === "granted") await scanPdfFolder();
+  let hps = null;
+  try { hps = await idbGet("pdfRoots"); } catch (e) {}
+  if (!hps || !hps.length) {                       // migracja z wersji z jednym folderem
+    let hp = null;
+    try { hp = await idbGet("pdfRoot"); } catch (e) {}
+    hps = hp ? [hp] : [];
+  }
+  if (hps.length) {
+    pdfFolders = hps.map(h => ({ key: pdfKey(), path: "", name: h.name, handle: h }));
+    syncPdfRoot();
+    let granted = true;
+    for (const f of pdfFolders) {
+      let st = "prompt";
+      try { st = await f.handle.queryPermission({ mode: "read" }); } catch (e) {}
+      if (st !== "granted") granted = false;
+    }
+    updatePdfUI(!granted);
+    if (granted) await scanPdfFolder();
   }
   render();
 }
@@ -1831,35 +1859,76 @@ async function writeDisk(p) {
 }
 
 /* ════════════════ folder z rysunkami PDF ════════════════ */
+/* pierwszy folder z rysunkami trzyma resztę kodu przy życiu bez zmian:
+   w trybie natywnym to {native,path,name}, w przeglądarce — uchwyt katalogu */
+function syncPdfRoot() {
+  const f = pdfFolders[0];
+  pdfRoot = !f ? null : (f.handle || { native: true, path: f.path, name: f.name });
+}
+
+function pdfFolderOf(key) { return pdfFolders.find(f => f.key === key) || null; }
+function pdfKey() { return "p" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+function savePdfFolders() {
+  localStorage.setItem("cncPdfFolders",
+    JSON.stringify(pdfFolders.filter(f => f.path).map(f => ({ key: f.key, path: f.path, name: f.name }))));
+}
+/* ile rysunków pochodzi z danego folderu */
+function pdfCountOf(key) { return pdfFiles.filter(f => f.folder === key).length; }
+
 function updatePdfUI(resume) {
   const btn = document.getElementById("btnPdf");
   const lbl = document.getElementById("pdfLabel");
   const off = document.getElementById("btnPdfOff");
   btn.classList.remove("connected", "resume");
-  if (!pdfRoot) {
-    lbl.textContent = "Folder PDF";
-    btn.title = "Połącz z folderem, w którym są rysunki PDF";
+  renderPdfMenu();
+  if (!pdfFolders.length) {
+    lbl.textContent = "Foldery PDF";
+    btn.title = "Wskaż folder (albo kilka folderów), w których są rysunki PDF";
     off.style.display = "none";
     return;
   }
   off.style.display = "";
   if (resume) {
     btn.classList.add("resume");
-    lbl.textContent = "Wznów: " + pdfRoot.name;
+    lbl.textContent = "Wznów: " + pdfFolders[0].name;
     btn.title = "Kliknij, aby przywrócić dostęp do folderu z rysunkami";
   } else {
     btn.classList.add("connected");
-    lbl.textContent = pdfRoot.name;
-    btn.title = "Kliknij, aby przeskanować rysunki ponownie";
+    lbl.textContent = pdfFolders.length > 1
+      ? pdfFolders.length + " foldery PDF"
+      : pdfFolders[0].name;
+    btn.title = pdfFolders.map(f => f.path || f.name).join("\n") + "\n\nKliknij, aby zarządzać folderami rysunków";
   }
 }
 
-async function connectPdfFolder() {
+/* rozwijana lista folderów z rysunkami — dodawanie i odłączanie pojedynczych */
+function renderPdfMenu() {
+  const box = document.getElementById("pdfMenu");
+  if (!box) return;
+  let html = "";
+  pdfFolders.forEach((f, i) => {
+    html += `<div class="fm-item" data-pdfscan="${esc(f.key)}">
+      <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path><path d="M14 3v5h5"></path></svg>
+      <span class="fm-name" title="${esc(f.path || f.name)}">${esc(f.name)}${i === 0 ? " · główny" : ""}</span>
+      <span class="fm-count">${pdfCountOf(f.key)}</span>
+      <button class="fm-del" data-delpdffolder="${esc(f.key)}" title="Odłącz ten folder z rysunkami">✕</button></div>`;
+  });
+  if (pdfFolders.length) html += `<div class="fm-sep"></div>`;
+  html += `<div class="fm-item fm-add" data-addpdffolder="1">
+      <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"></path></svg>
+      <span class="fm-name">Dodaj folder z rysunkami…</span></div>`;
+  box.innerHTML = html;
+}
+
+/* dodaje kolejny folder z rysunkami i od razu go skanuje */
+async function addPdfFolder() {
   if (window.native) {
     const r = await window.native.pickFolder("Wybierz folder z rysunkami PDF");
     if (!r) return;
-    pdfRoot = { native: true, path: r.path, name: r.name };
-    localStorage.setItem("cncPdfPath", JSON.stringify(r));
+    if (pdfFolders.some(f => f.path === r.path)) { toast("Ten folder jest już podłączony"); return; }
+    pdfFolders.push({ key: pdfKey(), path: r.path, name: r.name });
+    syncPdfRoot();
+    savePdfFolders();
     updatePdfUI(false);
     await scanPdfFolder();
     return;
@@ -1868,47 +1937,79 @@ async function connectPdfFolder() {
     toast("Ta przeglądarka nie obsługuje dostępu do folderów — użyj Chrome lub Edge");
     return;
   }
-  try { pdfRoot = await window.showDirectoryPicker({ mode: "read" }); }
+  let h;
+  try { h = await window.showDirectoryPicker({ mode: "read" }); }
   catch (e) { return; }
-  try { await idbSet("pdfRoot", pdfRoot); } catch (e) {}
+  if (pdfFolders.some(f => f.name === h.name)) { toast("Ten folder jest już podłączony"); return; }
+  pdfFolders.push({ key: pdfKey(), path: "", name: h.name, handle: h });
+  syncPdfRoot();
+  try { await idbSet("pdfRoots", pdfFolders.map(f => f.handle).filter(Boolean)); } catch (e) {}
   updatePdfUI(false);
   await scanPdfFolder();
 }
+/* pierwsze podłączenie — reszta kodu woła to, gdy nie ma jeszcze żadnego folderu */
+const connectPdfFolder = addPdfFolder;
 
-async function disconnectPdfFolder() {
-  pdfRoot = null;
-  pdfFiles = [];
-  localStorage.removeItem("cncPdfPath");
-  try { await idbSet("pdfRoot", null); } catch (e) {}
+async function removePdfFolder(key) {
+  const f = pdfFolderOf(key);
+  if (!f) return;
+  pdfFolders = pdfFolders.filter(x => x.key !== key);
+  pdfFiles = pdfFiles.filter(x => x.folder !== key);
+  syncPdfRoot();
+  savePdfFolders();
+  try { await idbSet("pdfRoots", pdfFolders.map(x => x.handle).filter(Boolean)); } catch (e) {}
   updatePdfUI(false);
-  toast("Odłączono folder z rysunkami");
+  render();
+  toast("Odłączono folder z rysunkami „" + f.name + "”");
 }
 
-/* skanuje folder rysunków (z podfolderami) i zapamiętuje listę PDF-ów */
-async function scanPdfFolder(quiet) {
-  if (!pdfRoot) return;
+async function disconnectPdfFolder() {
+  pdfFolders = [];
   pdfFiles = [];
-  if (pdfRoot.native) {
-    try {
-      const list = await window.native.scanPdfs(pdfRoot.path);
-      pdfFiles = list.map(x => ({ name: x.name, path: x.rel, abs: x.abs }));
-    } catch (e) {}
-  } else {
-    async function walk(dir, path, depth) {
-      if (depth > 4) return;
-      try {
-        for await (const [name, h] of dir.entries()) {
-          if (h.kind === "file" && /\.pdf$/i.test(name)) {
-            pdfFiles.push({ name, path: (path ? path + "/" : "") + name, handle: h });
-          } else if (h.kind === "directory") {
-            await walk(h, (path ? path + "/" : "") + name, depth + 1);
+  syncPdfRoot();
+  localStorage.removeItem("cncPdfPath");
+  savePdfFolders();
+  try { await idbSet("pdfRoot", null); } catch (e) {}
+  try { await idbSet("pdfRoots", []); } catch (e) {}
+  updatePdfUI(false);
+  render();
+  toast("Odłączono foldery z rysunkami");
+}
+
+/* skanuje WSZYSTKIE foldery rysunków (z podfolderami) i zapamiętuje listę PDF-ów */
+async function scanPdfFolder(quiet) {
+  if (!pdfFolders.length) return;
+  const out = [];
+  for (const f of pdfFolders) {
+    if (f.handle) {
+      const walk = async (dir, path, depth) => {
+        if (depth > 4) return;
+        try {
+          for await (const [name, h] of dir.entries()) {
+            if (h.kind === "file" && /\.pdf$/i.test(name)) {
+              out.push({ name, path: (path ? path + "/" : "") + name, handle: h, folder: f.key });
+            } else if (h.kind === "directory") {
+              await walk(h, (path ? path + "/" : "") + name, depth + 1);
+            }
           }
+        } catch (e) {}
+      };
+      await walk(f.handle, "", 0);
+    } else {
+      try {
+        for (const x of await window.native.scanPdfs(f.path)) {
+          out.push({ name: x.name, path: x.rel, abs: x.abs, folder: f.key });
         }
       } catch (e) {}
     }
-    await walk(pdfRoot, "", 0);
   }
-  if (!quiet) toast("Folder rysunków „" + pdfRoot.name + "”: " + pdfFiles.length + " plików PDF");
+  pdfFiles = out;
+  renderPdfMenu();
+  if (!quiet) {
+    toast(pdfFolders.length > 1
+      ? "Rysunki: " + pdfFiles.length + " plików PDF z " + pdfFolders.length + " folderów"
+      : "Folder rysunków „" + pdfFolders[0].name + "”: " + pdfFiles.length + " plików PDF");
+  }
 }
 
 /* szuka rysunku po numerze (SZ2456) i po nazwie z nawiasów obok numeru O */
@@ -1961,7 +2062,8 @@ function renderPdfBox() {
       + '<button type="button" class="mini-btn" id="pdfSearch">Szukaj rysunku</button>'
       + '<span class="pdf-note">' + (pdfCandidates.length
           ? "znaleziono: " + pdfCandidates.length
-          : esc(pdfRoot.name) + " · " + pdfFiles.length + " PDF") + "</span></div>";
+          : (pdfFolders.length > 1 ? pdfFolders.length + " foldery" : esc(pdfFolders[0].name))
+            + " · " + pdfFiles.length + " PDF") + "</span></div>";
     html += pdfCandidates.map((f, i) =>
       '<div class="pdf-item' + (selectedPdf === f ? " on" : "") + '" data-pdf="' + i + '">📄 ' + esc(f.path)
       + (selectedPdf === f ? " <b>— zostanie skopiowany do folderu programu</b>" : "")
@@ -2567,6 +2669,7 @@ function openView(id) {
     window.native.openDetail({
       program: p, theme, accent: currentAccent(), motion: motionOn(),
       pdfDir: (pdfRoot && pdfRoot.native) ? pdfRoot.path : null,
+      pdfDirs: pdfFolders.filter(f => f.path).map(f => f.path),   // wszystkie foldery rysunków
       progRoot: rootPathOf(p)   // rysunek PDF leżący w folderze programu
     });
     return;
@@ -2861,18 +2964,41 @@ function cycleFolder() {
 }
 document.getElementById("statSwitch").addEventListener("click", cycleFolder);
 
-document.getElementById("btnPdf").addEventListener("click", async () => {
-  if (!pdfRoot) { await connectPdfFolder(); return; }
-  if (pdfRoot.native) { await scanPdfFolder(); return; }
-  let st = "prompt";
-  try { st = await pdfRoot.queryPermission({ mode: "read" }); } catch (e) {}
-  if (st !== "granted") {
-    try { st = await pdfRoot.requestPermission({ mode: "read" }); } catch (e) {}
-    if (st !== "granted") { toast("Brak zgody na dostęp do folderu z rysunkami"); return; }
+/* przycisk „Foldery PDF": bez folderów od razu pyta o pierwszy, dalej rozwija listę */
+const pdfMenu = document.getElementById("pdfMenu");
+document.getElementById("btnPdf").addEventListener("click", async e => {
+  e.stopPropagation();
+  if (!pdfFolders.length) { await addPdfFolder(); return; }
+  folderMenu.classList.remove("open");
+  renderPdfMenu();
+  pdfMenu.classList.toggle("open");
+});
+pdfMenu.addEventListener("click", async e => {
+  const del = e.target.closest("[data-delpdffolder]");
+  if (del) { e.stopPropagation(); pdfMenu.classList.remove("open"); await removePdfFolder(del.dataset.delpdffolder); return; }
+  const add = e.target.closest("[data-addpdffolder]");
+  if (add) { pdfMenu.classList.remove("open"); await addPdfFolder(); return; }
+  const scan = e.target.closest("[data-pdfscan]");
+  if (scan) { pdfMenu.classList.remove("open"); await rescanPdfFolders(); return; }
+});
+document.addEventListener("click", e => {
+  if (pdfMenu.classList.contains("open") && !e.target.closest(".folder-wrap")) pdfMenu.classList.remove("open");
+});
+
+/* ponowny skan wszystkich folderów rysunków (w przeglądarce najpierw prosi o zgodę) */
+async function rescanPdfFolders() {
+  for (const f of pdfFolders) {
+    if (!f.handle) continue;
+    let st = "prompt";
+    try { st = await f.handle.queryPermission({ mode: "read" }); } catch (e) {}
+    if (st !== "granted") {
+      try { st = await f.handle.requestPermission({ mode: "read" }); } catch (e) {}
+      if (st !== "granted") { toast("Brak zgody na dostęp do folderu „" + f.name + "”"); return; }
+    }
   }
   updatePdfUI(false);
   await scanPdfFolder();
-});
+}
 document.getElementById("btnPdfOff").addEventListener("click", disconnectPdfFolder);
 
 /* pole „Rysunek PDF” w formularzu — łączenie, szukanie, wybór rysunku */
@@ -3058,17 +3184,17 @@ if (window.native && window.native.onWidgetGo) window.native.onWidgetGo(qv => {
   document.getElementById("grid").scrollIntoView({ behavior: "smooth", block: "start" });
 });
 
-/* masowe dopasowanie rysunków: dla każdego programu bez rysunku szuka w folderze
-   rysunków PDF-a po numerze SZ i kopiuje go do folderu programu */
+/* masowe dopasowanie rysunków: dla każdego programu bez rysunku szuka PDF-a po
+   numerze SZ we WSZYSTKICH folderach z rysunkami i kopiuje go do folderu programu */
 async function matchAllPdfs() {
   if (!fsRoot) { toast("Najpierw połącz folder z programami"); return; }
-  if (!pdfRoot) {
+  if (!pdfFolders.length) {
     toast("Wskaż folder z rysunkami PDF");
-    await connectPdfFolder();
-    if (!pdfRoot) return;
+    await addPdfFolder();
+    if (!pdfFolders.length) return;
   }
   if (!pdfFiles.length) await scanPdfFolder(true);
-  if (!pdfFiles.length) { toast("W folderze rysunków nie ma plików PDF"); return; }
+  if (!pdfFiles.length) { toast("W folderach z rysunkami nie ma plików PDF"); return; }
 
   const btn = document.getElementById("btnMatchAll");
   const label = btn.lastChild;
@@ -3103,20 +3229,37 @@ async function matchAllPdfs() {
 }
 document.getElementById("btnMatchAll").addEventListener("click", matchAllPdfs);
 
-/* otwiera folder rysunków PDF (albo konkretny szkic wpisany w polu) w Eksploratorze */
+/* otwiera folder rysunków PDF (albo konkretny szkic wpisany w polu) w Eksploratorze.
+   Szkic szukany jest po kolei we WSZYSTKICH folderach z rysunkami; dopiero gdy nie ma
+   go nigdzie, otwiera się folder główny. */
 document.getElementById("btnOpenPdfDir").addEventListener("click", async () => {
-  if (!pdfRoot) {
+  if (!pdfFolders.length) {
     toast("Najpierw wskaż folder z rysunkami PDF");
-    await connectPdfFolder();
-    if (!pdfRoot) return;
+    await addPdfFolder();
+    if (!pdfFolders.length) return;
+  }
+  const native = pdfFolders.filter(f => f.path);
+  if (!native.length || !window.native || !window.native.openSketch) {
+    toast("Otwieranie folderu działa w aplikacji na Windows");
+    return;
   }
   const sketch = (document.getElementById("sketchInput").value || "").trim();
-  if (pdfRoot.native && window.native && window.native.openSketch) {
-    const r = await window.native.openSketch(pdfRoot.path, sketch);
-    if (r && r.notFound) toast('Nie znaleziono szkicu „' + sketch + '” — otwarto główny folder rysunków');
-    else if (!(r && r.ok)) toast("Nie udało się otworzyć folderu rysunków");
-  } else {
-    toast("Otwieranie folderu działa w aplikacji na Windows");
+
+  // najpierw ustal, w którym folderze szkic w ogóle jest — inaczej przy kilku
+  // folderach Eksplorator otworzyłby je wszystkie po kolei
+  let target = native[0];
+  if (sketch && native.length > 1 && window.native.findSketch) {
+    for (const f of native) {
+      const r = await window.native.findSketch(f.path, sketch).catch(() => null);
+      if (r && r.found) { target = f; break; }
+    }
+  }
+  const r = await window.native.openSketch(target.path, sketch);
+  if (r && r.notFound) {
+    toast('Nie znaleziono szkicu „' + sketch + '”' +
+      (native.length > 1 ? " w żadnym z " + native.length + " folderów" : "") + " — otwarto folder rysunków");
+  } else if (!(r && r.ok)) {
+    toast("Nie udało się otworzyć folderu rysunków");
   }
 });
 /* Enter w polu szkicu = kliknięcie przycisku */

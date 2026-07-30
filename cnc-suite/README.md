@@ -71,6 +71,24 @@ nietknięte — poprawki żyją tylko w tej aplikacji.
 - Przycisk **„Folder Szkice"** działa jak dotąd — otwiera w Eksploratorze
   folder szkicu wpisanego w polu obok.
 
+### Wiele folderów z rysunkami
+
+Przycisk **„Foldery PDF"** w nagłówku rozwija listę folderów z rysunkami —
+tak samo jak „Połącz folder" dla programów. Można podłączyć ich dowolnie wiele
+(np. bieżące szkice i archiwum), odłączyć pojedynczy krzyżykiem przy nazwie
+albo wszystkie naraz krzyżykiem obok przycisku. Przy każdym folderze widać,
+ile rysunków z niego pochodzi.
+
+Wszystkie funkcje szukające rysunku — podpowiedzi w formularzu, „Dopasuj PDF"
+na karcie, „Dopasuj rysunki", otwieranie oryginału — przeszukują **sumę
+wszystkich** podłączonych folderów. „Folder Szkice" i „Otwórz folder rysunku"
+w oknie podglądu najpierw ustalają, w którym folderze szkic w ogóle jest,
+i dopiero wtedy otwierają Eksplorator — nie otwiera się kilka okien naraz.
+
+Lista folderów zapisuje się między uruchomieniami (`cncPdfFolders`), a folder,
+którego nie ma już na dysku, jest przy starcie pomijany. Ustawienie
+z wcześniejszej wersji, gdzie folder rysunków był jeden, migruje automatycznie.
+
 ## Jak to działa
 
 ```

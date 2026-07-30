@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld("native", {
   deleteFile: (root, dir, file) => ipcRenderer.invoke("delete-file", { root, dir, file }),
   showInFolder: (p) => ipcRenderer.invoke("show-in-folder", p),
   openSketch: (root, sketch) => ipcRenderer.invoke("open-sketch", { root, sketch }),
+  findSketch: (root, sketch) => ipcRenderer.invoke("find-sketch", { root, sketch }),
   minimize: () => ipcRenderer.send("win-minimize"),
   toggleMaximize: () => ipcRenderer.send("win-toggle-maximize"),
   close: () => ipcRenderer.send("win-close"),

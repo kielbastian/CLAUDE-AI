@@ -562,6 +562,7 @@ function toast(msg) {
 
 let prog = null;
 let pdfDir = null;   // folder z rysunkami PDF (do otwarcia folderu szkicu)
+let pdfDirs = [];    // wszystkie foldery z rysunkami PDF
 let progRoot = null; // korzeń folderu z programami (do rysunku leżącego obok programu)
 let editing = false; // czy okno jest w trybie edycji
 
@@ -740,12 +741,27 @@ document.getElementById("btnSaveEdit").addEventListener("click", saveEdit);
 /* otwiera folder szkicu (rysunku) tego programu — szkic z pola „Nr rysunku” / nawiasu w kodzie */
 document.getElementById("btnSketch").addEventListener("click", async () => {
   if (!prog) return;
-  if (!pdfDir) { toast("Najpierw połącz folder z rysunkami PDF w głównym oknie"); return; }
+  const dirs = pdfDirs.length ? pdfDirs : (pdfDir ? [pdfDir] : []);
+  if (!dirs.length) { toast("Najpierw połącz folder z rysunkami PDF w głównym oknie"); return; }
   const sketch = (prog.drawing || prog.detail || "").trim();
   if (!window.native.openSketch) { toast("Funkcja niedostępna"); return; }
-  const r = await window.native.openSketch(pdfDir, sketch);
-  if (r && r.notFound) toast('Nie znaleziono szkicu „' + sketch + '” — otwarto główny folder rysunków');
-  else if (!(r && r.ok)) toast("Nie udało się otworzyć folderu rysunku");
+
+  // przy kilku folderach rysunków najpierw znajdź właściwy, potem dopiero otwieraj —
+  // inaczej Eksplorator otworzyłby je wszystkie po kolei
+  let target = dirs[0];
+  if (sketch && dirs.length > 1 && window.native.findSketch) {
+    for (const d of dirs) {
+      const f = await window.native.findSketch(d, sketch).catch(() => null);
+      if (f && f.found) { target = d; break; }
+    }
+  }
+  const r = await window.native.openSketch(target, sketch);
+  if (r && r.notFound) {
+    toast('Nie znaleziono szkicu „' + sketch + '”' +
+      (dirs.length > 1 ? " w żadnym z " + dirs.length + " folderów" : "") + " — otwarto folder rysunków");
+  } else if (!(r && r.ok)) {
+    toast("Nie udało się otworzyć folderu rysunku");
+  }
 });
 
 /* ─────────── Generator / podgląd konturu 2D (backplot z G-kodu) ───────────
@@ -1331,6 +1347,7 @@ document.addEventListener("keydown", e => {
     if (data.accent && data.accent !== "default") document.body.classList.add("theme-" + data.accent);
     if (data.motion === false) document.body.classList.add("no-motion");
     pdfDir = data.pdfDir || null;
+    pdfDirs = Array.isArray(data.pdfDirs) ? data.pdfDirs : [];
     progRoot = data.progRoot || null;
     render(data.program);
   } catch (e) {

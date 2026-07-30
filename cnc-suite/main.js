@@ -379,41 +379,58 @@ ipcMain.handle("read-file", async (e, p) => {
 /* otwiera w Eksploratorze folder szkicu w folderze rysunków.
    Kolejność: dokładny podfolder → folder, którego nazwa zawiera szkic →
    plik PDF zawierający szkic (zaznaczony) → cały folder rysunków. */
-ipcMain.handle("open-sketch", async (e, { root, sketch }) => {
-  if (!root) return { ok: false, error: "brak folderu rysunków" };
+/* wyszukuje szkic w drzewie folderu — bez otwierania czegokolwiek.
+   Zwraca { dir } albo { file }, gdy trafiono, albo null. */
+async function locateSketch(root, sketch) {
   const norm = s => String(s || "").toLowerCase().replace(/[\s\-_]+/g, "");
   const target = norm(sketch);
+  if (!target) return null;
+  // 1) dokładny podfolder root/sketch
   try {
-    if (!target) { const err = await shell.openPath(root); return { ok: !err, error: err }; }
-    // 1) dokładny podfolder root/sketch
-    try {
-      const direct = path.join(root, sketch);
-      const st = await fs.stat(direct);
-      if (st.isDirectory()) { const err = await shell.openPath(direct); return { ok: !err, error: err }; }
-    } catch {}
-    // 2) przeszukaj drzewo: folder (albo plik PDF) zawierający szkic
-    let hitDir = null, hitFile = null;
-    async function walk(dir, depth) {
-      if (hitDir || depth > 4) return;
-      let entries;
-      try { entries = await fs.readdir(dir, { withFileTypes: true }); } catch { return; }
-      for (const ent of entries) {
-        if (hitDir) return;
-        const abs = path.join(dir, ent.name);
-        if (ent.isDirectory()) {
-          if (norm(ent.name).includes(target)) { hitDir = abs; return; }
-          await walk(abs, depth + 1);
-        } else if (ent.isFile() && !hitFile && /\.pdf$/i.test(ent.name) && norm(ent.name).includes(target)) {
-          hitFile = abs;
-        }
+    const direct = path.join(root, sketch);
+    const st = await fs.stat(direct);
+    if (st.isDirectory()) return { dir: direct };
+  } catch {}
+  // 2) przeszukaj drzewo: folder (albo plik PDF) zawierający szkic
+  let hitDir = null, hitFile = null;
+  async function walk(dir, depth) {
+    if (hitDir || depth > 4) return;
+    let entries;
+    try { entries = await fs.readdir(dir, { withFileTypes: true }); } catch { return; }
+    for (const ent of entries) {
+      if (hitDir) return;
+      const abs = path.join(dir, ent.name);
+      if (ent.isDirectory()) {
+        if (norm(ent.name).includes(target)) { hitDir = abs; return; }
+        await walk(abs, depth + 1);
+      } else if (ent.isFile() && !hitFile && /\.pdf$/i.test(ent.name) && norm(ent.name).includes(target)) {
+        hitFile = abs;
       }
     }
-    await walk(root, 0);
-    if (hitDir) { const err = await shell.openPath(hitDir); return { ok: !err, error: err }; }
-    if (hitFile) { shell.showItemInFolder(hitFile); return { ok: true }; }
-    // 3) nic nie znaleziono → otwórz cały folder rysunków
+  }
+  await walk(root, 0);
+  if (hitDir) return { dir: hitDir };
+  if (hitFile) return { file: hitFile };
+  return null;
+}
+
+/* sprawdza, czy szkic jest w tym folderze — używane przy wielu folderach rysunków,
+   żeby najpierw znaleźć właściwy folder, a dopiero potem cokolwiek otwierać */
+ipcMain.handle("find-sketch", async (e, { root, sketch }) => {
+  if (!root) return { found: false };
+  try { return { found: !!(await locateSketch(root, sketch)) }; }
+  catch { return { found: false }; }
+});
+
+ipcMain.handle("open-sketch", async (e, { root, sketch }) => {
+  if (!root) return { ok: false, error: "brak folderu rysunków" };
+  try {
+    const hit = await locateSketch(root, sketch);
+    if (hit && hit.dir) { const err = await shell.openPath(hit.dir); return { ok: !err, error: err }; }
+    if (hit && hit.file) { shell.showItemInFolder(hit.file); return { ok: true }; }
+    // nic nie znaleziono → otwórz cały folder rysunków
     const err = await shell.openPath(root);
-    return { ok: !err, error: err, notFound: true };
+    return { ok: !err, error: err, notFound: !!String(sketch || "").trim() };
   } catch (err) { return { ok: false, error: String(err.message || err) }; }
 });
 
