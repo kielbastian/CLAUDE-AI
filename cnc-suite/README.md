@@ -51,8 +51,11 @@ swoich gałęziach pozostają nietknięte:
   - **Kilka programów w jednym folderze** (np. wspólny `0516` z jarzmem,
     denkiem, dławnicami i tłokiem) — każdy rysunek trafia tylko do programu,
     do którego pasuje nazwą. Liczy się najmocniejszy trop: numer rysunku,
-    numer O, nazwa pliku `.nc`, nazwa detalu. Dopasowanie działa w obie strony,
-    bo raz plik nazywa się szerzej niż program, a raz węziej.
+    numer O, nazwa pliku `.nc`, nazwa detalu. Porównywane są **całe człony**
+    nazwy, nie fragmenty — `SZ-1124` to ten sam rysunek co `SZ1124`, ale
+    `SZ1124B` i `SZ11245` to **inne** rysunki i nigdy nie zostaną podstawione
+    pod `SZ1124`. Gdy plik ma własne oznaczenie SZ, a program inne, plik jest
+    odrzucany od razu — bez oglądania się na resztę nazwy.
   - **Rysunek pasujący jednakowo do kilku programów** (np. `0516.pdf`
     w folderze `0516`, gdzie każdy program ma `0516` w nazwie) nie trafia do
     nikogo — inaczej wszystkie karty dostałyby ten sam, błędny rysunek.

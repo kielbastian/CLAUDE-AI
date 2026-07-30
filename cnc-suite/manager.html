@@ -1681,25 +1681,61 @@ async function rescanFolder(quiet) {
 
 const pdfNorm = s => fold(s || "").replace(/[\s\-_.]+/g, "");
 
+/* Oznaczenia rysunku w tekście: „SZ1124", „SZ-1124", „SZ 1124", „SZ1124B".
+   Litera na końcu jest CZĘŚCIĄ oznaczenia — SZ1124 i SZ1124B to dwa różne
+   rysunki (wkrętka vs gniazdo), więc nie wolno ich mylić. */
+function szTags(s) {
+  return (fold(s).match(/sz\s*-?\s*\d{2,6}[a-z]?/g) || []).map(x => x.replace(/[\s\-]+/g, ""));
+}
+
+/* Klucze nazwy: pojedyncze tokeny i sklejenia sąsiadów. Dzięki temu „SZ-1124"
+   równa się „SZ1124", ale „SZ1124B" już nie — porównujemy całe człony, a nie
+   fragmenty, więc numer nie pasuje do dłuższego numeru z tym samym początkiem. */
+function nameKeys(s) {
+  const t = fold(s).split(/[^a-z0-9]+/).filter(Boolean);
+  const keys = new Set(t);
+  for (let i = 0; i + 1 < t.length; i++) keys.add(t[i] + t[i + 1]);
+  for (let i = 0; i + 2 < t.length; i++) keys.add(t[i] + t[i + 1] + t[i + 2]);
+  return keys;
+}
+
+/* Czy ten plik PDF jest rysunkiem o tym numerze?
+   Gdy plik ma własne oznaczenie SZ, musi się ono zgadzać CO DO ZNAKU. */
+function pdfHasDrawing(pdfName, drawing) {
+  const want = szTags(drawing)[0] || pdfNorm(drawing);
+  if (!want || want.length < 3) return false;
+  const tags = szTags(pdfName);
+  if (tags.length) return tags.includes(want);
+  return nameKeys(String(pdfName).replace(/\.pdf$/i, "")).has(want);
+}
+
 /* jak mocno nazwa pliku PDF pasuje do programu (0 = wcale).
    Liczy się najmocniejszy trop: numer rysunku > numer O > nazwa pliku .nc > nazwa
    detalu. Dopasowanie działa w obie strony, bo raz plik nazywa się szerzej niż
    program („DLAWNICA 0516 1.pdf" ↔ „DLAWNICA 0516"), a raz węziej. */
 function pdfMatchScore(p, pdfName) {
-  const base = pdfNorm(pdfName.replace(/\.pdf$/i, ""));
-  if (!base) return 0;
+  const bare = String(pdfName).replace(/\.pdf$/i, "");
+  const keys = nameKeys(bare);
+  if (!keys.size) return 0;
   let best = 0;
-  const test = (val, weight) => {
-    const v = pdfNorm(val);
-    if (v.length < 3) return;
-    if (base.includes(v)) best = Math.max(best, weight + v.length);
-    else if (base.length >= 4 && v.includes(base)) best = Math.max(best, weight + base.length - 2);
+
+  // numer rysunku — porównanie dokładne, SZ1124 ≠ SZ1124B
+  if (pdfHasDrawing(pdfName, p.drawing)) best = 100 + pdfNorm(p.drawing).length;
+  // plik ma numer SZ, ale INNY niż program → to na pewno nie ten rysunek
+  else if (szTags(bare).length && szTags(p.drawing).length) return 0;
+
+  // pozostałe tropy — wspólny CAŁY człon nazwy, nie fragment
+  const hit = (val, weight) => {
+    const key = pdfNorm(val);
+    if (key.length >= 3 && keys.has(key)) best = Math.max(best, weight + key.length);
   };
-  test(p.drawing, 100);
-  test(p.onum, 80);
-  test((p.file || "").replace(/\.[^.]+$/, ""), 60);
-  test(p.name, 40);
-  test(p.detail, 40);
+  hit(p.onum, 80);
+  hit((p.file || "").replace(/\.[^.]+$/, ""), 60);
+  for (const src of [p.name, p.detail]) {
+    for (const k of nameKeys(src)) {
+      if (k.length >= 3 && keys.has(k)) best = Math.max(best, 40 + k.length);
+    }
+  }
   return best;
 }
 
@@ -2015,21 +2051,21 @@ async function scanPdfFolder(quiet) {
 /* szuka rysunku po numerze (SZ2456) i po nazwie z nawiasów obok numeru O */
 function findPdfMatches(drawing, name) {
   const norm = s => fold(s).replace(/[\s\-_]+/g, "");
-  // wyłuskuje numery rysunku typu SZ#### z tekstu (odporne na spacje/myślniki)
-  const szList = s => (fold(s).match(/sz\s*-?\s*\d{2,6}/g) || []).map(x => x.replace(/[\s\-]+/g, ""));
   const dn = norm(drawing);
-  const targetSZ = szList(drawing)[0] || "";        // np. "sz2439"
+  const targetSZ = szTags(drawing)[0] || "";        // np. "sz2439" albo "sz1124b"
   const tokens = fold(name).split(/\s+/)
-    .filter(t => t.length >= 3 && !/^\d+$/.test(t) && norm(t) !== dn && !/^sz\d+$/.test(norm(t)));
+    .filter(t => t.length >= 3 && !/^\d+$/.test(t) && norm(t) !== dn && !/^sz\d+[a-z]?$/.test(norm(t)));
   const out = [];
   for (const f of pdfFiles) {
-    const fn = norm(f.name.replace(/\.pdf$/i, ""));
-    const fileSZ = szList(f.name);                   // numery SZ w nazwie pliku
-    // znamy numer rysunku, a plik należy do INNEGO numeru SZ → to nie ten rysunek, pomiń
+    const bare = f.name.replace(/\.pdf$/i, "");
+    const fn = norm(bare);
+    const fileSZ = szTags(f.name);                   // oznaczenia SZ w nazwie pliku
+    // plik należy do INNEGO numeru rysunku → to nie ten rysunek, pomiń.
+    // SZ1124B nie jest wersją SZ1124 — to osobne oznaczenie (inny detal).
     if (targetSZ && fileSZ.length && !fileSZ.includes(targetSZ)) continue;
     let score = 0;
     if (targetSZ && fileSZ.includes(targetSZ)) score += 100;   // trafiony numer rysunku
-    else if (dn && fn.includes(dn)) score += 100;              // pełny numer w nazwie
+    else if (dn && nameKeys(bare).has(dn)) score += 100;        // pełny numer jako człon nazwy
     for (const t of tokens) if (fn.includes(norm(t))) score += 1;
     if (score > 0) out.push({ f, score });
   }
@@ -2251,10 +2287,8 @@ async function openPdfModal(id) {
 
 /* znajduje oryginalny rysunek w folderze szkiców — pewny po numerze SZ */
 function findOriginal(p) {
-  const norm = s => fold(s).replace(/[\s\-_]+/g, "");
-  const dn = norm(p.drawing);
-  if (dn) {
-    const byNum = pdfFiles.find(f => norm(f.name).includes(dn));
+  if (p.drawing) {
+    const byNum = pdfFiles.find(f => pdfHasDrawing(f.name, p.drawing));
     if (byNum) return byNum;
   }
   return findPdfMatches(p.drawing, p.name)[0] || null;
@@ -3202,16 +3236,14 @@ async function matchAllPdfs() {
   btn.disabled = true;
   label.textContent = " Dopasowuję… ";
 
-  const norm = s => fold(s || "").replace(/[\s\-_]+/g, "");
   let added = 0, noMatch = 0, noDrawing = 0;
   try {
     for (const p of programs) {
       if (p.source !== "disk") continue;          // tylko programy z dysku mają swój folder
       if (!p.dir) continue;                        // luzem w korzeniu — rysunek dopnij ręcznie
       if (p.pdfs && p.pdfs.length) continue;       // ten już ma rysunek
-      const dn = norm(p.drawing);
-      if (!dn) { noDrawing++; continue; }
-      const match = findPdfMatches(p.drawing, p.name).find(f => norm(f.name).includes(dn));
+      if (!p.drawing) { noDrawing++; continue; }
+      const match = findPdfMatches(p.drawing, p.name).find(f => pdfHasDrawing(f.name, p.drawing));
       if (!match) { noMatch++; continue; }
       if (await copyPdfToProgram(p, match)) added++;
       else noMatch++;
