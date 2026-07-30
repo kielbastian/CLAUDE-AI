@@ -1651,47 +1651,103 @@ async function rescanFolder(quiet) {
   return sum;
 }
 
-/* czy plik PDF leżący luzem w KORZENIU folderu należy do tego programu?
-   W podfolderze programu przyjmujemy, że rysunek jest jego; w korzeniu leży
-   zwykle wiele niepowiązanych plików, więc wymagamy zgodności nazwy. */
-function pdfBelongsToProgram(p, pdfName) {
-  const norm = s => fold(s || "").replace(/[\s\-_]+/g, "");
-  const base = norm(pdfName.replace(/\.pdf$/i, ""));
-  if (!base) return false;
-  const dn = norm(p.drawing);
-  if (dn && base.includes(dn)) return true;
-  const fileBase = norm((p.file || "").replace(/\.[^.]+$/, ""));
-  if (fileBase.length >= 3 && base.includes(fileBase)) return true;
-  const nm = norm(p.name);
-  if (nm.length >= 4 && base.includes(nm)) return true;
-  const on = norm(p.onum);
-  if (on.length >= 4 && base.includes(on)) return true;
-  return false;
+const pdfNorm = s => fold(s || "").replace(/[\s\-_.]+/g, "");
+
+/* jak mocno nazwa pliku PDF pasuje do programu (0 = wcale).
+   Liczy się najmocniejszy trop: numer rysunku > numer O > nazwa pliku .nc > nazwa
+   detalu. Dopasowanie działa w obie strony, bo raz plik nazywa się szerzej niż
+   program („DLAWNICA 0516 1.pdf" ↔ „DLAWNICA 0516"), a raz węziej. */
+function pdfMatchScore(p, pdfName) {
+  const base = pdfNorm(pdfName.replace(/\.pdf$/i, ""));
+  if (!base) return 0;
+  let best = 0;
+  const test = (val, weight) => {
+    const v = pdfNorm(val);
+    if (v.length < 3) return;
+    if (base.includes(v)) best = Math.max(best, weight + v.length);
+    else if (base.length >= 4 && v.includes(base)) best = Math.max(best, weight + base.length - 2);
+  };
+  test(p.drawing, 100);
+  test(p.onum, 80);
+  test((p.file || "").replace(/\.[^.]+$/, ""), 60);
+  test(p.name, 40);
+  test(p.detail, 40);
+  return best;
 }
 
-/* dopina do programów rysunki PDF, które leżą w ich własnym folderze, i odpina te,
-   których na dysku już nie ma. Ręcznie dopasowany rysunek jest kopiowany do folderu
-   programu, więc zostaje na swoim miejscu — na początku listy. */
+/* rozdziela rysunki PDF z jednego folderu pomiędzy leżące w nim programy.
+   Zwraca Map: id programu → lista nazw plików PDF.
+
+   Gdy w folderze jest jeden program — wszystkie rysunki są jego (klasyczny układ
+   „folder na detal"). Gdy programów jest kilka (np. wspólny folder 0516 z jarzmem,
+   denkiem i tłokiem), każdy rysunek trafia TYLKO do programu, do którego pasuje
+   nazwą — a gdy nie pasuje do żadnego, nie trafia nigdzie. Zgadywanie dawałoby
+   wszystkim ten sam rysunek. */
+function splitPdfsInDir(dir, progs, pdfNames) {
+  const out = new Map(progs.map(p => [p.id, []]));
+  if (!pdfNames.length || !progs.length) return out;
+
+  // pojedynczy program w podfolderze — rysunki z tego folderu są jego
+  if (progs.length === 1 && dir !== "") {
+    out.set(progs[0].id, pdfNames.slice());
+    return out;
+  }
+
+  for (const name of pdfNames) {
+    let best = 0;
+    let winners = [];
+    for (const p of progs) {
+      const s = pdfMatchScore(p, name);
+      if (s === 0 || s < best) continue;
+      if (s > best) { best = s; winners = [p]; }
+      else winners.push(p);
+    }
+    // Remis to zwykle nazwa wspólna dla całej paczki (np. „0516.pdf" w folderze 0516,
+    // gdzie każdy program ma 0516 w nazwie) — takiego rysunku nie przypisujemy nikomu,
+    // bo inaczej wszystkie karty dostają ten sam, błędny rysunek. Wyjątkiem jest trafienie
+    // po numerze rysunku: tam remis oznacza po prostu wspólny rysunek kilku sztuk.
+    if (winners.length > 1 && best < 100) continue;
+    for (const p of winners) out.get(p.id).push(name);
+  }
+  return out;
+}
+
+/* dopina do programów rysunki PDF leżące w ich własnym folderze i odpina te,
+   których na dysku już nie ma. Przypisanie zrobione ręcznie (przycisk „Dopasuj PDF",
+   upuszczenie pliku na kartę) jest oznaczone `pdfsAuto === false` i skan folderu
+   go nie nadpisuje — tylko usuwa pozycje skasowane z dysku. */
 function syncFolderPdfs(key, pdfsByDir) {
   if (!pdfsByDir) return 0;
-  let touched = 0;
+
+  // programy tego folderu pogrupowane po podfolderze
+  const progsByDir = new Map();
   for (const p of programs) {
     if (p.source !== "disk" || p.root !== key) continue;
     const dir = p.dir || "";
+    if (!progsByDir.has(dir)) progsByDir.set(dir, []);
+    progsByDir.get(dir).push(p);
+  }
+
+  let touched = 0;
+  for (const [dir, progs] of progsByDir) {
     const onDisk = pdfsByDir.get(dir) || [];
-    const before = (p.pdfs || []).join("|");
-    // zostaw tylko te przypisania, których pliki nadal są w folderze programu
-    const list = (p.pdfs || []).filter(n => onDisk.includes(n));
-    // dołóż rysunki z folderu, których jeszcze nie ma na liście
-    for (const n of onDisk) {
-      if (list.includes(n)) continue;
-      if (dir === "" && !pdfBelongsToProgram(p, n)) continue;
-      list.push(n);
+    const wanted = splitPdfsInDir(dir, progs, onDisk);
+    for (const p of progs) {
+      const before = (p.pdfs || []).join("|");
+      const want = wanted.get(p.id) || [];
+      let list;
+      if (p.pdfsAuto === false) {
+        // ręczne przypisanie zostaje; dokładamy tylko to, co jednoznacznie pasuje
+        list = (p.pdfs || []).filter(n => onDisk.includes(n));
+        for (const n of want) if (!list.includes(n)) list.push(n);
+      } else {
+        list = want;
+      }
+      if (list.join("|") === before) continue;
+      p.pdfs = list;
+      thumbByCard.delete(p.id);
+      touched++;
     }
-    if (list.join("|") === before) continue;
-    p.pdfs = list;
-    thumbByCard.delete(p.id);
-    touched++;
   }
   return touched;
 }
@@ -1982,6 +2038,7 @@ async function savePdfFileToProgram(p, file) {
       await w.close();
     }
     p.pdfs = [file.name, ...(p.pdfs || []).filter(x => x !== file.name)];
+    p.pdfsAuto = false;   // ręczne przypisanie — skan folderu go nie nadpisze
     thumbByCard.delete(p.id);
     return true;
   } catch (e) { return false; }
@@ -2132,6 +2189,7 @@ async function copyPdfToProgram(p, entry) {
       .catch(e => ({ ok: false, error: String((e && e.message) || e) }));
     if (!(r && r.ok)) { fsLastError = (r && r.error) || "kopiowanie nie powiodło się"; return false; }
     p.pdfs = [entry.name, ...(p.pdfs || []).filter(x => x !== entry.name)];
+    p.pdfsAuto = false;   // ręczne przypisanie — skan folderu go nie nadpisze
     thumbByCard.delete(p.id);
     return true;
   }
@@ -2143,6 +2201,7 @@ async function copyPdfToProgram(p, entry) {
     await w.write(await src.arrayBuffer());
     await w.close();
     p.pdfs = [entry.name, ...(p.pdfs || []).filter(x => x !== entry.name)];
+    p.pdfsAuto = false;   // ręczne przypisanie — skan folderu go nie nadpisze
     thumbByCard.delete(p.id);
     return true;
   } catch (e) { fsLastError = (e && e.message) || String(e); return false; }

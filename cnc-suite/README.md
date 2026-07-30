@@ -42,11 +42,24 @@ nietknięte — poprawki żyją tylko w tej aplikacji.
 
 - **Rysunek leżący obok programu jest wykrywany sam.** Przy każdym skanowaniu
   folderu menedżer zbiera pliki `.pdf` z folderów programów i przypisuje je do
-  programów z tego samego folderu — miniaturka na karcie pojawia się bez
-  żadnego klikania. Rysunek usunięty z dysku znika też z karty. Dla programów
-  leżących luzem w korzeniu folderu (gdzie obok leży wiele niepowiązanych
-  plików) rysunek dopina się tylko wtedy, gdy nazwa pliku pasuje do numeru
-  rysunku, numeru O, nazwy programu albo nazwy pliku `.nc`.
+  programów — miniaturka na karcie pojawia się bez żadnego klikania. Rysunek
+  usunięty z dysku znika też z karty. Zasady przypisania:
+  - **Jeden program w podfolderze** (klasyczny „folder na detal") — rysunki
+    z tego folderu są jego, niezależnie od nazwy pliku.
+  - **Kilka programów w jednym folderze** (np. wspólny `0516` z jarzmem,
+    denkiem, dławnicami i tłokiem) — każdy rysunek trafia tylko do programu,
+    do którego pasuje nazwą. Liczy się najmocniejszy trop: numer rysunku,
+    numer O, nazwa pliku `.nc`, nazwa detalu. Dopasowanie działa w obie strony,
+    bo raz plik nazywa się szerzej niż program, a raz węziej.
+  - **Rysunek pasujący jednakowo do kilku programów** (np. `0516.pdf`
+    w folderze `0516`, gdzie każdy program ma `0516` w nazwie) nie trafia do
+    nikogo — inaczej wszystkie karty dostałyby ten sam, błędny rysunek.
+    Wyjątek: trafienie po numerze rysunku, gdzie wspólny plik oznacza po prostu
+    wspólny rysunek kilku sztuk.
+  - **Programy luzem w korzeniu** folderu traktowane są jak folder z wieloma
+    programami — wymagana jest zgodność nazwy.
+  - **Rysunek przypisany ręcznie** (przycisk „Dopasuj PDF" na karcie,
+    upuszczenie pliku na kartę) jest oznaczany i skan folderu go nie nadpisuje.
 - **Przycisk „Dopasuj rysunki"** w panelu *Rysunki PDF*: dla każdego programu
   bez rysunku szuka w folderze rysunków pliku po numerze SZ i kopiuje go do
   folderu programu. Na koniec podsumowanie — ile skopiowano, dla ilu nie
