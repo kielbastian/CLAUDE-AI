@@ -1,0 +1,74 @@
+name: CNC Suite — budowa aplikacji Windows (exe)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master, 'claude/**' ]
+    paths:
+      - cnc-suite/**
+      - .github/workflows/build-cnc-suite.yml
+
+permissions:
+  contents: write
+
+# Osobna aplikacja i osobny release (`cnc-suite-exe`) — nie dotyka wydań
+# `windows-exe` (CNC Manager) ani `cam-generator-exe` (CAM Generator).
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: cnc-suite
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Instalacja zależności
+        run: npm install
+
+      - name: Budowa przenośnego exe
+        run: npx electron-builder --win portable --publish never
+
+      # ZIP zawiera TYLKO samodzielny CNC-Suite.exe — spakowanie sprawia, że
+      # pobieranie przechodzi bez fałszywego alarmu antywirusa.
+      - name: Spakuj przenośny exe do ZIP
+        run: Compress-Archive -Path dist\CNC-Suite.exe -DestinationPath dist\CNC-Suite-windows.zip -Force
+        shell: pwsh
+
+      - name: Zawartość katalogu dist
+        run: dir dist
+        shell: cmd
+
+      - name: Artefakt kompilacji
+        uses: actions/upload-artifact@v4
+        with:
+          name: CNC-Suite-windows
+          path: |
+            cnc-suite/dist/CNC-Suite.exe
+            cnc-suite/dist/*.zip
+
+      - name: Publikacja w Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: cnc-suite-exe
+          name: CNC Suite — Windows (exe)
+          body: |
+            Trzy aplikacje w jednym oknie, przełączane kartami:
+
+            - **Menedżer programów CNC** (Ctrl+1)
+            - **Generator G-code / NC** (Ctrl+2)
+            - **Kalkulator CNC** (Ctrl+3)
+
+            Przenośna aplikacja Windows — **jeden samodzielny plik**, bez instalacji.
+
+            - **CNC-Suite-windows.zip** — zalecane. Rozpakuj i uruchom `CNC-Suite.exe`.
+            - **CNC-Suite.exe** — ten sam plik bez pakowania (przeglądarka może go zablokować).
+
+            Oryginalne aplikacje pozostają bez zmian i mają własne wydania:
+            `windows-exe` (CNC Manager) oraz `cam-generator-exe` (CAM Generator).
+          files: |
+            cnc-suite/dist/CNC-Suite.exe
+            cnc-suite/dist/*.zip

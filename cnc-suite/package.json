@@ -1,0 +1,51 @@
+{
+  "name": "cnc-suite",
+  "productName": "CNC Suite",
+  "version": "1.0.0",
+  "description": "Menedżer programów CNC + Generator G-code/NC + Kalkulator CNC w jednym oknie z kartami (Haas ST-35Y)",
+  "author": "kielbastian",
+  "license": "MIT",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable --publish never",
+    "dist:installer": "electron-builder --win nsis --publish never"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "pl.cncsuite.app",
+    "productName": "CNC Suite",
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "manager.html",
+      "generator.html",
+      "kalkulator.html",
+      "detail.html",
+      "widget.html",
+      "shell/**",
+      "vendor/**",
+      "build/icon.png",
+      "build/icon-cam.png"
+    ],
+    "win": {
+      "target": ["portable"],
+      "icon": "build/icon.ico"
+    },
+    "portable": {
+      "artifactName": "CNC-Suite.exe"
+    },
+    "nsis": {
+      "artifactName": "CNC-Suite-Setup.exe",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "CNC Suite"
+    }
+  }
+}
