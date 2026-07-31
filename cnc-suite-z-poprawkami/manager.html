@@ -560,6 +560,39 @@
     background:rgba(var(--ac1-rgb),.07);
     box-shadow:0 0 0 3px rgba(var(--ac1-rgb),.28),0 0 34px rgba(var(--ac1-rgb),.22);
   }
+  /* ── masowa edycja danych ── */
+  .bl-bar{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+  .bl-bar input{
+    flex:0 1 300px;padding:9px 12px;border-radius:10px;
+    background:rgba(255,255,255,.05);border:1px solid var(--stroke);
+    color:var(--txt);font-family:inherit;font-size:.85rem;
+  }
+  .bl-head{
+    display:grid;grid-template-columns:1fr 170px 150px;gap:10px;
+    padding:0 12px 7px;font-size:.7rem;font-weight:800;letter-spacing:.08em;
+    color:var(--mut);text-transform:uppercase;
+  }
+  .bl-row{
+    display:grid;grid-template-columns:1fr 170px 150px;gap:10px;align-items:center;
+    padding:8px 12px;border-radius:10px;
+    background:rgba(255,255,255,.035);border:1px solid var(--stroke);
+  }
+  .bl-row:hover{background:rgba(255,255,255,.06)}
+  .bl-main{min-width:0}
+  .bl-in{
+    width:100%;padding:8px 10px;border-radius:9px;
+    background:rgba(0,0,0,.24);border:1px solid var(--stroke);
+    color:var(--txt);font-family:inherit;font-size:.84rem;
+  }
+  .bl-in:focus{outline:none;border-color:rgba(var(--ac1-rgb),.7);background:rgba(0,0,0,.34)}
+  .bl-in.bl-guess{border-color:rgba(251,191,36,.7);color:#fbbf24}
+  @media(max-width:680px){
+    .bl-head{display:none}
+    .bl-row{grid-template-columns:1fr;gap:6px}
+  }
+  body.light .bl-row{background:rgba(15,23,42,.03)}
+  body.light .bl-in{background:rgba(255,255,255,.7)}
+
   /* ── kontrola programu ── */
   .chk-badge{
     flex:none;cursor:pointer;font-family:inherit;font-size:.7rem;font-weight:800;
@@ -1053,6 +1086,13 @@
         Brak kropki dziesiętnej, G96 bez G50, ruch roboczy bez wrzeciona lub posuwu,
         brak G54 / M30, niezamknięty komentarz.
       </div>
+      <button class="btn" id="btnBulkEdit" style="width:100%;justify-content:center;margin-top:12px"
+              title="Seryjne uzupełnianie numerów rysunku i materiału">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 6h16M4 12h10M4 18h7"></path><path d="M15 17l2 2 4-4"></path>
+        </svg>
+        Masowa edycja danych
+      </button>
     </div>
     <div class="panel">
       <h3>Rysunki PDF</h3>
@@ -1289,6 +1329,40 @@
         </svg>
         Dodaj wybrany rysunek
       </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── modal: masowa edycja danych programów ────────────────────── -->
+<div class="modal" id="mBulk">
+  <div class="dialog" style="max-width:940px">
+    <div class="dialog-head">
+      <h2>Masowa edycja danych</h2>
+      <button class="x-btn" data-close="mBulk">✕</button>
+    </div>
+    <div class="dialog-body">
+      <div class="mr-tabs" id="blTabs">
+        <button class="mr-tab on" data-bl="nodraw">Bez numeru rysunku</button>
+        <button class="mr-tab" data-bl="nomat">Bez materiału</button>
+        <button class="mr-tab" data-bl="all">Wszystkie</button>
+      </div>
+      <div class="bl-bar">
+        <input id="blSearch" type="text" placeholder="Szukaj: nazwa, numer O, folder…" autocomplete="off">
+        <span class="pdf-note" id="blCount">0 programów</span>
+        <span style="flex:1"></span>
+        <button class="btn btn-sm" id="blSuggest" title="Wypełnij puste numery tym, co znaleziono w nazwie folderu, pliku albo rysunku">
+          Zaproponuj numery
+        </button>
+      </div>
+      <div class="bl-head">
+        <span>Program</span><span>Numer rysunku</span><span>Materiał</span>
+      </div>
+      <div class="mr-list" id="blList"></div>
+    </div>
+    <div class="dialog-foot">
+      <span class="pdf-note" style="flex:1">Zmiany trafiają do biblioteki — pliki <b>.nc</b> nie są modyfikowane.</span>
+      <button class="btn" data-close="mBulk">Zamknij</button>
+      <button class="btn btn-primary" id="blSave">Zapisz zmiany</button>
     </div>
   </div>
 </div>
@@ -3502,6 +3576,133 @@ async function matchAllPdfs() {
   toast(msg);
 }
 document.getElementById("btnMatchAll").addEventListener("click", matchAllPdfs);
+
+/* ── masowa edycja danych programów ───────────────────────────────────────
+   Numer rysunku jest wyciągany z komentarza w kodzie, ale w setkach starych
+   programów go tam nie ma. Bez numeru nic się nie dopasuje, a wpisywanie
+   po jednym przez okno edycji to praca na wiele godzin. */
+
+/* szuka numeru rysunku wszędzie, gdzie może się schować — nie tylko
+   w pierwszych liniach kodu, ale też w nazwie folderu, pliku i rysunku PDF */
+function guessDrawing(p) {
+  const sources = [
+    String(p.code || ""),
+    p.dir || "", p.file || "", p.name || "", p.detail || "",
+    ...(p.pdfs || [])
+  ];
+  for (const s of sources) {
+    const tag = szTags(s)[0];
+    if (tag) return tag.toUpperCase().replace(/^SZ/, "SZ");
+  }
+  return "";
+}
+
+let bulkRows = [];      // aktualnie pokazywane wiersze
+let bulkFilter = "nodraw";
+
+function bulkList() {
+  const q = (document.getElementById("blSearch").value || "").trim();
+  const toks = q ? fold(q).split(/\s+/).filter(Boolean) : [];
+  return programs.filter(p => {
+    if (bulkFilter === "nodraw" && p.drawing) return false;
+    if (bulkFilter === "nomat" && p.material) return false;
+    if (toks.length) {
+      const hay = fold([p.name, p.onum, p.dir, p.file, p.detail].join(" "));
+      if (!toks.every(t => hay.includes(t))) return false;
+    }
+    return true;
+  });
+}
+
+function renderBulk() {
+  bulkRows = bulkList();
+  const box = document.getElementById("blList");
+  document.querySelectorAll("#blTabs [data-bl]").forEach(b => b.classList.toggle("on", b.dataset.bl === bulkFilter));
+  document.getElementById("blCount").textContent =
+    bulkRows.length + " " + plural(bulkRows.length, "program", "programy", "programów");
+  if (!bulkRows.length) { box.innerHTML = '<div class="mr-empty">Nic nie pasuje do filtra.</div>'; return; }
+  box.innerHTML = bulkRows.slice(0, 400).map(p => {
+    // pierwszy komentarz z kodu pomaga rozpoznać detal bez otwierania programu
+    const cm = (String(p.code || "").match(/\(([^)]{3,60})\)/) || [])[1] || "";
+    return `<div class="bl-row" data-id="${esc(p.id)}">
+      <div class="bl-main">
+        <div class="mr-name">${esc(p.name || p.file || "—")}</div>
+        <div class="mr-meta">${p.onum ? esc(p.onum) + " · " : ""}${p.dir ? "📁 " + esc(p.dir) : "korzeń"}${cm ? " · " + esc(cm) : ""}</div>
+      </div>
+      <input class="bl-in bl-draw" data-f="drawing" value="${esc(p.drawing || "")}" placeholder="np. SZ1124" autocomplete="off">
+      <input class="bl-in bl-mat" data-f="material" value="${esc(p.material || "")}" placeholder="materiał" autocomplete="off">
+    </div>`;
+  }).join("") + (bulkRows.length > 400
+    ? '<div class="mr-empty">Pokazano pierwszych 400 — zawęź filtrem albo wyszukiwaniem.</div>' : "");
+}
+
+function openBulkEdit() {
+  if (!programs.length) { toast("Biblioteka jest pusta"); return; }
+  document.getElementById("blSearch").value = "";
+  bulkFilter = "nodraw";
+  renderBulk();
+  openModal("mBulk");
+}
+
+/* wypełnia PUSTE pola numerem znalezionym w folderze, nazwie albo rysunku */
+function bulkSuggest() {
+  let n = 0;
+  document.querySelectorAll("#blList .bl-row").forEach(row => {
+    const inp = row.querySelector('[data-f="drawing"]');
+    if (inp.value.trim()) return;
+    const g = guessDrawing(byId(row.dataset.id));
+    if (!g) return;
+    inp.value = g;
+    inp.classList.add("bl-guess");
+    n++;
+  });
+  toast(n ? "Podpowiedziano " + n + " " + plural(n, "numer", "numery", "numerów") + " — sprawdź i zapisz"
+          : "Nie udało się nic podpowiedzieć");
+}
+
+function bulkSave() {
+  let changed = 0;
+  document.querySelectorAll("#blList .bl-row").forEach(row => {
+    const p = byId(row.dataset.id);
+    if (!p) return;
+    row.querySelectorAll(".bl-in").forEach(inp => {
+      const f = inp.dataset.f;
+      const v = inp.value.trim();
+      if ((p[f] || "") === v) return;
+      p[f] = v;
+      changed++;
+    });
+    row.querySelectorAll(".bl-guess").forEach(i => i.classList.remove("bl-guess"));
+  });
+  if (!changed) { toast("Nic się nie zmieniło"); return; }
+  save();
+  render();
+  renderBulk();
+  toast("Zapisano " + changed + " " + plural(changed, "zmianę", "zmiany", "zmian") +
+        " · dane są w bibliotece, pliki .nc zostały nietknięte");
+}
+
+document.getElementById("btnBulkEdit").addEventListener("click", openBulkEdit);
+document.getElementById("blTabs").addEventListener("click", e => {
+  const b = e.target.closest("[data-bl]");
+  if (!b) return;
+  bulkFilter = b.dataset.bl;
+  renderBulk();
+});
+document.getElementById("blSearch").addEventListener("input", renderBulk);
+document.getElementById("blSuggest").addEventListener("click", bulkSuggest);
+document.getElementById("blSave").addEventListener("click", bulkSave);
+/* Enter przechodzi do tego samego pola w następnym wierszu — wpisywanie serią */
+document.getElementById("blList").addEventListener("keydown", e => {
+  if (e.key !== "Enter") return;
+  const inp = e.target.closest(".bl-in");
+  if (!inp) return;
+  e.preventDefault();
+  const row = inp.closest(".bl-row");
+  const next = row.nextElementSibling;
+  const t = next && next.querySelector('[data-f="' + inp.dataset.f + '"]');
+  if (t) { t.focus(); t.select(); }
+});
 
 /* ── kontrola programów ───────────────────────────────────────────────────
    Dwa widoki w jednym oknie: uwagi do JEDNEGO programu (kliknięta plakietka
