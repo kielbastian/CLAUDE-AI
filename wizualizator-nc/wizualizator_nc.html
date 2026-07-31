@@ -77,6 +77,14 @@
     border:1px solid transparent;border-bottom:none;border-radius:6px 6px 0 0;cursor:pointer;background:none}
   .tab:hover{color:var(--ink)}
   .tab.on{color:var(--brass-soft);background:#0b0f13;border-color:var(--line);margin-bottom:-1px}
+  .setups{display:none;gap:6px;flex-wrap:wrap;padding:10px 12px;background:#0b0f13;
+    border-bottom:1px solid var(--line);align-items:center}
+  .setups.on{display:flex}
+  .setups .lbl{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-right:4px}
+  .schip{font-size:11px;letter-spacing:.04em;color:var(--muted);background:#131a21;
+    border:1px solid var(--line);padding:6px 11px;border-radius:20px;cursor:pointer}
+  .schip:hover{color:var(--ink);border-color:var(--steel)}
+  .schip.on{color:#0e1216;background:var(--brass);border-color:var(--brass);font-weight:700}
   .stage{position:relative;background:#0b0f13;height:clamp(360px,58vh,680px);overflow:hidden}
   .stage canvas{display:block;width:100%;height:100%;touch-action:none}
   .view{position:absolute;inset:0;display:none}
@@ -194,6 +202,7 @@
         <button class="tab" data-v="3d">Widok 3D</button>
         <button class="tab" data-v="code">Kod NC</button>
       </div>
+      <div class="setups" id="setupTabs"></div>
       <div class="stage" id="stage">
         <div class="view on" id="v2d">
           <canvas id="c2d"></canvas>
@@ -249,6 +258,7 @@
           <label class="chk"><input type="checkbox" id="optMirror" checked><span>widok pełny (odbicie pod osią)</span></label>
           <label class="chk"><input type="checkbox" id="optRapid" checked><span>pokaż szybkie posuwy G00</span></label>
           <label class="chk"><input type="checkbox" id="optProfile" checked><span>pokaż przekrój materiału</span></label>
+          <label class="chk" id="rowOnly" style="display:none"><input type="checkbox" id="optOnly"><span>tylko obróbka z tego mocowania (bez wcześniejszych)</span></label>
           <label class="chk"><input type="checkbox" id="optTrim"><span>rysuj tylko do bieżącego kroku</span></label>
           <label class="chk"><input type="checkbox" id="optArc"><span>odwróć kierunek łuków G02/G03</span></label>
         </div>
@@ -293,7 +303,8 @@
 const PALETTE = ['#e0a548','#46c7d8','#67c99a','#c98fe0','#e2685f','#8fb2e0','#e0c848','#5fd3c0','#e08f5f','#a0a8e0'];
 const RE_ID   = /WEW|WYTACZ|WIERT|ROZWIER|GWINTOWNIK|BOR(E|ING)|INTERN|\bID\b|DRILL|REAM/i;
 const RE_OD   = /ZEW|EXTERN|\bOD\b|PRZECINAK|ODCIN|FACE|CZOŁ|CZOL/i;
-const RE_SIDE2= /DRUG\w*\s+STRON|STRONA\s*2|SIDE\s*2|2\s*GA\s*STRONA|REVERS/i;
+/* znacznik obrócenia detalu = początek kolejnego mocowania */
+const RE_SIDE2= /DRUG\w*\s+STRON|TRZEC\w*\s+STRON|CZWART\w*\s+STRON|STRONA\s*[2-4]|SIDE\s*[2-4]|2\s*GA\s*STRONA|REVERS/i;
 
 /* ------------------------------------------------------------------ pomoc */
 const $ = s => document.querySelector(s);
@@ -330,7 +341,7 @@ function interpret(blocks, opt){
 
   let motion = 0, plane = 18, abs = true, inch = false;
   let cycle = null, cycleR = null;
-  let cAngle = 0, side = 0;
+  let cAngle = 0, setup = 0;      // setup = numer mocowania (0,1,2,…)
   let z = 0, r = 0;            // pozycja bieżąca (r = promień)
   let op = null, thr = null;   // thr = zbierana grupa przejść gwintujących
   let curF = null;             // ostatnie F (modalne)
@@ -339,8 +350,9 @@ function interpret(blocks, opt){
   const xr = v => (opt.dia ? v/2 : v);                  // X -> promień
 
   function newOp(tool, label, line){
-    op = { idx:ops.length, tool, label, comment:label, side, kind:'auto',
-           color:PALETTE[ops.length % PALETTE.length], on:true, s0:segs.length, s1:segs.length,
+    op = { idx:ops.length, tool, label, comment:label, setup, side:setup % 2, kind:'auto',
+           color:PALETTE[ops.length % PALETTE.length], on:true, act:true, flip:false,
+           s0:segs.length, s1:segs.length,
            toolDia:diaFromText(label) };
     ops.push(op);
   }
@@ -378,11 +390,8 @@ function interpret(blocks, opt){
   }
 
   for(const b of blocks){
-    if(b.skip || !b.words.length){
-      if(b.comment && RE_SIDE2.test(b.comment)) side = 1;
-      continue;
-    }
-    if(b.comment && RE_SIDE2.test(b.comment)) side = 1;
+    if(b.comment && RE_SIDE2.test(b.comment)) setup++;   // „(DRUGA STRONA)” = obrót detalu
+    if(b.skip || !b.words.length) continue;
 
     const W = {};                                   // ostatnie wystąpienie adresu
     const gs = [];
@@ -469,7 +478,9 @@ function interpret(blocks, opt){
 
     /* --- G76: cykl gwintowania w jednym bloku --------------------------- */
     if(g76 && W.X !== undefined && W.Z !== undefined){
-      const h = (W.P !== undefined && W.P >= 10) ? u(W.P)/1000 : null;   // wysokość w µm
+      // wysokość zarysu: Fanuc — P w mikronach, Haas — K w mm
+      const h = (W.P !== undefined && W.P >= 10) ? u(W.P)/1000
+              : (W.K !== undefined && W.K > 0.05 && W.K < 20) ? u(W.K) : null;
       threads.push({ op:op ? op.idx : 0, line:b.i, kind:'G76',
                      zA:Math.min(z,tz), zB:Math.max(z,tz), rFinal:tr,
                      pitch:(W.F !== undefined ? u(W.F) : null), height:h,
@@ -527,13 +538,14 @@ function interpret(blocks, opt){
 
   closeThread();
 
-  /* strony operacji + etykiety */
+  /* etykiety operacji */
   for(const o of ops) o.name = (o.label||'').replace(/\s+/g,' ').trim() || ('T'+o.tool);
+  const nSetups = setup + 1;
   for(const t of threads){
     if(!t.pitch) addWarn('thrF','Nie udało się odczytać skoku gwintu (adres F) — przyjęto 1 mm.');
   }
 
-  return { segs, ops, holes, threads, warn:[...warn.values()] };
+  return { segs, ops, holes, threads, nSetups, warn:[...warn.values()] };
 }
 
 /* --------------------------------------------------------- zarys gwintu ISO
@@ -594,22 +606,23 @@ function tessArc(cz,cr,z0,r0,sw){
 /* ==========================================================================
    3. GEOMETRIA — przeliczenie stron (mocowanie A / B) i granice
    ========================================================================== */
-function sideXf(o, L, combine){
-  // strona B: detal obrócony — lokalne z=0 to lewe czoło detalu (global -L)
-  if(o.side === 1 && combine) return p => [ -L - p[0], p[1] ];
+/* o.flip = detal w tym mocowaniu jest obrócony względem układu karty;
+   lokalne z=0 leży wtedy przy lewym czole detalu (globalnie -L)          */
+function sideXf(o, L){
+  if(o.flip) return p => [ -L - p[0], p[1] ];
   return p => [ p[0], p[1] ];
 }
-function worldPts(seg, ops, L, combine){
-  const f = sideXf(ops[seg.op], L, combine);
+function worldPts(seg, ops, L){
+  const f = sideXf(ops[seg.op], L);
   return seg.pts.map(f);
 }
-function bounds(model, L, combine, withRapid){
+function bounds(model, L, withRapid){
   let z0=1e9,z1=-1e9,r1=-1e9;
   for(const s of model.segs){
     if(s.type === 'home') continue;
     if(!withRapid && s.type === 'rapid') continue;
-    if(!model.ops[s.op].on) continue;
-    for(const p of worldPts(s, model.ops, L, combine)){
+    if(!model.ops[s.op].act) continue;
+    for(const p of worldPts(s, model.ops, L)){
       if(p[0]<z0) z0=p[0]; if(p[0]>z1) z1=p[0];
       if(p[1]>r1) r1=p[1];
     }
@@ -639,7 +652,7 @@ function classifyPass(pass, op){
 }
 
 function simulate(model, opt){
-  const L = opt.stockL, R0 = opt.stockD/2, combine = opt.combine;
+  const L = opt.stockL, R0 = opt.stockD/2;
   const nz = clamp(Math.round(L/0.05), 400, 4000);
   const dz = L/(nz-1);
   const outer = new Float64Array(nz).fill(R0);
@@ -683,11 +696,11 @@ function simulate(model, opt){
 
   /* --- najpierw otwory osiowe (wiercenie poprzedza wytaczanie) ------- */
   for(const h of model.holes){
-    const op = model.ops[h.op] || { on:true, side:0 };
-    if(!op.on) continue;
+    const op = model.ops[h.op] || { act:true, side:0 };
+    if(!op.act) continue;
     kinds[h.op] = 'id';
     if(!h.axial || h.rPos > 0.2) continue;             // otwory na okręgu -> tylko wizualnie
-    const f = sideXf(op, L, combine);
+    const f = sideXf(op, L);
     const a = f([h.z0,0]), b = f([h.z1,0]);
     const rr = h.dia/2;
     const zA = Math.min(a[0],b[0]), zB = Math.max(a[0],b[0]);
@@ -696,8 +709,8 @@ function simulate(model, opt){
 
   /* --- grupowanie ruchów roboczych w przejścia ----------------------- */
   for(const op of model.ops){
-    if(!op.on) continue;
-    const f = sideXf(op, L, combine);
+    if(!op.act) continue;
+    const f = sideXf(op, L);
     let pass = null;
     const flush = () => {
       if(!pass) return;
@@ -730,9 +743,9 @@ function simulate(model, opt){
   /* --- gwinty: nacięcie materiału do średnicy dna + zakresy do rysowania -- */
   const threads = [];
   for(const t of (model.threads || [])){
-    const op = model.ops[t.op] || { on:true, side:0, kind:'auto' };
-    if(!op.on) continue;
-    const f = sideXf(op, L, combine);
+    const op = model.ops[t.op] || { act:true, side:0, kind:'auto' };
+    if(!op.act) continue;
+    const f = sideXf(op, L);
     let zA = f([t.zA,0])[0], zB = f([t.zB,0])[0];
     if(zA > zB){ const q = zA; zA = zB; zB = q; }
     zA = clamp(zA, -L, 0); zB = clamp(zB, -L, 0);
@@ -771,7 +784,7 @@ function simulate(model, opt){
     }
     const zSpans = spans.filter(s => s[1]-s[0] >= 2).map(s => [zAtI(s[0]), zAtI(s[1])]);
     if(zSpans.length) threads.push({ internal, pitch:P, rMajor, rMinor, spans:zSpans,
-                                     zRef:zA, flip:(op.side === 1 && combine), op:t.op, kind:t.kind });
+                                     zRef:zA, flip:!!op.flip, op:t.op, kind:t.kind });
   }
 
   for(let i=0;i<nz;i++){ if(inner[i] > outer[i]) inner[i] = outer[i]; }
@@ -821,8 +834,10 @@ function rdp(pts, tol){
 const S = {
   text:'', fname:'', blocks:[], model:null, sim:null, polys:null,
   opt:{ dia:true, arcFlip:false, showRapid:true, mirror:true, showProfile:true,
-        trim:false, auto:true, stockD:100, stockL:100, combine:true },
+        trim:false, auto:true, stockD:100, stockL:100, onlyThis:false },
   view:'2d',
+  setup:'all',            // 'all' = złożenie, albo numer mocowania
+  stocks:{},              // zapamiętany materiał dla każdej karty
   v2:{ ox:0, oy:0, sc:3, ready:false },
   step:-1, drawable:[], playing:false, timer:null,
   gl:null, sec:false, showPath3:false, cam:{ th:-0.9, ph:0.5, dist:300, cx:0, cy:0, cz:0 }
@@ -835,11 +850,13 @@ function loadText(text, name){
   S.text = text; S.fname = name || 'program.nc';
   S.blocks = parseProgram(text);
   $('#opsList').innerHTML = '';                 // lista z poprzedniego programu
-  S.camInit = false;
+  S.camInit = false; S.setup = 'all'; S.stocks = {}; S.opt.auto = true;
+  $('#optAuto').checked = true;
   rebuild(true);
   $('#empty').style.display = 'none';
   $('#fname').innerHTML = 'plik: <b>' + esc(S.fname) + '</b>';
   buildCode();
+  buildSetupTabs();
   buildOps();
   updateOpsBadges();
   S.step = -1;
@@ -847,18 +864,36 @@ function loadText(text, name){
   $('#btnPrev').disabled = false; $('#btnNext').disabled = false;
 }
 
+/* Które operacje wchodzą do bieżącej karty i jak są ustawione.
+   Karta „złożenie” pokazuje wszystko, karta mocowania — stan detalu po tym
+   mocowaniu (czyli razem z wcześniejszymi), w układzie tego mocowania.     */
+function applySetupFilter(){
+  const all = (S.setup === 'all');
+  const ref = all ? 0 : ((S.model.ops.find(o => o.setup === S.setup) || {side:0}).side);
+  for(const o of S.model.ops){
+    const inTab = all || (S.opt.onlyThis ? o.setup === S.setup : o.setup <= S.setup);
+    o.act  = o.on && inTab;
+    o.flip = (o.side !== ref);
+  }
+}
+
 function rebuild(autoFit){
   const o = S.opt;
+  const prev = S.model ? S.model.ops : null;
   S.model = interpret(S.blocks, { dia:o.dia, arcFlip:o.arcFlip });
+  // zachowaj ustawienia operacji (widoczność, orientacja, zewn./wewn.)
+  if(prev && prev.length === S.model.ops.length){
+    S.model.ops.forEach((x,i) => { x.on = prev[i].on; x.kind = prev[i].kind; x.side = prev[i].side; });
+  }
+  if(S.setup !== 'all' && S.setup >= S.model.nSetups) S.setup = 'all';
+  applySetupFilter();
 
   // automatyczny dobór materiału (z ruchów roboczych — G00 to tylko dojazdy)
-  const bCut = bounds(S.model, 0, false, false);
-  const anySide2 = S.model.ops.some(x => x.side === 1);
-  const lenA = Math.max(1, -Math.min(0, minZof(S.model, 0)));
-  const lenB = Math.max(0, -Math.min(0, minZof(S.model, 1)));
+  const bCut = bounds(S.model, 0, false);
+  const len = setupLengths(S.model);
   // średnicę bierzemy z toczenia wzdłużnego — planowanie często zaczyna się w powietrzu
   const autoD = Math.max(1, Math.ceil(axialCutR(S.model)*2) || Math.ceil(bCut.r1*2));
-  const autoL = Math.max(1, Math.ceil(anySide2 ? Math.max(lenA, lenB) : lenA));
+  const autoL = Math.max(1, Math.ceil(Math.max(len[0], len[1])));
   if(o.auto){
     o.stockD = autoD; o.stockL = autoL;
     $('#stockD').value = o.stockD; $('#stockL').value = o.stockL;
@@ -866,7 +901,7 @@ function rebuild(autoFit){
   $('#lblAutoD').textContent = 'auto ' + autoD;
   $('#lblAutoL').textContent = 'auto ' + autoL;
 
-  S.sim = simulate(S.model, { stockD:o.stockD, stockL:o.stockL, combine:o.combine });
+  S.sim = simulate(S.model, { stockD:o.stockD, stockL:o.stockL });
   S.polys = profilePolys(S.sim);
 
   // lista odcinków do odtwarzania
@@ -888,7 +923,7 @@ function axialCutR(model){
   let r = 0;
   for(const s of model.segs){
     if(s.type !== 'feed' && s.type !== 'thread') continue;
-    if(!model.ops[s.op].on) continue;
+    if(!model.ops[s.op].act) continue;
     for(let i=0;i<s.pts.length-1;i++){
       if(Math.abs(s.pts[i+1][0] - s.pts[i][0]) < 0.05) continue;
       r = Math.max(r, s.pts[i][1], s.pts[i+1][1]);
@@ -896,14 +931,18 @@ function axialCutR(model){
   }
   return r;
 }
-function minZof(model, side){
-  let m = 0;
+/* najgłębsze Z osiągnięte z każdej strony detalu (w mm, jako długość) */
+function setupLengths(model){
+  let a = 0, b = 0;
   for(const s of model.segs){
     if(s.type === 'home') continue;
-    if(model.ops[s.op].side !== side) continue;
-    for(const p of s.pts) if(p[0] < m) m = p[0];
+    const o = model.ops[s.op];
+    if(!o.act) continue;
+    for(const p of s.pts){
+      if(o.flip){ if(p[0] < b) b = p[0]; } else if(p[0] < a) a = p[0];
+    }
   }
-  return m;
+  return [-a, -b];
 }
 
 /* ==========================================================================
@@ -923,7 +962,7 @@ function fit2D(redraw){
   if(!S.model) return;
   const L = S.opt.stockL;
   // dopasowanie do detalu i ruchów roboczych — dojazdy G00 potrafią uciec daleko
-  const b = bounds(S.model, L, S.opt.combine, false);
+  const b = bounds(S.model, L, false);
   const z0 = Math.min(b.z0, -L) - 5, z1 = Math.max(b.z1, 2) + 5;
   const rr = Math.max(b.r1, S.opt.stockD/2) + 5;
   const W = cv.width, H = cv.height;
@@ -943,7 +982,7 @@ function draw2D(){
   ctx.clearRect(0,0,W,H);
   ctx.fillStyle = '#0b0f13'; ctx.fillRect(0,0,W,H);
   if(!S.model) return;
-  const L = S.opt.stockL, comb = S.opt.combine, mir = S.opt.mirror;
+  const L = S.opt.stockL, mir = S.opt.mirror;
   const X = z => v.ox + z*v.sc;
   const Y = r => v.oy - r*v.sc;
   const dpr = Math.min(window.devicePixelRatio||1,2);
@@ -1013,10 +1052,10 @@ function draw2D(){
   const upTo = (S.opt.trim && S.step >= 0) ? S.drawable[S.step] : Infinity;
   const drawSeg = (s) => {
     const op = S.model.ops[s.op];
-    if(!op.on) return;
+    if(!op.act) return;
     if(s.type === 'home') return;
     if(s.type === 'rapid' && !S.opt.showRapid) return;
-    const pts = worldPts(s, S.model.ops, L, comb);
+    const pts = worldPts(s, S.model.ops, L);
     ctx.beginPath();
     pts.forEach((p,i) => i ? ctx.lineTo(X(p[0]),Y(p[1])) : ctx.moveTo(X(p[0]),Y(p[1])));
     if(s.type === 'rapid'){
@@ -1041,7 +1080,7 @@ function draw2D(){
   /* znacznik bieżącego kroku */
   if(S.step >= 0 && S.step < S.drawable.length){
     const s = S.model.segs[S.drawable[S.step]];
-    const pts = worldPts(s, S.model.ops, L, comb);
+    const pts = worldPts(s, S.model.ops, L);
     const p = pts[pts.length-1];
     ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.4*dpr;
     ctx.beginPath(); ctx.arc(X(p[0]), Y(p[1]), 5.5*dpr, 0, 6.2832); ctx.stroke();
@@ -1245,9 +1284,9 @@ function buildMesh(){
   /* otwory na okręgu — walce wpuszczone w materiał */
   const HP = [], HN = [];
   for(const h of (S.model ? S.model.holes : [])){
-    const op = S.model.ops[h.op]; if(!op || !op.on) continue;
+    const op = S.model.ops[h.op]; if(!op || !op.act) continue;
     if(h.rPos <= 0.2) continue;
-    const f = sideXf(op, S.opt.stockL, S.opt.combine);
+    const f = sideXf(op, S.opt.stockL);
     // przycięcie do bryły materiału, żeby otwór nie wystawał przed czoło
     const a = clamp(f([h.z0, 0])[0], -S.opt.stockL, 0);
     const b = clamp(f([h.z1, 0])[0], -S.opt.stockL, 0);
@@ -1273,9 +1312,9 @@ function buildMesh(){
   if(S.model){
     for(const i of S.drawable){
       const s = S.model.segs[i];
-      const op = S.model.ops[s.op]; if(!op.on) continue;
+      const op = S.model.ops[s.op]; if(!op.act) continue;
       if(s.type === 'rapid' && !S.opt.showRapid) continue;
-      const pts = worldPts(s, S.model.ops, S.opt.stockL, S.opt.combine);
+      const pts = worldPts(s, S.model.ops, S.opt.stockL);
       const dst = (s.type === 'rapid') ? LR : LF;
       for(let k=0;k<pts.length-1;k++){
         dst.push(pts[k][1],0,pts[k][0], pts[k+1][1],0,pts[k+1][0]);
@@ -1477,20 +1516,58 @@ function markLine(l){
     }
   }
 }
+/* karty mocowań — pokazywane tylko wtedy, gdy detal jest robiony na kilka razy */
+function buildSetupTabs(){
+  const box = $('#setupTabs'), n = S.model.nSetups;
+  if(n < 2){ box.classList.remove('on'); box.innerHTML = ''; $('#rowOnly').style.display = 'none'; return; }
+  const chip = (v,t,ttl) => '<button class="schip'+(S.setup===v?' on':'')+'" data-s="'+v+'" title="'+ttl+'">'+t+'</button>';
+  let html = '<span class="lbl">mocowanie</span>';
+  for(let i=0;i<n;i++){
+    const cnt = S.model.ops.filter(o => o.setup === i && o.tool !== null).length;
+    html += chip(i, 'po '+(i+1)+'. mocowaniu', 'Detal po '+(i+1)+'. mocowaniu, w jego układzie ('+cnt+' narzędzi)');
+  }
+  html += chip('all','złożenie','Gotowy detal — wszystkie mocowania razem');
+  box.innerHTML = html;
+  box.classList.add('on');
+  $('#rowOnly').style.display = '';
+  box.querySelectorAll('.schip').forEach(el => el.addEventListener('click', () => {
+    const v = el.dataset.s === 'all' ? 'all' : +el.dataset.s;
+    switchSetup(v);
+  }));
+}
+function switchSetup(v){
+  if(v === S.setup) return;
+  // materiał zapamiętujemy osobno dla każdej karty
+  S.stocks[S.setup] = { d:S.opt.stockD, l:S.opt.stockL, auto:S.opt.auto };
+  S.setup = v;
+  const st = S.stocks[v];
+  if(st){ S.opt.stockD = st.d; S.opt.stockL = st.l; S.opt.auto = st.auto; }
+  else S.opt.auto = true;
+  $('#optAuto').checked = S.opt.auto;
+  S.camInit = false; S.step = -1;
+  document.querySelectorAll('#setupTabs .schip').forEach(el =>
+    el.classList.toggle('on', (el.dataset.s === 'all' ? 'all' : +el.dataset.s) === v));
+  rebuild(true);
+  buildOps(); updateOpsBadges();
+  if(S.view === '3d') draw3D();
+}
 function buildOps(){
   const box = $('#opsList');
-  box.innerHTML = S.model.ops.map(o => `
+  const all = (S.setup === 'all'), multi = S.model.nSetups > 1;
+  const list = S.model.ops.filter(o => all || o.setup === S.setup);
+  box.innerHTML = list.map(o => `
     <div class="op${o.on?'':' off'}" data-o="${o.idx}">
       <div class="top">
         <input type="checkbox" ${o.on?'checked':''} data-k="on">
         <span class="dot" style="background:${o.color}"></span>
-        <span class="nm">${esc(o.name)} <i>${o.tool!=null?('T'+o.tool):''}</i></span>
+        <span class="nm">${esc(o.name)} <i>${o.tool!=null?('T'+o.tool):''}${
+          (all && multi) ? ' · moc. '+(o.setup+1) : ''}</i></span>
       </div>
       <div class="sel">
-        <select data-k="side">
-          <option value="0"${o.side===0?' selected':''}>mocowanie A</option>
-          <option value="1"${o.side===1?' selected':''}>mocowanie B</option>
-        </select>
+        ${(all && multi) ? `<select data-k="side" title="Z której strony detal był trzymany w tym mocowaniu">
+          <option value="0"${o.side===0?' selected':''}>ustawienie A</option>
+          <option value="1"${o.side===1?' selected':''}>ustawienie B (obrócony)</option>
+        </select>` : '<span></span>'}
         <select data-k="kind">
           <option value="auto"${o.kind==='auto'?' selected':''}>auto</option>
           <option value="od"${o.kind==='od'?' selected':''}>zewnętrzna</option>
@@ -1504,7 +1581,14 @@ function buildOps(){
       o.on = e.target.checked; el.classList.toggle('off', !o.on);
       recompute();
     });
-    el.querySelector('[data-k=side]').addEventListener('change', e => { o.side = +e.target.value; recompute(); });
+    const sside = el.querySelector('[data-k=side]');
+    if(sside) sside.addEventListener('change', e => {
+      // orientację zmieniamy dla całego mocowania — detal obraca się w całości
+      const v = +e.target.value;
+      for(const x of S.model.ops) if(x.setup === o.setup) x.side = v;
+      rebuild(false);                 // zmiana orientacji zmienia też długość detalu
+      buildOps(); updateOpsBadges();
+    });
     el.querySelector('[data-k=kind]').addEventListener('change', e => { o.kind = e.target.value; recompute(); });
   });
 }
@@ -1521,7 +1605,8 @@ function updateOpsBadges(){
 /* przelicz bez ponownego parsowania (zachowuje ustawienia operacji) */
 function recompute(){
   const o = S.opt;
-  S.sim = simulate(S.model, { stockD:o.stockD, stockL:o.stockL, combine:o.combine });
+  applySetupFilter();
+  S.sim = simulate(S.model, { stockD:o.stockD, stockL:o.stockL });
   S.polys = profilePolys(S.sim);
   S.mesh = null;
   buildStats(); buildWarns(); updateOpsBadges();
@@ -1530,11 +1615,11 @@ function recompute(){
 }
 function buildStats(){
   const m = S.model, L = S.opt.stockL;
-  const b = bounds(m, L, S.opt.combine, false);
+  const b = bounds(m, L, false);
   let lenFeed = 0, lenRap = 0;
   for(const s of m.segs){
-    if(s.type === 'home' || !m.ops[s.op].on) continue;
-    const pts = worldPts(s, m.ops, L, S.opt.combine);
+    if(s.type === 'home' || !m.ops[s.op].act) continue;
+    const pts = worldPts(s, m.ops, L);
     let d = 0;
     for(let i=0;i<pts.length-1;i++) d += Math.hypot(pts[i+1][0]-pts[i][0], pts[i+1][1]-pts[i][1]);
     if(s.type === 'rapid') lenRap += d; else lenFeed += d;
@@ -1563,6 +1648,17 @@ function buildWarns(){
     w.push('Gwint ' + (t.internal ? 'wewnętrzny' : 'zewnętrzny') + ': Ø' + fmt(t.rMajor*2,2) +
            ' × skok ' + fmt(t.pitch,2) + ' mm, Z ' +
            t.spans.map(s => fmt(s[0],1)+'…'+fmt(s[1],1)).join(', ') + ' — narysowany w 3D.');
+  }
+  if(S.model.nSetups > 1){
+    w.push(S.setup === 'all'
+      ? ('Detal robiony na ' + S.model.nSetups + ' mocowania — to jest złożenie wszystkich. ' +
+         'Sprawdź długość materiału i ustawienie A/B przy operacjach, bo z samego programu nie da się ' +
+         'wyliczyć, jak mocowania nakładają się na siebie. Osobne modele są na kartach nad rysunkiem.')
+      : (S.opt.onlyThis
+        ? ('Mocowanie ' + (S.setup+1) + ' z ' + S.model.nSetups + ': pokazana jest tylko obróbka z tego ' +
+           'mocowania, na surowym materiale — bez tego, co zrobiły wcześniejsze mocowania.')
+        : ('Detal po ' + (S.setup+1) + '. mocowaniu (z ' + S.model.nSetups + '), w układzie tego mocowania: ' +
+           'Z=0 przy czole, które jest teraz z przodu. Obróbka z wcześniejszych mocowań jest uwzględniona.')));
   }
   w.push(...S.model.warn);
   if(S.model.ops.some(o => o.side === 1)) w.push('Wykryto drugą stronę / drugie mocowanie — model 3D składa obie strony na jednym detalu. Jeśli coś nie pasuje, zmień „mocowanie” przy operacji albo długość materiału.');
@@ -1664,12 +1760,14 @@ function boot(){
   if(bPath) bPath.style.color = S.showPath3 ? '' : 'var(--muted)';
 
   const opt = [['optDia','dia'],['optMirror','mirror'],['optRapid','showRapid'],
-               ['optProfile','showProfile'],['optTrim','trim'],['optArc','arcFlip'],['optAuto','auto']];
+               ['optProfile','showProfile'],['optTrim','trim'],['optArc','arcFlip'],
+               ['optAuto','auto'],['optOnly','onlyThis']];
   for(const [id,key] of opt){
     $('#'+id).addEventListener('change', e => {
       S.opt[key] = e.target.checked;
       if(!S.model) return;
-      if(key === 'dia' || key === 'arcFlip') rebuild(false);
+      if(key === 'onlyThis'){ S.opt.auto = true; $('#optAuto').checked = true; rebuild(true); buildOps(); updateOpsBadges(); if(S.view === '3d') draw3D(); }
+      else if(key === 'dia' || key === 'arcFlip') rebuild(false);
       else if(key === 'auto') rebuild(false);
       else { S.mesh = null; draw2D(); if(S.view === '3d') draw3D(); }
     });

@@ -20,6 +20,9 @@ Otwórz `wizualizator_nc.html` dwuklikiem w dowolnej przeglądarce, potem:
 | **Widok 3D** | Bryła detalu powstała z symulacji (obrót profilu) razem z gwintami. Obracasz myszką, kółko = zoom, przycisk **Przekrój** rozcina detal, żeby zobaczyć otwory, rowki i gwinty wewnętrzne. Powierzchnia cięcia jest pełna (na żółto) — nie widać przez nią środka detalu. |
 | **Kod NC** | Treść programu z numeracją; kliknięcie w linię przeskakuje do tego ruchu, a odtwarzanie podświetla aktualną linię. |
 
+Jeśli detal jest robiony na kilka mocowań, nad rysunkiem dochodzi drugi rząd
+kart — osobny model dla każdego mocowania plus złożenie (patrz niżej).
+
 Suwak na dole przewija program ruch po ruchu (`◀` `▶`, spacja = odtwarzanie,
 strzałki = krok). Opcja *„rysuj tylko do bieżącego kroku”* pokazuje ścieżkę
 narastająco. **Zapisz obraz PNG** zapisuje aktualny widok do pliku.
@@ -39,8 +42,33 @@ narastająco. **Zapisz obraz PNG** zapisuje aktualny widok do pliku.
   (także modalnego). Gwint jest rysowany w 3D jako prawdziwa powierzchnia
   śrubowa,
 - zmiany narzędzia `T…` z komentarzem → lista operacji z osobnymi kolorami,
-- rozpoznanie drugiej strony po komentarzu typu `(DRUGA STRONA)` — obie strony
-  składane są na jednym detalu 3D.
+- podział na **mocowania** po komentarzu typu `(DRUGA STRONA)` — patrz niżej.
+
+## Detal robiony na kilka mocowań
+
+Każdy komentarz `(DRUGA STRONA)` (albo `TRZECIA STRONA`, `STRONA 2`, `SIDE 2`…)
+oznacza, że detal został wyjęty i obrócony. Program jest wtedy dzielony na
+mocowania, a nad rysunkiem pojawia się dodatkowy rząd kart:
+
+| Karta | Co pokazuje |
+|---|---|
+| **po 1. mocowaniu**, **po 2. mocowaniu**, … | Osobny model: detal w takim stanie, w jakim wychodzi z tego mocowania, ustawiony tak jak leżał w uchwycie (Z=0 przy czole, które jest z przodu). Obróbka z wcześniejszych mocowań jest uwzględniona — tak jak na maszynie. |
+| **złożenie** | Gotowy detal — wszystkie mocowania razem. |
+
+Dwie rzeczy do sprawdzenia przy kilku mocowaniach:
+
+- **Długość materiału.** Z samego programu nie da się wyliczyć, jak głęboko
+  mocowania na siebie zachodzą — wpisz długość detalu ręcznie, jeśli auto
+  nie trafiło.
+- **Ustawienie A / B** przy operacji (widoczne na karcie „złożenie”).
+  Domyślnie przyjmowane jest, że każde `(DRUGA STRONA)` to obrót detalu,
+  więc mocowania idą na przemian A, B, A… Jeśli któreś mocowanie w
+  rzeczywistości robisz od tej samej strony co poprzednie, przestaw je tutaj —
+  zmiana obejmuje od razu wszystkie operacje tego mocowania.
+
+Jest jeszcze przełącznik **„tylko obróbka z tego mocowania”**: pokazuje, co
+robi samo to mocowanie, na surowym materiale — przydatne, gdy chcesz zobaczyć
+wyłącznie jedną operację, bez tego, co było wcześniej.
 
 ## Gwinty
 
@@ -88,7 +116,8 @@ Panel po prawej ma wszystko, czego zwykle trzeba:
   — wpisz ją ręcznie, model przeliczy się od razu.
 - **Lista operacji** — przy każdej możesz:
   - wyłączyć ją z widoku (checkbox),
-  - zmienić **mocowanie A / B** (czyli z której strony detal był trzymany),
+  - zmienić **ustawienie A / B** (czyli czy detal był w tym mocowaniu
+    obrócony) — działa na całe mocowanie,
   - wymusić **zewnętrzna / wewnętrzna**, jeśli automat źle zgadł, czy narzędzie
     zbiera materiał z zewnątrz, czy od środka. Automat najpierw patrzy na
     komentarz przy narzędziu (`ZEW`, `WEW`, `WYTACZAK`, `WIERTLO`), potem na
