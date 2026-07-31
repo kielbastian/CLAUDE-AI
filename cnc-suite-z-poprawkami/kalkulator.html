@@ -565,6 +565,90 @@
     </div>
   </section>
 
+  <section class="panel acc" id="sec-cut2">
+    <div class="title" style="margin-bottom:22px">
+      <h1>DANE <span>SKRAWANIA</span></h1>
+      <p>Prędkość, obroty, chropowatość, czas i moc dla toczenia</p>
+    </div>
+    <div class="fits-top">
+      <div class="field" style="margin:0">
+        <label>Średnica obrabiana <b>D</b></label>
+        <div class="inrow"><input type="number" id="cdD" value="80" step="0.5" min="0.1"><span class="unit">mm</span></div>
+      </div>
+      <div class="field" style="margin:0">
+        <label>Prędkość skrawania <b>Vc</b></label>
+        <div class="inrow"><input type="number" id="cdVc" value="200" step="5" min="1"><span class="unit">m/min</span></div>
+      </div>
+      <div class="field" style="margin:0">
+        <label>Obroty <b>n</b></label>
+        <div class="inrow"><input type="number" id="cdN" value="796" step="10" min="1"><span class="unit">obr/min</span></div>
+      </div>
+    </div>
+    <div class="fits-top" style="margin-top:14px">
+      <div class="field" style="margin:0">
+        <label>Posuw <b>f</b></label>
+        <div class="inrow"><input type="number" id="cdF" value="0.25" step="0.01" min="0.01"><span class="unit">mm/obr</span></div>
+      </div>
+      <div class="field" style="margin:0">
+        <label>Promień naroża <b>r</b></label>
+        <div class="inrow"><input type="number" id="cdR" value="0.8" step="0.1" min="0.05"><span class="unit">mm</span></div>
+      </div>
+      <div class="field" style="margin:0">
+        <label>Głębokość <b>ap</b></label>
+        <div class="inrow"><input type="number" id="cdAp" value="2" step="0.1" min="0.05"><span class="unit">mm</span></div>
+      </div>
+    </div>
+    <div class="fits-top" style="margin-top:14px">
+      <div class="field" style="margin:0">
+        <label>Materiał (opór właściwy <b>kc</b>)</label>
+        <select id="cdMat">
+          <option value="1700" selected>Stal konstrukcyjna (S235, C45)</option>
+          <option value="2100">Stal stopowa / ulepszana (42CrMo4)</option>
+          <option value="2500">Stal nierdzewna (304, 316)</option>
+          <option value="1100">Żeliwo szare</option>
+          <option value="800">Aluminium</option>
+          <option value="2900">Stal narzędziowa / hartowana</option>
+        </select>
+      </div>
+      <div class="field" style="margin:0">
+        <label>Długość toczenia <b>L</b></label>
+        <div class="inrow"><input type="number" id="cdL" value="100" step="1" min="0"><span class="unit">mm</span></div>
+      </div>
+      <div class="field" style="margin:0">
+        <label>Moc wrzeciona <b>P</b></label>
+        <div class="inrow"><input type="number" id="cdP" value="22" step="0.5" min="0.5"><span class="unit">kW</span></div>
+      </div>
+    </div>
+
+    <div class="results" style="margin-top:20px">
+      <div class="res big">
+        <div class="lbl">Obroty n przy tej średnicy</div>
+        <div class="val"><span id="cdOutN">0</span><small>obr/min</small></div>
+      </div>
+      <div class="res">
+        <div class="lbl">Chropowatość teoretyczna Ra</div>
+        <div class="val" style="font-size:28px"><span id="cdOutRa">0</span><small>µm</small></div>
+      </div>
+      <div class="res">
+        <div class="lbl">Posuw minutowy vf</div>
+        <div class="val" style="font-size:28px"><span id="cdOutVf">0</span><small>mm/min</small></div>
+      </div>
+      <div class="res">
+        <div class="lbl">Czas przejścia</div>
+        <div class="val" style="font-size:28px"><span id="cdOutT">0</span><small>s</small></div>
+      </div>
+      <div class="res">
+        <div class="lbl">Moc skrawania Pc</div>
+        <div class="val" style="font-size:28px"><span id="cdOutPc">0</span><small>kW</small></div>
+      </div>
+      <div class="res">
+        <div class="lbl">Wiór (objętość) Q</div>
+        <div class="val" style="font-size:28px"><span id="cdOutQ">0</span><small>cm³/min</small></div>
+      </div>
+    </div>
+    <div class="tapnote" id="cdNote"></div>
+  </section>
+
   <footer>Wzór: półkąt = atan((D − d) / (2·L)) · pełny kąt = 2 × półkąt</footer>
 </div>
 
@@ -1338,6 +1422,65 @@ function polyCalc(){
 [polyN,polyS,polyB].forEach(el=>el.addEventListener('input',polyCalc));
 polyCalc();
 
+/* ===== DANE SKRAWANIA (toczenie) =====
+   Vc ↔ n są sprzężone: zmiana jednego przelicza drugie przy zadanej średnicy.
+   Reszta liczy się z aktualnych pól. */
+(function cutData(){
+  const D=$('cdD'), Vc=$('cdVc'), N=$('cdN'), F=$('cdF'), R=$('cdR'),
+        Ap=$('cdAp'), Mat=$('cdMat'), L=$('cdL'), P=$('cdP');
+  const num = el => parseFloat(el.value) || 0;
+  let lock = false;                      // zapobiega pętli Vc -> n -> Vc
+
+  /* n = Vc · 1000 / (π · D) */
+  const nFromVc = () => { const d=num(D); return d>0 ? num(Vc)*1000/(Math.PI*d) : 0; };
+  const vcFromN = () => num(N)*Math.PI*num(D)/1000;
+
+  function calc(){
+    const d=num(D), vc=num(Vc), n=num(N), f=num(F), r=num(R), ap=num(Ap),
+          kc=parseFloat(Mat.value)||1700, len=num(L), pmax=num(P);
+
+    $('cdOutN').textContent = Math.round(n);
+
+    // chropowatość teoretyczna: Ra ≈ f² / (31,2 · r)  [µm, f i r w mm]
+    const ra = r>0 ? (f*f)/(31.2*r)*1000 : 0;
+    $('cdOutRa').textContent = ra.toFixed(2);
+
+    const vf = f*n;                                   // mm/min
+    $('cdOutVf').textContent = Math.round(vf);
+
+    const t = vf>0 ? len/vf*60 : 0;                   // s
+    $('cdOutT').textContent = t.toFixed(1);
+
+    // moc skrawania: Pc = ap · f · Vc · kc / 60000   [kW]
+    const pc = ap*f*vc*kc/60000;
+    $('cdOutPc').textContent = pc.toFixed(2);
+
+    // objętość wióra: Q = ap · f · Vc   [cm³/min]
+    $('cdOutQ').textContent = (ap*f*vc).toFixed(1);
+
+    const parts = [];
+    parts.push('n = Vc·1000/(π·D) = <b>'+Math.round(nFromVc())+' obr/min</b> przy Ø'+d.toFixed(1));
+    parts.push('Przy G96 ustaw ogranicznik <b>G50 S'+Math.max(1, Math.ceil(n/50)*50)+'</b>');
+    if (pmax>0) {
+      const pct = pc/pmax*100;
+      parts.push('Moc: <b>'+pc.toFixed(2)+' kW</b> z '+pmax.toFixed(1)+' kW = <b>'+pct.toFixed(0)+'%</b>' +
+        (pct>90 ? ' — <b style="color:#ff6b6b">za dużo, zmniejsz ap albo f</b>'
+                : pct>70 ? ' — blisko granicy' : ''));
+    }
+    if (r>0 && f > r) parts.push('<b style="color:#ff6b6b">Posuw większy od promienia naroża</b> — płytka tego nie wytrzyma');
+    if (ap>0 && r>0 && ap < r/3) parts.push('ap mniejsze od ⅓ promienia naroża — ryzyko odbijania i gniecenia zamiast skrawania');
+    $('cdNote').innerHTML = parts.join('. ') + '.';
+  }
+
+  Vc.addEventListener('input', ()=>{ if(lock) return; lock=true; N.value=Math.round(nFromVc()); lock=false; calc(); });
+  N .addEventListener('input', ()=>{ if(lock) return; lock=true; Vc.value=vcFromN().toFixed(0); lock=false; calc(); });
+  D .addEventListener('input', ()=>{ lock=true; N.value=Math.round(nFromVc()); lock=false; calc(); });
+  [F,R,Ap,Mat,L,P].forEach(el=>el.addEventListener('input', calc));
+  // start: obroty zgodne z zadanym Vc i średnicą
+  N.value = Math.round(nFromVc());
+  calc();
+})();
+
 /* ===== KARTY SEKCJI (akordeon) ===== */
 (function feedCalc(){
   const fn=$('fn'),fr=$('fr'),fm=$('fm'),note=$('feedNote');
@@ -1359,7 +1502,8 @@ const SECTABS=[
   {id:'sec-tap',   t:'GWINT.',   s:'SZTYWNE', d:'G84 gwintownik'},
   {id:'sec-cut',   t:'TOCZENIE', s:'GWINTU',  d:'nóż G76/G92/G32'},
   {id:'sec-feed',  t:'POSUW',    s:'F/min',   d:'na obrót \u2194 na minutę'},
-  {id:'sec-poly',  t:'WIELOBOK', s:'Ø',       d:'przygotówka'}
+  {id:'sec-poly',  t:'WIELOBOK', s:'Ø',       d:'przygotówka'},
+  {id:'sec-cut2',  t:'DANE',     s:'SKRAWANIA', d:'Vc, Ra, czas, moc'}
 ];
 (function buildTabs(){
   const nav=$('secTabs');
