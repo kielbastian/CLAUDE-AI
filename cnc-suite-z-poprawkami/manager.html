@@ -1599,6 +1599,7 @@ function checkProgram(p) {
   const lines = raw.split(/\r?\n/);
 
   let spindleOn = false, feedSet = false, coolantOn = false;
+  let liveOn = false, liveSpeedSet = false;   // narzędzia napędzane (M133/M134/M135)
   let tool = "", workOffset = false, g50 = false;
   let hasEnd = false, hasUnits = false, lastSafe = -1, lastMotion = -1;
 
@@ -1637,7 +1638,19 @@ function checkProgram(p) {
       if (!g50) add("warn", "G96 (stała prędkość skrawania) bez wcześniejszego G50 S… — brak ograniczenia obrotów", n);
       if (!/\bS\d+/.test(s)) add("err", "G96 bez wartości S", n);
     }
+    // wrzeciono główne (M03/M04) ALBO narzędzia napędzane (M133/M134 z obrotami
+    // podanymi pod P) — na tokarce z osią C frezowanie i wiercenie idzie właśnie
+    // z napędzanego wrzeciona i M03 w takim programie w ogóle nie występuje
     if (/\bM0?[34]\b/.test(s)) spindleOn = true;
+    if (/\bM13[34]\b/.test(s)) {
+      spindleOn = true;
+      liveOn = true;
+      if (!/\bP\d/.test(s) && !liveSpeedSet) {
+        add("warn", "M133/M134 bez obrotów pod P — narzędzie napędzane rusza z ostatnio zadaną prędkością", n);
+      }
+      if (/\bP\d/.test(s)) liveSpeedSet = true;
+    }
+    if (/\bM135\b/.test(s)) { spindleOn = false; liveOn = false; }
     if (/\bM0?5\b/.test(s)) spindleOn = false;
     if (/\bM0?8\b/.test(s)) coolantOn = true;
     if (/\bM0?9\b/.test(s)) coolantOn = false;
@@ -1649,7 +1662,7 @@ function checkProgram(p) {
     // ruch roboczy: wrzeciono musi się kręcić, posuw musi być zadany
     if (/\bG0?[1239]\b|\bG7[0-6]\b/.test(s) && !/\bG0?0\b/.test(s)) {
       lastMotion = n;
-      if (!spindleOn) add("err", "Ruch roboczy przed uruchomieniem wrzeciona (brak M03/M04)", n);
+      if (!spindleOn) add("err", "Ruch roboczy przed uruchomieniem wrzeciona (brak M03/M04 ani M133/M134)", n);
       if (!feedSet) add("err", "Ruch roboczy bez zadanego posuwu F", n);
       if (tool && !workOffset) add("warn", "Ruch roboczy po " + tool + " bez układu współrzędnych (G54…)", n);
     }
@@ -3881,12 +3894,29 @@ function showProgramCheck(id) {
        <b style="color:#fbbf24">${q.warn}</b> ${plural(q.warn, "ostrzeżenie", "ostrzeżenia", "ostrzeżeń")}
        ${p.onum ? " · " + esc(p.onum) : ""}${p.dir ? " · 📁 " + esc(p.dir) : ""}`
     : "Nic nie znaleziono — program przechodzi kontrolę.";
-  document.getElementById("chkList").innerHTML = q.list.length
-    ? q.list.map(x => `<div class="chk-row ${x.level === "err" ? "err" : ""}">
-        <span class="chk-ln">${x.line ? "linia " + x.line : "ogólne"}</span>
-        <span class="chk-msg">${esc(x.msg)}</span></div>`).join("")
+  // ta sama uwaga potrafi wypaść w setkach linii (np. całe frezowanie spiralne) —
+  // pokazujemy ją raz, z numerami pierwszych linii i licznikiem
+  const groups = new Map();
+  q.list.forEach(x => {
+    const k = x.level + "|" + x.msg;
+    if (!groups.has(k)) groups.set(k, { level: x.level, msg: x.msg, lines: [] });
+    groups.get(k).lines.push(x.line);
+  });
+  document.getElementById("chkList").innerHTML = groups.size
+    ? [...groups.values()].map(g => {
+        const named = g.lines.filter(Boolean);
+        const shown = named.slice(0, 4).join(", ");
+        const where = !named.length ? "ogólne"
+          : named.length <= 4 ? "linia " + shown
+          : "linie " + shown + " … (+" + (named.length - 4) + ")";
+        return `<div class="chk-row ${g.level === "err" ? "err" : ""}">
+          <span class="chk-ln">${esc(where)}</span>
+          <span class="chk-msg">${esc(g.msg)}${named.length > 1 ? ` <b style="color:var(--mut)">· ${named.length}×</b>` : ""}</span>
+        </div>`;
+      }).join("")
     : '<div class="mr-empty">Brak uwag.</div>';
-  chkText = q.list.map(x => (x.line ? "linia " + x.line : "ogólne") + "\t" + x.msg).join("\n");
+  chkText = [...groups.values()].map(g =>
+    (g.lines.filter(Boolean).join(",") || "ogólne") + "\t" + g.msg).join("\n");
   openModal("mCheck");
 }
 

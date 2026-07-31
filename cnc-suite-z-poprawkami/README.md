@@ -17,14 +17,21 @@ liczbie błędów. Obie listy można skopiować do schowka. Sprawdzane jest:
   `X50.`) — na Haasie taka liczba jest czytana w najmniejszym inkremencie
 - **G96 bez wcześniejszego `G50 S…`** — brak ograniczenia obrotów; oraz G96 bez S
 - **ruch roboczy** przed startem wrzeciona, bez zadanego posuwu F albo bez
-  układu współrzędnych po zmianie narzędzia
+  układu współrzędnych po zmianie narzędzia. Wrzeciono to zarówno główne
+  (`M03`/`M04`), jak i **narzędzia napędzane** (`M133`/`M134`, obroty pod `P`) —
+  w programach na oś C `M03` w ogóle nie występuje
+- `M133`/`M134` **bez obrotów pod `P`** — narzędzie rusza z ostatnio zadaną prędkością
 - narzędzie wywołane z **korektorem 00**
 - niezamknięty nawias komentarza, brak `M30`/`M99`, brak `G20`/`G21`,
   niewyłączone chłodziwo, brak odjazdu `G53`/`G28`, brak znaków `%`
 
+Ta sama uwaga powtórzona w wielu liniach (np. przez całe frezowanie spiralne)
+jest pokazywana raz — z numerami pierwszych linii i licznikiem.
+
 Celowo tylko pewne przypadki — przy kilkuset programach lista pełna wątpliwych
-ostrzeżeń jest bezużyteczna. Prawdziwy program z warsztatu (gwintowanie
-wkrętki, O01037) przechodzi bez ani jednej uwagi.
+ostrzeżeń jest bezużyteczna. Sprawdzone na prawdziwych programach z warsztatu:
+toczenie z gwintowaniem (O01037) i frezowanie z osią C oraz narzędziami
+napędzanymi (O0020, FLANGE) przechodzą bez ani jednego błędu.
 
 ### Masowa edycja danych
 
