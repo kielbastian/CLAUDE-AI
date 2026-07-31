@@ -325,14 +325,15 @@ function parseProgram(text){
    Współrzędne LOKALNE danej operacji (bez przeliczenia strony).
    ========================================================================== */
 function interpret(blocks, opt){
-  const segs = [], ops = [], holes = [], warn = new Map();
+  const segs = [], ops = [], holes = [], threads = [], warn = new Map();
   const addWarn = (k,t) => { if(!warn.has(k)) warn.set(k,t); };
 
   let motion = 0, plane = 18, abs = true, inch = false;
   let cycle = null, cycleR = null;
   let cAngle = 0, side = 0;
   let z = 0, r = 0;            // pozycja bieżąca (r = promień)
-  let op = null;
+  let op = null, thr = null;   // thr = zbierana grupa przejść gwintujących
+  let curF = null;             // ostatnie F (modalne)
 
   const u  = v => inch ? v*25.4 : v;                    // jednostki -> mm
   const xr = v => (opt.dia ? v/2 : v);                  // X -> promień
@@ -345,13 +346,35 @@ function interpret(blocks, opt){
   }
   function diaFromText(t){
     if(!t) return null;
-    let m = t.match(/(?:FI|Ø|FA?I|D)\s*([0-9]+(?:[.,][0-9]+)?)/i);
-    return m ? parseFloat(m[1].replace(',','.')) : null;
+    const m = t.match(/(?:FI|Ø|PHI|D)\s*([0-9]+(?:[.,][0-9]+)?)/i);
+    if(m) return parseFloat(m[1].replace(',','.'));
+    if(/WIERT|DRILL|ROZWIER|NAWIERT/i.test(t)){          // np. „WIERTLO 30”
+      const n = t.match(/([0-9]+(?:[.,][0-9]+)?)/);
+      if(n) return parseFloat(n[1].replace(',','.'));
+    }
+    return null;
   }
   function push(type, pts, line){
     if(!op) newOp(null,'(bez narzędzia)',line);
     segs.push({ type, pts, line, op:op.idx });
     op.s1 = segs.length;
+  }
+  /* zamknięcie grupy przejść gwintujących (G92 / G32) -> jeden gwint */
+  function closeThread(){
+    if(thr && thr.passes.length){
+      const first = thr.passes[0], last = thr.passes[thr.passes.length-1];
+      let hint = null;
+      if(thr.passes.length > 1) hint = (last > first) ? 'id' : 'od';
+      else if(RE_ID.test(thr.name) && !RE_OD.test(thr.name)) hint = 'id';
+      else if(RE_OD.test(thr.name) && !RE_ID.test(thr.name)) hint = 'od';
+      // najgłębsze przejście: wewnętrzny -> największe X, zewnętrzny -> najmniejsze
+      const rFinal = (hint === 'id') ? Math.max(...thr.passes) : Math.min(...thr.passes);
+      threads.push({ op:thr.op, line:thr.line, kind:thr.kind, zA:Math.min(thr.zA,thr.zB),
+                     zB:Math.max(thr.zA,thr.zB), rFinal, pitch:thr.pitch, height:null, hint });
+      addWarn('thr','Wykryto gwintowanie ('+thr.kind+') — gwint jest dorysowany w widoku 3D; '+
+                    'zarys jest umowny (ISO 60°), nie służy do pomiarów.');
+    }
+    thr = null;
   }
 
   for(const b of blocks){
@@ -366,12 +389,18 @@ function interpret(blocks, opt){
     for(const w of b.words){
       if(w.a === 'G') gs.push(w.v); else W[w.a] = w.v;
     }
-    let machine = false, hasG80 = false;
+    let machine = false, hasG80 = false, g76 = false, setWcs = false;
+    const motion0 = motion;
 
     for(const g of gs){
       const gi = Math.round(g);
       if(gi===0||gi===1) { motion = gi; }
       else if(gi===2||gi===3) motion = gi;
+      else if(gi===32||gi===33) motion = 32;                  // gwint jednym przejściem
+      else if(gi===92||gi===78){                              // cykl gwintowania (na tokarce)
+        if(plane === 18) motion = 92; else setWcs = true;     // w G17 G92 = ustawienie układu
+      }
+      else if(gi===76) g76 = true;                            // cykl wieloprzejściowy
       else if(gi===17||gi===18||gi===19) plane = gi;
       else if(gi===90) abs = true;
       else if(gi===91) abs = false;
@@ -380,16 +409,21 @@ function interpret(blocks, opt){
       else if(gi===53) machine = true;
       else if(gi===80){ cycle = null; hasG80 = true; }
       else if(gi>=81 && gi<=89){ cycle = gi; }
-      else if(gi===70||gi===71||gi===72||gi===73||gi===74||gi===75||gi===76){
+      else if(gi===70||gi===71||gi===72||gi===73||gi===74||gi===75){
         addWarn('cyc'+gi, 'Cykl G'+gi+' — rysowany jest tylko kontur (bez przejść zgrubnych).');
       }
       else if(gi===14||gi===15) addWarn('g14','Wykryto G14/G15 (przechwyt / drugie wrzeciono) — sprawdź stronę operacji w liście.');
       else if(gi===41||gi===42) addWarn('g4x','Aktywna korekcja promienia płytki G41/G42 — kontur rysowany po torze programu.');
-      else if(gi===33||gi===32||gi===78||gi===92) addWarn('thr','Wykryto cykl/tor gwintowania — pokazany jako zwykły ruch roboczy.');
     }
+    if(setWcs) continue;                                  // G92 na frezarce — brak ruchu
+    if(W.F !== undefined) curF = W.F;                     // F jest modalne (przy gwincie = skok)
+    // kolejne przejścia gwintu przedziela dojazd G00 — grupę zamyka dopiero
+    // ruch roboczy innego typu albo zmiana narzędzia
+    if(thr && motion !== motion0 && (motion === 1 || motion === 2 || motion === 3)) closeThread();
 
     /* --- zmiana narzędzia --------------------------------------------- */
     if(W.T !== undefined){
+      closeThread();
       const t = W.T;
       newOp(t, (b.comment || 'T'+t).replace(/^-+\s*/,''), b.i);
       op.tool = t;
@@ -433,6 +467,44 @@ function interpret(blocks, opt){
       continue;                                    // pozycji roboczej nie zmieniamy
     }
 
+    /* --- G76: cykl gwintowania w jednym bloku --------------------------- */
+    if(g76 && W.X !== undefined && W.Z !== undefined){
+      const h = (W.P !== undefined && W.P >= 10) ? u(W.P)/1000 : null;   // wysokość w µm
+      threads.push({ op:op ? op.idx : 0, line:b.i, kind:'G76',
+                     zA:Math.min(z,tz), zB:Math.max(z,tz), rFinal:tr,
+                     pitch:(W.F !== undefined ? u(W.F) : null), height:h,
+                     hint:(RE_ID.test(op ? op.name||op.label : '') ? 'id' : null) });
+      addWarn('thr','Wykryto gwintowanie (G76) — gwint jest dorysowany w widoku 3D; '+
+                    'zarys jest umowny (ISO 60°), nie służy do pomiarów.');
+      push('thread', [[z,tr],[tz,tr]], b.i);
+      continue;                                    // cykl wraca do punktu startowego
+    }
+    /* --- G92 / G78: cykl gwintowania, kolejne bloki = kolejne przejścia -- */
+    if(motion === 92){
+      // inny odcinek osi = to już inny gwint w tej samej operacji
+      if(thr && (W.Z !== undefined || W.W !== undefined) &&
+         (tz > Math.max(thr.zA,thr.zB) + 1 || tz < Math.min(thr.zA,thr.zB) - 1)) closeThread();
+      if(!thr) thr = { op:op ? op.idx : 0, line:b.i, kind:'G92', passes:[], pitch:null,
+                       zA:z, zB:z, name:(op ? (op.name||op.label||'') : '') };
+      thr.pitch = (W.F !== undefined) ? u(W.F) : (thr.pitch || (curF ? u(curF) : null));
+      if(W.Z !== undefined || W.W !== undefined) thr.zB = tz;
+      thr.passes.push(tr);
+      push('thread', [[thr.zA,tr],[thr.zB,tr]], b.i);
+      continue;                                    // narzędzie wraca do punktu startu cyklu
+    }
+    /* --- G32 / G33: gwint jednym przejściem ----------------------------- */
+    if(motion === 32){
+      if(thr && (Math.min(z,tz) > thr.zB + 1 || Math.max(z,tz) < thr.zA - 1)) closeThread();
+      if(!thr) thr = { op:op ? op.idx : 0, line:b.i, kind:'G32', passes:[], pitch:null,
+                       zA:Math.min(z,tz), zB:Math.max(z,tz), name:(op ? (op.name||op.label||'') : '') };
+      thr.pitch = (W.F !== undefined) ? u(W.F) : (thr.pitch || (curF ? u(curF) : null));
+      thr.zA = Math.min(thr.zA, z, tz); thr.zB = Math.max(thr.zB, z, tz);
+      thr.passes.push(tr);
+      push('thread', [[z,r],[tz,tr]], b.i);
+      z = tz; r = tr;
+      continue;
+    }
+
     if(motion === 0){
       push('rapid', [[z,r],[tz,tr]], b.i);
     } else if(motion === 1){
@@ -453,10 +525,25 @@ function interpret(blocks, opt){
     z = tz; r = tr;
   }
 
+  closeThread();
+
   /* strony operacji + etykiety */
   for(const o of ops) o.name = (o.label||'').replace(/\s+/g,' ').trim() || ('T'+o.tool);
+  for(const t of threads){
+    if(!t.pitch) addWarn('thrF','Nie udało się odczytać skoku gwintu (adres F) — przyjęto 1 mm.');
+  }
 
-  return { segs, ops, holes, warn:[...warn.values()] };
+  return { segs, ops, holes, threads, warn:[...warn.values()] };
+}
+
+/* --------------------------------------------------------- zarys gwintu ISO
+   u = faza w obrębie jednego skoku, 0 = wierzchołek, wynik 0..1              */
+function threadForm(u){
+  u = u - Math.floor(u);
+  if(u < 0.0625 || u >= 0.9375) return 1;              // płaski wierzchołek P/8
+  if(u < 0.375)  return (0.375 - u)/0.3125;            // bok zbiegający
+  if(u < 0.625)  return 0;                             // płaskie dno P/4
+  return (u - 0.625)/0.3125;                           // bok wznoszący
 }
 
 /* --------------------------------------------------- łuki (płaszczyzna Z-r)
@@ -623,8 +710,8 @@ function simulate(model, opt){
     for(let si=op.s0; si<op.s1; si++){
       const s = model.segs[si];
       if(s.type === 'home') continue;
-      // wiercenie obsługiwane osobno (lista otworów) — nie zgaduj tu materiału
-      if(s.type === 'rapid' || s.type === 'drill'){ flush(); continue; }
+      // wiercenie i gwintowanie mają własną obsługę — nie zgaduj tu materiału
+      if(s.type === 'rapid' || s.type === 'drill' || s.type === 'thread'){ flush(); continue; }
       const pts = s.pts.map(f);
       if(!pass) pass = { lines:[], minR:1e9, maxR:-1e9, zMin:1e9, zMax:-1e9,
                          startR:Math.max(0,pts[0][1]), holeFrac:0 };
@@ -640,8 +727,55 @@ function simulate(model, opt){
     flush();
   }
 
+  /* --- gwinty: nacięcie materiału do średnicy dna + zakresy do rysowania -- */
+  const threads = [];
+  for(const t of (model.threads || [])){
+    const op = model.ops[t.op] || { on:true, side:0, kind:'auto' };
+    if(!op.on) continue;
+    const f = sideXf(op, L, combine);
+    let zA = f([t.zA,0])[0], zB = f([t.zB,0])[0];
+    if(zA > zB){ const q = zA; zA = zB; zB = q; }
+    zA = clamp(zA, -L, 0); zB = clamp(zB, -L, 0);
+    const iA = clamp(Math.round(idx(zA)), 0, nz-1), iB = clamp(Math.round(idx(zB)), 0, nz-1);
+    if(iB - iA < 2) continue;
+
+    // wewnętrzny czy zewnętrzny
+    let internal;
+    if(op.kind === 'id') internal = true;
+    else if(op.kind === 'od') internal = false;
+    else if(t.hint) internal = (t.hint === 'id');
+    else {                                            // po geometrii w połowie gwintu
+      const im = (iA+iB)>>1;
+      internal = (t.rFinal - inner[im]) < (outer[im] - t.rFinal);
+    }
+    const P = t.pitch || 1;
+    const h = t.height || (internal ? 0.5413*P : 0.6134*P);   // wysokość zarysu ISO
+    const rMajor = internal ? t.rFinal : t.rFinal + h;
+    const rMinor = internal ? t.rFinal - h : t.rFinal;
+
+    // gwint istnieje tylko tam, gdzie faktycznie jest co naciąć
+    const spans = [];
+    let cur = null;
+    for(let i=iA;i<=iB;i++){
+      const eff = internal ? (inner[i] < rMajor - 0.02 && outer[i] > rMajor + 0.02)
+                           : (outer[i] > rMinor + 0.02 && inner[i] < rMinor - 0.02);
+      if(eff){ if(cur) cur[1] = i; else cur = [i,i]; }
+      else if(cur){ spans.push(cur); cur = null; }
+    }
+    if(cur) spans.push(cur);
+    for(const s of spans){
+      if(s[1] - s[0] < 2) continue;
+      for(let i=s[0]; i<=s[1]; i++){
+        if(internal) setID(i, rMajor); else setOD(i, rMinor);
+      }
+    }
+    const zSpans = spans.filter(s => s[1]-s[0] >= 2).map(s => [zAtI(s[0]), zAtI(s[1])]);
+    if(zSpans.length) threads.push({ internal, pitch:P, rMajor, rMinor, spans:zSpans,
+                                     zRef:zA, flip:(op.side === 1 && combine), op:t.op, kind:t.kind });
+  }
+
   for(let i=0;i<nz;i++){ if(inner[i] > outer[i]) inner[i] = outer[i]; }
-  return { nz, dz, L, R0, outer, inner, zAt:i => -L + i*dz, kinds };
+  return { nz, dz, L, R0, outer, inner, zAt:i => -L + i*dz, kinds, threads };
 }
 
 /* --------------------------------------------- profil (do 2D i do siatki) */
@@ -700,11 +834,14 @@ const S = {
 function loadText(text, name){
   S.text = text; S.fname = name || 'program.nc';
   S.blocks = parseProgram(text);
+  $('#opsList').innerHTML = '';                 // lista z poprzedniego programu
+  S.camInit = false;
   rebuild(true);
   $('#empty').style.display = 'none';
   $('#fname').innerHTML = 'plik: <b>' + esc(S.fname) + '</b>';
   buildCode();
   buildOps();
+  updateOpsBadges();
   S.step = -1;
   $('#scrub').disabled = false; $('#btnPlay').disabled = false;
   $('#btnPrev').disabled = false; $('#btnNext').disabled = false;
@@ -719,7 +856,8 @@ function rebuild(autoFit){
   const anySide2 = S.model.ops.some(x => x.side === 1);
   const lenA = Math.max(1, -Math.min(0, minZof(S.model, 0)));
   const lenB = Math.max(0, -Math.min(0, minZof(S.model, 1)));
-  const autoD = Math.max(1, Math.ceil(bCut.r1*2));
+  // średnicę bierzemy z toczenia wzdłużnego — planowanie często zaczyna się w powietrzu
+  const autoD = Math.max(1, Math.ceil(axialCutR(S.model)*2) || Math.ceil(bCut.r1*2));
   const autoL = Math.max(1, Math.ceil(anySide2 ? Math.max(lenA, lenB) : lenA));
   if(o.auto){
     o.stockD = autoD; o.stockL = autoL;
@@ -744,6 +882,19 @@ function rebuild(autoFit){
   draw2D();
   if(S.view === '3d') draw3D();
   updateOpsBadges();
+}
+/* największy promień osiągnięty ruchem roboczym wzdłuż osi Z (bez planowania) */
+function axialCutR(model){
+  let r = 0;
+  for(const s of model.segs){
+    if(s.type !== 'feed' && s.type !== 'thread') continue;
+    if(!model.ops[s.op].on) continue;
+    for(let i=0;i<s.pts.length-1;i++){
+      if(Math.abs(s.pts[i+1][0] - s.pts[i][0]) < 0.05) continue;
+      r = Math.max(r, s.pts[i][1], s.pts[i+1][1]);
+    }
+  }
+  return r;
 }
 function minZof(model, side){
   let m = 0;
@@ -832,6 +983,27 @@ function draw2D(){
     }
   }
 
+  /* zarys gwintu w przekroju */
+  if(S.opt.showProfile && S.sim && S.sim.threads){
+    ctx.lineWidth = 1.2*dpr; ctx.strokeStyle = 'rgba(224,165,72,.9)';
+    for(const t of S.sim.threads){
+      const rC = t.internal ? t.rMinor : t.rMajor, rR = t.internal ? t.rMajor : t.rMinor;
+      const dir = t.flip ? -1 : 1;
+      for(const sp of t.spans){
+        const st = t.pitch/16;
+        for(const sgn of (mir ? [1,-1] : [1])){
+          ctx.beginPath();
+          for(let z=sp[0]; z<=sp[1]+1e-9; z+=st){
+            const rr = rR + (rC-rR)*threadForm((z - t.zRef)/t.pitch*dir);
+            const zz = Math.min(z, sp[1]);
+            if(z === sp[0]) ctx.moveTo(X(zz), Y(sgn*rr)); else ctx.lineTo(X(zz), Y(sgn*rr));
+          }
+          ctx.stroke();
+        }
+      }
+    }
+  }
+
   /* oś obrotu */
   ctx.setLineDash([14*dpr,5*dpr,3*dpr,5*dpr]); ctx.strokeStyle = 'rgba(224,165,72,.55)';
   ctx.lineWidth = 1*dpr; ctx.beginPath(); ctx.moveTo(0,Y(0)); ctx.lineTo(W,Y(0)); ctx.stroke();
@@ -851,6 +1023,8 @@ function draw2D(){
       ctx.setLineDash([5*dpr,4*dpr]); ctx.strokeStyle = 'rgba(126,144,159,.55)'; ctx.lineWidth = 1*dpr;
     } else if(s.type === 'drill'){
       ctx.setLineDash([]); ctx.strokeStyle = op.color; ctx.lineWidth = 3.2*dpr;
+    } else if(s.type === 'thread'){
+      ctx.setLineDash([2.5*dpr,2.5*dpr]); ctx.strokeStyle = op.color; ctx.lineWidth = 1.2*dpr;
     } else {
       ctx.setLineDash([]); ctx.strokeStyle = op.color; ctx.lineWidth = 1.9*dpr;
     }
@@ -950,6 +1124,124 @@ function buildMesh(){
     if(poly.length > 2) revolve(poly);
   }
 
+  /* --- powierzchnia przekroju (płaszczyzna y=0) — żeby przekrój był pełny */
+  const CP = [], CN = [];
+  const capQuad = (z0,ri0,ro0,z1,ri1,ro1) => {
+    for(const s of [1,-1]){
+      CP.push(s*ri0,0,z0, s*ro0,0,z0, s*ro1,0,z1,
+              s*ri0,0,z0, s*ro1,0,z1, s*ri1,0,z1);
+      for(let k=0;k<6;k++) CN.push(0,1,0);
+    }
+  };
+  const sampleAt = (poly,z) => {
+    if(z <= poly[0][0]) return poly[0][1];
+    for(let i=1;i<poly.length;i++){
+      if(z <= poly[i][0]){
+        const a = poly[i-1], b = poly[i];
+        const t = (b[0]-a[0]) < 1e-9 ? 0 : (z-a[0])/(b[0]-a[0]);
+        return a[1] + (b[1]-a[1])*t;
+      }
+    }
+    return poly[poly.length-1][1];
+  };
+  for(const run of (S.polys||[])){
+    const zs = [...new Set(run.outer.map(p=>p[0]).concat(run.inner.map(p=>p[0])))].sort((a,b)=>a-b);
+    for(let i=0;i<zs.length-1;i++){
+      const z0 = zs[i], z1 = zs[i+1];
+      capQuad(z0, sampleAt(run.inner,z0), sampleAt(run.outer,z0),
+              z1, sampleAt(run.inner,z1), sampleAt(run.outer,z1));
+    }
+  }
+
+  /* --- gwinty: powierzchnia śrubowa o zarysie ISO ----------------------
+     Bufory liczone są z góry — przy długim gwincie to setki tysięcy
+     wierzchołków i rozrastanie zwykłej tablicy byłoby wolne.            */
+  const TAU = Math.PI*2;
+  const simThreads = (S.sim && S.sim.threads) ? S.sim.threads : [];
+  const nA = 64;
+  const planned = [];
+  let triCount = 0;
+  for(const t of simThreads){
+    for(const sp of t.spans){
+      let nZ = clamp(Math.ceil((sp[1]-sp[0])/(t.pitch/12)), 4, 900);
+      if(nZ*nA > 40000) nZ = Math.max(4, Math.floor(40000/nA));   // limit gęstości siatki
+      planned.push({ t, sp, nZ });
+      triCount += nZ*nA*2 + nA*2*2;                               // pobocznica + oba końce
+    }
+  }
+  const TPa = new Float32Array(triCount*9), TNa = new Float32Array(triCount*9);
+  let tw = 0;
+  const putTri = (ax,ay,az,bx,by,bz,cx,cy,cz, nx,ny,nz) => {
+    TPa[tw]=ax; TPa[tw+1]=ay; TPa[tw+2]=az; TNa[tw]=nx; TNa[tw+1]=ny; TNa[tw+2]=nz;
+    TPa[tw+3]=bx; TPa[tw+4]=by; TPa[tw+5]=bz; TNa[tw+3]=nx; TNa[tw+4]=ny; TNa[tw+5]=nz;
+    TPa[tw+6]=cx; TPa[tw+7]=cy; TPa[tw+8]=cz; TNa[tw+6]=nx; TNa[tw+7]=ny; TNa[tw+8]=nz;
+    tw += 9;
+  };
+  for(const t of simThreads){
+    const rCrest = t.internal ? t.rMinor : t.rMajor;   // wierzchołek zwoju
+    const rRoot  = t.internal ? t.rMajor : t.rMinor;   // dno wrębu = powierzchnia bryły
+    const dir = t.flip ? -1 : 1;
+    const rAt = (z,a) => rRoot + (rCrest-rRoot)*threadForm((z - t.zRef)/t.pitch*dir - a/TAU);
+
+    const ca = new Float64Array(nA+1), sa = new Float64Array(nA+1);
+    for(let k=0;k<=nA;k++){ const a = k/nA*TAU; ca[k] = Math.cos(a); sa[k] = Math.sin(a); }
+
+    for(const pl of planned){
+      if(pl.t !== t) continue;
+      const sp = pl.sp, nZ = pl.nZ;
+      const zA = sp[0], zB = sp[1];
+      const dzz = (zB-zA)/nZ;
+      // tablica promieni: [krok wzdłuż Z][krok kątowy]
+      const R = new Float64Array((nZ+1)*(nA+1));
+      for(let i=0;i<=nZ;i++){
+        const z = zA + i*dzz, base = (z - t.zRef)/t.pitch*dir;
+        for(let k=0;k<=nA;k++) R[i*(nA+1)+k] = rRoot + (rCrest-rRoot)*threadForm(base - k/nA);
+      }
+      const sgnN = t.internal ? -1 : 1;
+      const quad = (ax,ay,az, bx,by,bz, cx,cy,cz, dx,dy,dz2) => {
+        // normalna ściany z iloczynu wektorowego, skierowana zgodnie z rodzajem gwintu
+        let nx = (by-ay)*(cz-az) - (bz-az)*(cy-ay);
+        let ny = (bz-az)*(cx-ax) - (bx-ax)*(cz-az);
+        let nz = (bx-ax)*(cy-ay) - (by-ay)*(cx-ax);
+        const l = Math.sqrt(nx*nx+ny*ny+nz*nz) || 1; nx/=l; ny/=l; nz/=l;
+        const mx = (ax+bx+cx)/3, my = (ay+by+cy)/3;
+        if((nx*mx + ny*my)*sgnN < 0){ nx=-nx; ny=-ny; nz=-nz; }
+        putTri(ax,ay,az, bx,by,bz, cx,cy,cz, nx,ny,nz);
+        putTri(ax,ay,az, cx,cy,cz, dx,dy,dz2, nx,ny,nz);
+      };
+      for(let i=0;i<nZ;i++){
+        const z0 = zA+i*dzz, z1 = z0+dzz, o0 = i*(nA+1), o1 = (i+1)*(nA+1);
+        for(let k=0;k<nA;k++){
+          const r00 = R[o0+k], r10 = R[o1+k], r11 = R[o1+k+1], r01 = R[o0+k+1];
+          quad(r00*ca[k],   r00*sa[k],   z0,
+               r10*ca[k],   r10*sa[k],   z1,
+               r11*ca[k+1], r11*sa[k+1], z1,
+               r01*ca[k+1], r01*sa[k+1], z0);
+        }
+      }
+      // zamknięcie zwoju na końcach gwintu (żeby nie było widać pustej skorupy)
+      for(const end of [0,1]){
+        const zz = end ? zB : zA, o = (end ? nZ : 0)*(nA+1), sgn = end ? 1 : -1;
+        for(let k=0;k<nA;k++){
+          const r0 = R[o+k], r1 = R[o+k+1];
+          putTri(rRoot*ca[k],rRoot*sa[k],zz, r0*ca[k],r0*sa[k],zz, r1*ca[k+1],r1*sa[k+1],zz, 0,0,sgn);
+          putTri(rRoot*ca[k],rRoot*sa[k],zz, r1*ca[k+1],r1*sa[k+1],zz, rRoot*ca[k+1],rRoot*sa[k+1],zz, 0,0,sgn);
+        }
+      }
+      // przekrój zwoju w płaszczyźnie y=0
+      for(let i=0;i<nZ;i++){
+        const z0 = zA+i*dzz, z1 = zA+(i+1)*dzz;
+        for(const a of [0, Math.PI]){
+          const s = (a === 0) ? 1 : -1;
+          const r0 = rAt(z0,a), r1 = rAt(z1,a);
+          CP.push(s*rRoot,0,z0, s*r0,0,z0, s*r1,0,z1,
+                  s*rRoot,0,z0, s*r1,0,z1, s*rRoot,0,z1);
+          for(let k=0;k<6;k++) CN.push(0,1,0);
+        }
+      }
+    }
+  }
+
   /* otwory na okręgu — walce wpuszczone w materiał */
   const HP = [], HN = [];
   for(const h of (S.model ? S.model.holes : [])){
@@ -993,6 +1285,8 @@ function buildMesh(){
   return {
     part:{ pos:new Float32Array(P), nrm:new Float32Array(N), n:P.length/3 },
     hole:{ pos:new Float32Array(HP), nrm:new Float32Array(HN), n:HP.length/3 },
+    thr :{ pos:TPa, nrm:TNa, n:tw/3 },
+    cap :{ pos:new Float32Array(CP), nrm:new Float32Array(CN), n:CP.length/3 },
     feed:new Float32Array(LF), rap:new Float32Array(LR)
   };
 }
@@ -1041,11 +1335,12 @@ void main(){
   vec3 N = normalize(vN);
   float back = dot(N,V) < 0.0 ? 1.0 : 0.0;
   if(back > 0.5) N = -N;
-  vec3 Lg = normalize(V + vec3(0.35, 0.55, 0.2));
-  float dif = max(dot(N,Lg), 0.0);
+  vec3 Lg = normalize(V + vec3(0.35, 0.55, 0.2));       // światło przy kamerze
+  vec3 Lf = normalize(vec3(-0.55, -0.35, 0.75));        // wypełniające, żeby brzegi nie czerniły
+  float dif = max(dot(N,Lg), 0.0)*0.62 + max(dot(N,Lf), 0.0)*0.30;
   float spc = pow(max(dot(reflect(-Lg,N),V), 0.0), 26.0);
-  vec3 c = uColor*(0.20 + 0.80*dif) + vec3(1.0)*spc*0.22*(1.0-back);
-  if(back > 0.5) c = mix(c, vec3(0.88,0.66,0.30), 0.55)*0.92;
+  vec3 c = uColor*(0.26 + dif) + vec3(1.0)*spc*0.22*(1.0-back);
+  if(back > 0.5) c *= 0.55;                 // wnętrze bryły — ciemniej, bez podbarwienia
   gl_FragColor = vec4(c, 1.0);
 }`;
 function initGL(){
@@ -1066,7 +1361,7 @@ function initGL(){
   gl.enableVertexAttribArray(0); gl.enableVertexAttribArray(1);
   gl.enable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE);
   gl.clearColor(0.043,0.059,0.075,1);
-  ['part','hole','feed','rap'].forEach(k => { G.buf[k] = { pos:gl.createBuffer(), nrm:gl.createBuffer(), n:0 }; });
+  ['part','hole','thr','cap','feed','rap'].forEach(k => { G.buf[k] = { pos:gl.createBuffer(), nrm:gl.createBuffer(), n:0 }; });
   return G;
 }
 function upload(G, key, pos, nrm, n){
@@ -1083,6 +1378,8 @@ function draw3D(){
     S.mesh = buildMesh();
     upload(G,'part', S.mesh.part.pos, S.mesh.part.nrm, S.mesh.part.n);
     upload(G,'hole', S.mesh.hole.pos, S.mesh.hole.nrm, S.mesh.hole.n);
+    upload(G,'thr',  S.mesh.thr.pos,  S.mesh.thr.nrm,  S.mesh.thr.n);
+    upload(G,'cap',  S.mesh.cap.pos,  S.mesh.cap.nrm,  S.mesh.cap.n);
     upload(G,'feed', S.mesh.feed, S.mesh.feed, S.mesh.feed.length/3);
     upload(G,'rap',  S.mesh.rap,  S.mesh.rap,  S.mesh.rap.length/3);
     const L = S.opt.stockL;
@@ -1114,8 +1411,13 @@ function draw3D(){
   gl.uniform1f(G.u.mode, 0);
   gl.uniform3f(G.u.col, 0.62,0.68,0.74);
   let n = bind('part'); if(n) gl.drawArrays(gl.TRIANGLES, 0, n);
+  n = bind('thr');  if(n) gl.drawArrays(gl.TRIANGLES, 0, n);
   gl.uniform3f(G.u.col, 0.10,0.13,0.16);
   n = bind('hole'); if(n) gl.drawArrays(gl.TRIANGLES, 0, n);
+  if(S.sec){                                   // pełna powierzchnia cięcia
+    gl.uniform3f(G.u.col, 0.86,0.64,0.29);
+    n = bind('cap'); if(n) gl.drawArrays(gl.TRIANGLES, 0, n);
+  }
 
   if(S.showPath3){
     gl.uniform1f(G.u.mode, 1);
@@ -1210,6 +1512,7 @@ function updateOpsBadges(){
   if(!S.sim) return;
   document.querySelectorAll('#opsList .op').forEach(el => {
     const o = S.model.ops[+el.dataset.o];
+    if(!o) return;
     const k = S.sim.kinds[o.idx];
     const sel = el.querySelector('[data-k=kind]');
     if(sel && sel.options[0]) sel.options[0].textContent = k ? ('auto → ' + (k==='id'?'wewn.':'zewn.')) : 'auto';
@@ -1221,7 +1524,7 @@ function recompute(){
   S.sim = simulate(S.model, { stockD:o.stockD, stockL:o.stockL, combine:o.combine });
   S.polys = profilePolys(S.sim);
   S.mesh = null;
-  buildStats(); updateOpsBadges();
+  buildStats(); buildWarns(); updateOpsBadges();
   draw2D();
   if(S.view === '3d') draw3D();
 }
@@ -1255,7 +1558,13 @@ function buildStats(){
   $('#stats').innerHTML = st.map(s => '<div class="stat"><div class="k">'+s[0]+'</div><div class="v">'+s[1]+'</div></div>').join('');
 }
 function buildWarns(){
-  const w = S.model.warn.slice();
+  const w = [];
+  for(const t of (S.sim && S.sim.threads ? S.sim.threads : [])){
+    w.push('Gwint ' + (t.internal ? 'wewnętrzny' : 'zewnętrzny') + ': Ø' + fmt(t.rMajor*2,2) +
+           ' × skok ' + fmt(t.pitch,2) + ' mm, Z ' +
+           t.spans.map(s => fmt(s[0],1)+'…'+fmt(s[1],1)).join(', ') + ' — narysowany w 3D.');
+  }
+  w.push(...S.model.warn);
   if(S.model.ops.some(o => o.side === 1)) w.push('Wykryto drugą stronę / drugie mocowanie — model 3D składa obie strony na jednym detalu. Jeśli coś nie pasuje, zmień „mocowanie” przy operacji albo długość materiału.');
   const html = w.length ? w.map(t => '<div>'+esc(t)+'</div>').join('')
                         : '<div class="ok">Program przeanalizowany bez zastrzeżeń.</div>';
