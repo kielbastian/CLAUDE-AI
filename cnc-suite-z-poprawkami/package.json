@@ -1,0 +1,53 @@
+{
+  "name": "cnc-suite-z-poprawkami",
+  "productName": "CNC Suite z poprawkami",
+  "version": "1.1.0",
+  "description": "CNC Suite z poprawkami — kontroler programu, masowa edycja metadanych, dane skrawania, karta ustawień",
+  "author": "kielbastian",
+  "license": "MIT",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable --publish never",
+    "dist:installer": "electron-builder --win nsis --publish never"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "pl.cncsuite.poprawki",
+    "productName": "CNC Suite z poprawkami",
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "manager.html",
+      "generator.html",
+      "kalkulator.html",
+      "detail.html",
+      "widget.html",
+      "shell/**",
+      "vendor/**",
+      "build/icon.png",
+      "build/icon-cam.png"
+    ],
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "portable": {
+      "artifactName": "CNC-Suite-z-poprawkami.exe"
+    },
+    "nsis": {
+      "artifactName": "CNC-Suite-z-poprawkami-Setup.exe",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "CNC Suite z poprawkami"
+    }
+  }
+}

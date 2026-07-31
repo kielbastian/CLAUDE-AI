@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CNC Suite z poprawkami — Menedżer • Generator NC • Kalkulator</title>
+<link rel="stylesheet" href="vendor/fonts.css">
+<style>
+  :root{
+    --ac1:#22d3ee; --ac1-rgb:34,211,238;
+    --ac2:#6366f1; --ac2-rgb:99,102,241;
+    --ac3:#a855f7; --ac3-rgb:168,85,247;
+    --bg:#06080f;
+    --bar:rgba(8,11,22,.92);
+    --stroke:rgba(255,255,255,.13);
+    --txt:#e9edf7;
+    --mut:#93a0bb;
+    --grad:linear-gradient(135deg,var(--ac1),var(--ac2) 55%,var(--ac3));
+    --bar-h:46px;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;overflow:hidden}
+  body{
+    background:var(--bg);color:var(--txt);
+    font-family:'Rajdhani','Segoe UI',system-ui,sans-serif;
+  }
+
+  /* ── pasek okna z kartami ───────────────────────────────────────────── */
+  .bar{
+    position:fixed;top:0;left:0;right:0;height:var(--bar-h);z-index:100;
+    display:flex;align-items:stretch;
+    background:var(--bar);
+    backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+    border-bottom:1px solid var(--stroke);
+    -webkit-app-region:drag;user-select:none;
+  }
+  .brand{
+    display:flex;align-items:center;gap:10px;
+    padding:0 16px 0 14px;flex:none;
+  }
+  .brand .mark{
+    width:26px;height:26px;border-radius:8px;flex:none;
+    background:var(--grad);display:grid;place-items:center;
+    font-family:'Orbitron',sans-serif;font-weight:800;font-size:12px;color:#fff;
+    box-shadow:0 3px 14px rgba(var(--ac2-rgb),.5);
+  }
+  .brand .name{
+    font-family:'Orbitron',sans-serif;font-weight:700;
+    font-size:.72rem;letter-spacing:.16em;color:var(--mut);white-space:nowrap;
+  }
+
+  .tabs{display:flex;align-items:stretch;gap:2px;flex:1;min-width:0;-webkit-app-region:no-drag}
+  .tab{
+    position:relative;flex:0 1 auto;min-width:0;
+    display:flex;align-items:center;gap:9px;
+    padding:0 18px;border:none;background:transparent;cursor:pointer;
+    color:var(--mut);font-family:inherit;font-size:.95rem;font-weight:600;
+    letter-spacing:.02em;white-space:nowrap;
+    transition:color .15s,background .15s;
+  }
+  .tab .ico{width:17px;height:17px;flex:none;opacity:.85}
+  .tab .ico svg{width:100%;height:100%;display:block}
+  .tab .lbl{overflow:hidden;text-overflow:ellipsis}
+  .tab .key{
+    font-size:.68rem;font-weight:700;color:var(--mut);opacity:.5;
+    border:1px solid var(--stroke);border-radius:5px;padding:1px 5px;flex:none;
+  }
+  .tab:hover{background:rgba(255,255,255,.05);color:var(--txt)}
+  .tab.on{color:var(--txt);background:rgba(255,255,255,.07)}
+  .tab.on .ico{opacity:1}
+  .tab.on::after{
+    content:"";position:absolute;left:10px;right:10px;bottom:0;height:2px;
+    border-radius:2px 2px 0 0;background:var(--grad);
+    box-shadow:0 0 10px rgba(var(--ac1-rgb),.6);
+  }
+  .tab:focus-visible{outline:2px solid rgba(var(--ac1-rgb),.6);outline-offset:-3px}
+
+  .wc{display:flex;flex:none;-webkit-app-region:no-drag}
+  .wc button{
+    width:46px;border:none;background:transparent;color:var(--mut);
+    cursor:pointer;display:grid;place-items:center;font-size:.9rem;
+    transition:background .15s,color .15s;
+  }
+  .wc button:hover{background:rgba(255,255,255,.09);color:var(--txt)}
+  .wc button.close:hover{background:#ef4444;color:#fff}
+
+  /* ── obszar kart ────────────────────────────────────────────────────── */
+  .stack{position:fixed;top:var(--bar-h);left:0;right:0;bottom:0;background:var(--bg)}
+  .stack iframe{
+    position:absolute;inset:0;width:100%;height:100%;
+    border:0;display:block;visibility:hidden;
+  }
+  .stack iframe.on{visibility:visible}
+
+  /* ── potwierdzenie zamknięcia (zapas, gdy karta menedżera nie odpowiada) ─ */
+  .ask{
+    position:fixed;inset:0;z-index:900;display:none;
+    place-items:center;background:rgba(4,6,12,.72);backdrop-filter:blur(6px);
+  }
+  .ask.on{display:grid}
+  .ask .box{
+    width:min(400px,90vw);padding:26px 26px 20px;
+    border-radius:16px;border:1px solid var(--stroke);
+    background:#0d1120;box-shadow:0 24px 70px rgba(0,0,0,.6);
+  }
+  .ask h2{margin:0 0 8px;font-family:'Orbitron',sans-serif;font-size:1rem;letter-spacing:.06em}
+  .ask p{margin:0 0 20px;color:var(--mut);font-size:.95rem;line-height:1.5}
+  .ask .row{display:flex;gap:10px;justify-content:flex-end}
+  .ask button{
+    padding:9px 18px;border-radius:10px;border:1px solid var(--stroke);
+    background:rgba(255,255,255,.05);color:var(--txt);
+    font-family:inherit;font-size:.92rem;font-weight:600;cursor:pointer;
+  }
+  .ask button:hover{background:rgba(255,255,255,.1)}
+  .ask button.danger{background:#ef4444;border-color:#ef4444;color:#fff}
+  .ask button.danger:hover{background:#dc2626}
+
+  /* jasny motyw — zgodnie z ustawieniem menedżera */
+  body.light{--bg:#eef1f7;--bar:rgba(255,255,255,.92);--stroke:rgba(15,23,42,.14);--txt:#0f172a;--mut:#5a6580}
+  body.light .tab:hover{background:rgba(15,23,42,.06)}
+  body.light .tab.on{background:rgba(15,23,42,.07)}
+  body.light .wc button:hover{background:rgba(15,23,42,.09)}
+  body.light .ask .box{background:#fff}
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <div class="brand">
+    <div class="mark">C</div>
+    <div class="name">CNC SUITE · Z POPRAWKAMI</div>
+  </div>
+
+  <div class="tabs" id="tabs">
+    <button class="tab on" data-tab="manager" type="button">
+      <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>
+      <span class="lbl">Menedżer programów</span>
+      <span class="key">Ctrl+1</span>
+    </button>
+    <button class="tab" data-tab="generator" type="button">
+      <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 18V6"/><path d="M4 15h5l3-6 3 9 2-4h3"/></svg></span>
+      <span class="lbl">Generator NC</span>
+      <span class="key">Ctrl+2</span>
+    </button>
+    <button class="tab" data-tab="kalkulator" type="button">
+      <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8"/><path d="M8.5 12h.01M12 12h.01M15.5 12h.01M8.5 16h.01M12 16h.01M15.5 16h.01"/></svg></span>
+      <span class="lbl">Kalkulator CNC</span>
+      <span class="key">Ctrl+3</span>
+    </button>
+  </div>
+
+  <div class="wc">
+    <button id="win_min" type="button" title="Minimalizuj">—</button>
+    <button id="win_max" type="button" title="Maksymalizuj">▢</button>
+    <button id="win_close" class="close" type="button" title="Zamknij">✕</button>
+  </div>
+</div>
+
+<div class="stack" id="stack">
+  <iframe class="on" data-tab="manager"    src="manager.html"    title="Menedżer programów CNC"></iframe>
+  <iframe            data-tab="generator"  src="generator.html"  title="Generator G-code / NC"></iframe>
+  <iframe            data-tab="kalkulator" src="kalkulator.html" title="Kalkulator CNC"></iframe>
+</div>
+
+<div class="ask" id="ask">
+  <div class="box">
+    <h2>ZAMKNĄĆ CNC SUITE Z POPRAWKAMI?</h2>
+    <p>Niezapisane zmiany w otwartych kartach zostaną utracone.</p>
+    <div class="row">
+      <button type="button" id="ask_no">Anuluj</button>
+      <button type="button" id="ask_yes" class="danger">Zamknij</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var ORDER = ["manager", "generator", "kalkulator"];
+  var LAST_TAB = "cncSuiteTab";
+
+  var tabs   = [].slice.call(document.querySelectorAll(".tab"));
+  var frames = [].slice.call(document.querySelectorAll("#stack iframe"));
+  var active = "manager";
+
+  function show(name) {
+    if (ORDER.indexOf(name) < 0 || name === active) return;
+    active = name;
+    tabs.forEach(function (t) { t.classList.toggle("on", t.dataset.tab === name); });
+    frames.forEach(function (f) { f.classList.toggle("on", f.dataset.tab === name); });
+    try { localStorage.setItem(LAST_TAB, name); } catch (e) {}
+    var f = frames.filter(function (x) { return x.dataset.tab === name; })[0];
+    if (f && f.contentWindow) { try { f.contentWindow.focus(); } catch (e) {} }
+  }
+  function step(delta) {
+    var i = ORDER.indexOf(active);
+    show(ORDER[(i + delta + ORDER.length) % ORDER.length]);
+  }
+
+  tabs.forEach(function (t) {
+    t.addEventListener("click", function () { show(t.dataset.tab); });
+  });
+
+  /* ostatnio używana karta */
+  try {
+    var saved = localStorage.getItem(LAST_TAB);
+    if (saved) show(saved);
+  } catch (e) {}
+
+  /* skróty klawiszowe — także przekazane z wnętrza kart (shell/embed.js) */
+  function hotkey(key, shift) {
+    if (key === "1") show("manager");
+    else if (key === "2") show("generator");
+    else if (key === "3") show("kalkulator");
+    else if (key === "Tab") step(shift ? -1 : 1);
+    else return false;
+    return true;
+  }
+  window.addEventListener("keydown", function (e) {
+    if (!e.ctrlKey || e.altKey || e.metaKey) return;
+    if (hotkey(e.key, e.shiftKey)) e.preventDefault();
+  });
+  window.addEventListener("message", function (e) {
+    var d = e.data;
+    if (!d || d.cncSuite !== "switch-tab") return;
+    if (d.tab === "next") step(1);
+    else if (d.tab === "prev") step(-1);
+    else show(d.tab);
+  });
+
+  /* przełączenie karty na żądanie procesu głównego (np. widget wyszukiwania) */
+  if (window.suite && window.suite.onActivateTab) window.suite.onActivateTab(show);
+
+  /* ── sterowanie oknem ─────────────────────────────────────────────── */
+  var api = window.native || window.cam || null;
+  document.getElementById("win_min").onclick   = function () { if (api) api.minimize(); };
+  document.getElementById("win_max").onclick   = function () { if (api) api.toggleMaximize(); };
+  document.getElementById("win_close").onclick = function () { if (api) api.close(); };
+
+  /* Zapasowe potwierdzenie zamknięcia — używane tylko wtedy, gdy karta
+     menedżera (z własnym, stylizowanym oknem) jeszcze się nie zgłosiła. */
+  var ask = document.getElementById("ask");
+  if (window.native && window.native.onAskClose) {
+    window.native.onAskClose(function () { ask.classList.add("on"); });
+  }
+  document.getElementById("ask_no").onclick  = function () { ask.classList.remove("on"); };
+  document.getElementById("ask_yes").onclick = function () {
+    ask.classList.remove("on");
+    if (window.native) window.native.confirmClose();
+  };
+
+  /* motyw powłoki podąża za ustawieniem menedżera, jeśli jest dostępne */
+  function syncTheme() {
+    try {
+      document.body.classList.toggle("light", localStorage.getItem("cncTheme") === "light");
+    } catch (e) {}
+  }
+  syncTheme();
+  setInterval(syncTheme, 1000);
+})();
+</script>
+</body>
+</html>

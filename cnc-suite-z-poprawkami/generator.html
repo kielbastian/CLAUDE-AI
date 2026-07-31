@@ -1,0 +1,3248 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generator G-code Haas ST-35Y | CAM Studio</title>
+    <link rel="stylesheet" href="vendor/fonts.css">
+<!-- CNC Suite: jedyna zmiana wobec oryginału — integracja z powłoką kart -->
+<script src="shell/embed.js"></script>
+    <style>
+        :root {
+            /* akcent (zmieniany w ustawieniach) */
+            --ac1: #22d3ee; --ac1-rgb: 34,211,238;
+            --ac2: #6366f1; --ac2-rgb: 99,102,241;
+            --ac3: #a855f7; --ac3-rgb: 168,85,247;
+
+            --bg: #0c1020;
+            --bg-2: #141a2e;
+            --surface: rgba(255, 255, 255, 0.05);
+            --surface-2: rgba(255, 255, 255, 0.08);
+            --surface-3: rgba(255, 255, 255, 0.13);
+            --panel-glass: rgba(255, 255, 255, 0.055);
+            --panel-border: rgba(255, 255, 255, 0.11);
+            --stroke: rgba(255, 255, 255, 0.17);
+            --brand: var(--ac1);
+            --brand-2: var(--ac2);
+            --brand-grad: linear-gradient(135deg, var(--ac1), var(--ac2) 55%, var(--ac3));
+            --accent: var(--ac3);
+            --text: #e9edf7;
+            --text-muted: #9aa4bd;
+            --text-dim: #6b7690;
+            --ok: #34d399;
+            --ok-grad: linear-gradient(135deg, #16a34a 0%, #34d399 100%);
+            --warn: #fbbf24;
+            --danger: #f87171;
+            --code-bg: rgba(6, 9, 18, 0.72);
+            --code-text: #d7e0ee;
+            --radius: 16px;
+            --radius-sm: 10px;
+            --shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+            --glass-blur: 14px;
+        }
+
+        /* ── akcenty kolorystyczne ─────────────────────────────── */
+        body.accent-orange { --ac1:#fbbf24; --ac1-rgb:251,191,36; --ac2:#fb923c; --ac2-rgb:251,146,60; --ac3:#f97316; --ac3-rgb:249,115,22; }
+        body.accent-green  { --ac1:#4ade80; --ac1-rgb:74,222,128; --ac2:#22c55e; --ac2-rgb:34,197,94; --ac3:#16a34a; --ac3-rgb:22,163,74; }
+        body.accent-pink   { --ac1:#f472b6; --ac1-rgb:244,114,182; --ac2:#ec4899; --ac2-rgb:236,72,153; --ac3:#a855f7; --ac3-rgb:168,85,247; }
+        body.accent-red    { --ac1:#fb7185; --ac1-rgb:251,113,133; --ac2:#ef4444; --ac2-rgb:239,68,68; --ac3:#dc2626; --ac3-rgb:220,38,38; }
+
+        /* ── motyw jasny ───────────────────────────────────────── */
+        body.light {
+            --bg: #e6eaf3;
+            --bg-2: #f4f6fb;
+            --surface: rgba(255, 255, 255, 0.68);
+            --surface-2: rgba(255, 255, 255, 0.82);
+            --surface-3: rgba(255, 255, 255, 0.96);
+            --panel-glass: rgba(255, 255, 255, 0.62);
+            --panel-border: rgba(15, 23, 42, 0.12);
+            --stroke: rgba(15, 23, 42, 0.18);
+            --text: #111827;
+            --text-muted: #475569;
+            --text-dim: #64748b;
+            --code-bg: rgba(248, 250, 255, 0.9);
+            --code-text: #1e293b;
+            --shadow: 0 12px 30px rgba(30, 41, 59, 0.16);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        html, body {
+            height: 100%;
+            font-family: 'Rajdhani', 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
+            font-weight: 500;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            -webkit-font-smoothing: antialiased;
+            padding-top: 36px; /* miejsce na pasek okna */
+        }
+
+        /* tło z gradientowymi poświatami */
+        .bg { position: fixed; inset: 0; z-index: -1; overflow: hidden;
+              background: linear-gradient(180deg, var(--bg-2), var(--bg) 62%); }
+        .glow { position: absolute; border-radius: 50%; pointer-events: none; will-change: transform; }
+        .glow.g1 { width: 1200px; height: 850px; top: -20%; right: -12%;
+            background: radial-gradient(closest-side, rgba(var(--ac3-rgb), 0.22), transparent 70%);
+            animation: drift1 20s ease-in-out infinite alternate; }
+        .glow.g2 { width: 1050px; height: 800px; top: 4%; left: -16%;
+            background: radial-gradient(closest-side, rgba(var(--ac1-rgb), 0.17), transparent 70%);
+            animation: drift2 24s ease-in-out infinite alternate; }
+        .glow.g3 { width: 1050px; height: 1050px; bottom: -34%; left: 34%;
+            background: radial-gradient(closest-side, rgba(var(--ac2-rgb), 0.20), transparent 70%);
+            animation: drift3 17s ease-in-out infinite alternate; }
+        @keyframes drift1 { 0%{transform:translate(0,0) scale(1)} 100%{transform:translate(-120px,220px) scale(1.1)} }
+        @keyframes drift2 { 0%{transform:translate(0,0) scale(1)} 100%{transform:translate(160px,-60px) scale(1.12)} }
+        @keyframes drift3 { 0%{transform:translate(0,0) scale(1)} 100%{transform:translate(-140px,-90px) scale(1.08)} }
+        @media (prefers-reduced-motion: reduce) { .glow { animation: none; } }
+
+        /* ── pasek okna (frameless) w kolorze aplikacji ────────── */
+        .win-ctrl {
+            position: fixed; top: 0; left: 0; right: 0; height: 36px; z-index: 1000;
+            display: flex; align-items: center; gap: 1px;
+            background: linear-gradient(90deg, rgba(var(--ac2-rgb), 0.30), rgba(var(--ac3-rgb), 0.18));
+            backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+            border-bottom: 1px solid var(--stroke);
+            -webkit-app-region: drag; user-select: none;
+        }
+        .win-ctrl .wc-ico { width: 20px; height: 20px; margin-left: 10px; border-radius: 5px; }
+        .win-ctrl .wc-title {
+            flex: 1; padding-left: 10px; font-family: 'Orbitron','Rajdhani',sans-serif;
+            font-size: 12px; font-weight: 700; letter-spacing: 0.12em; color: var(--text);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .win-ctrl .wc-btns { display: flex; -webkit-app-region: no-drag; height: 100%; }
+        .win-ctrl .wc-btn {
+            width: 46px; height: 36px; display: grid; place-items: center; cursor: pointer;
+            color: var(--text-muted); background: transparent; border: none; font-size: 14px;
+            transition: background 0.15s, color 0.15s;
+        }
+        .win-ctrl .wc-btn:hover { background: rgba(255,255,255,0.12); color: var(--text); }
+        .win-ctrl .wc-btn.close:hover { background: #ef4444; color: #fff; }
+
+        /* ---------- App shell (file-manager style) ---------- */
+        .app {
+            display: block;
+            min-height: 100vh;
+        }
+
+        .content { display: flex; flex-direction: column; min-width: 0; }
+
+        .topbar {
+            display: flex; align-items: center; gap: 16px;
+            padding: 16px 26px;
+            border-bottom: 1px solid var(--panel-border);
+            background: var(--panel-glass);
+            backdrop-filter: blur(var(--glass-blur)); -webkit-backdrop-filter: blur(var(--glass-blur));
+            position: sticky; top: 36px; z-index: 30;
+        }
+        .topbar .brand-badge {
+            width: 38px; height: 38px; flex-shrink: 0;
+            border-radius: 11px;
+            background: var(--brand-grad);
+            display: grid; place-items: center;
+            font-family: 'Orbitron', sans-serif;
+            font-weight: 800; font-size: 16px; color: #fff;
+            box-shadow: 0 6px 18px rgba(var(--ac2-rgb), 0.5);
+        }
+        .topbar h1 { font-family: 'Orbitron','Rajdhani',sans-serif; font-size: 18px; font-weight: 700; letter-spacing: 0.04em; }
+        .topbar .path {
+            font-size: 12px; color: var(--text-dim); margin-top: 2px;
+            display: flex; gap: 6px; align-items: center;
+        }
+        .topbar .path b { color: var(--text-muted); font-weight: 600; }
+        .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+
+        .chip {
+            font-size: 12px; padding: 6px 12px; border-radius: 999px;
+            background: var(--surface-2); border: 1px solid var(--stroke);
+            color: var(--text-muted); display: flex; align-items: center; gap: 7px;
+        }
+        .chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+
+        .workspace {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 22px;
+            padding: 22px 26px 26px;
+            align-items: stretch;
+            min-height: calc(100vh - 116px);
+        }
+        /* obie kolumny (parametry i szkicownik) wypełniają całą wysokość strony */
+        .workspace > div { display: flex; flex-direction: column; min-width: 0; }
+        .workspace > div > .card { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+        .workspace > div > .card > .card-body { flex: 1 1 auto; min-height: 0; }
+        #card_cad:not(.maximized) .canvas-wrap { flex: 1 1 auto; height: auto; min-height: 380px; }
+        @media (max-width: 1200px) {
+            .workspace { grid-template-columns: 1fr; min-height: 0; }
+        }
+
+        /* ---------- Cards ---------- */
+        .card {
+            background: var(--panel-glass);
+            backdrop-filter: blur(var(--glass-blur)); -webkit-backdrop-filter: blur(var(--glass-blur));
+            border: 1px solid var(--panel-border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+        }
+        .card + .card { margin-top: 22px; }
+
+        .card-head {
+            display: flex; align-items: center; gap: 10px;
+            padding: 15px 18px;
+            border-bottom: 1px solid var(--panel-border);
+            background: rgba(255, 255, 255, 0.015);
+        }
+        .card-head .ico {
+            width: 30px; height: 30px; border-radius: 9px;
+            display: grid; place-items: center; font-size: 15px;
+            background: rgba(var(--ac1-rgb), 0.14); color: var(--ac1);
+            border: 1px solid rgba(var(--ac1-rgb), 0.30);
+        }
+        .card-head h2 { font-family: 'Orbitron','Rajdhani',sans-serif; font-size: 12.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+        .card-head .sub { font-size: 11px; color: var(--text-dim); font-weight: 500; }
+        .card-head .right { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+        .card-body { padding: 18px; display: flex; flex-direction: column; gap: 15px; }
+
+        /* ---------- Form ---------- */
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: end; }
+        .field { display: flex; flex-direction: column; gap: 6px; }
+        /* etykiety w siatce 2-kol. rezerwują dwie linie, więc pola są wyrównane */
+        .grid-2 > .field > label { min-height: 2.7em; line-height: 1.3; display: flex; align-items: flex-start; }
+        /* Miniatura pomocnicza (jak grafiki VPS Haas) przy każdym polu */
+        .pic {
+            display: block; width: 100%; max-width: 92px; height: 40px; margin: 1px 0 3px;
+            border: 1px solid var(--stroke); border-radius: 6px; overflow: hidden;
+            background: radial-gradient(120% 120% at 50% 0%, #0d1526 0%, #070b14 100%);
+            transition: transform .12s ease, box-shadow .12s ease;
+        }
+        .pic svg { display: block; width: 100%; height: 100%; }
+        .pic:hover {
+            transform: scale(1.9); transform-origin: left center; position: relative; z-index: 60;
+            box-shadow: 0 10px 26px rgba(0,0,0,.55); border-color: rgba(var(--ac2-rgb),.6);
+        }
+        label { font-size: 11.5px; font-weight: 600; color: var(--text-muted); letter-spacing: 0.2px; }
+        .hint { font-size: 10.5px; color: var(--text-dim); font-weight: 500; }
+        .thread-info {
+            font-size: 12px; line-height: 1.7; color: var(--text-muted);
+            background: var(--surface-2); border: 1px solid var(--stroke);
+            border-radius: var(--radius-sm); padding: 11px 13px; font-family: 'Fira Code', monospace;
+        }
+        .thread-info b { color: var(--ac1); font-weight: 700; }
+        .combine-check {
+            display: flex; align-items: center; gap: 9px; cursor: pointer;
+            font-size: 12.5px; font-weight: 600; color: var(--text-muted);
+            padding: 10px 12px; border-radius: var(--radius-sm);
+            background: var(--surface-2); border: 1px solid var(--stroke);
+        }
+        .combine-check input { width: 16px; height: 16px; accent-color: var(--ac1); cursor: pointer; }
+        .combine-check:hover { color: var(--text); }
+
+        input, select {
+            padding: 10px 12px;
+            background: var(--surface-2);
+            border: 1px solid var(--stroke);
+            border-radius: var(--radius-sm);
+            font-size: 13.5px; color: var(--text);
+            outline: none; transition: all 0.18s; width: 100%;
+        }
+        input:focus, select:focus {
+            border-color: var(--brand);
+            box-shadow: 0 0 0 3px rgba(0, 154, 213, 0.18);
+            background: var(--surface-3);
+        }
+
+        /* Usuń strzałki zwiększania/zmniejszania w polach liczbowych — tylko wpisywanie */
+        input[type=number]::-webkit-inner-spin-button,
+        input[type=number]::-webkit-outer-spin-button {
+            -webkit-appearance: none; margin: 0;
+        }
+        input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+
+        /* Własny dropdown (naroże: faza/promień) — natywny <select> w Chromium/Electron
+           renderuje rozwijaną listę jako biały widżet systemowy, którego CSS nie pomaluje;
+           ten dropdown jest w całości rysowany przez nas, więc zawsze pasuje do motywu. */
+        .corner-dd { position: relative; }
+        .dd-toggle {
+            display: flex; align-items: center; justify-content: space-between; gap: 6px;
+            padding: 10px 10px; background: var(--surface-2); border: 1px solid var(--stroke);
+            border-radius: var(--radius-sm); font-size: 13px; color: var(--text);
+            cursor: pointer; width: 100%; text-align: left;
+        }
+        .dd-toggle:hover { background: var(--surface-3); }
+        .dd-toggle.open { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(var(--ac1-rgb), 0.18); }
+        .dd-toggle .dd-caret { font-size: 10px; color: var(--text-dim); flex-shrink: 0; }
+        .dd-menu {
+            position: absolute; top: calc(100% + 4px); left: 0; min-width: 140px; z-index: 200;
+            background: var(--bg-2); border: 1px solid var(--stroke); border-radius: var(--radius-sm);
+            box-shadow: var(--shadow); overflow-y: auto; overflow-x: hidden; padding: 4px;
+            max-height: 340px;
+        }
+        #thread_dd_menu { min-width: 240px; }
+        .dd-menu[hidden] { display: none; }
+        .dd-menu.flip-up { top: auto; bottom: calc(100% + 4px); }
+        .dd-opt {
+            padding: 8px 10px; border-radius: 7px; font-size: 13px; color: var(--text);
+            cursor: pointer; white-space: nowrap;
+        }
+        .dd-opt:hover { background: var(--surface-3); }
+        .dd-opt.active { background: rgba(var(--ac1-rgb), 0.16); color: var(--ac1); font-weight: 600; }
+        .dd-head {
+            padding: 8px 10px 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+            text-transform: uppercase; color: var(--text-dim); pointer-events: none;
+            border-top: 1px solid var(--panel-border); margin-top: 3px;
+        }
+        .dd-head:first-child { border-top: none; margin-top: 0; }
+
+        /* Segmented control */
+        .seg {
+            display: flex; background: var(--surface-2); border: 1px solid var(--stroke);
+            border-radius: var(--radius-sm); overflow: hidden; padding: 3px; gap: 3px;
+        }
+        .seg label {
+            flex: 1; text-align: center; padding: 9px 6px; border-radius: 7px;
+            cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--text-muted);
+            user-select: none; transition: all 0.16s; margin: 0; display: flex;
+            align-items: center; justify-content: center; gap: 6px;
+        }
+        .seg input { display: none; }
+        .seg input:checked + label {
+            background: var(--brand-grad); color: #fff;
+            box-shadow: 0 3px 10px rgba(0, 118, 163, 0.45);
+        }
+        .seg.accent input:checked + label { background: linear-gradient(135deg, #7c3aed, #a855f7); box-shadow: 0 3px 10px rgba(168,85,247,0.4); }
+
+        /* Buttons */
+        button {
+            border: none; border-radius: var(--radius-sm); cursor: pointer;
+            font-size: 13px; font-weight: 600; padding: 10px 14px;
+            transition: all 0.16s ease; display: inline-flex; align-items: center;
+            justify-content: center; gap: 7px; color: var(--text);
+        }
+        .btn-primary {
+            background: var(--brand-grad); color: #fff; width: 100%;
+            font-size: 14.5px; padding: 13px; box-shadow: 0 6px 18px rgba(0, 118, 163, 0.4);
+        }
+        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 9px 24px rgba(0, 154, 213, 0.55); }
+        .btn-ghost { background: var(--surface-2); border: 1px solid var(--stroke); }
+        .btn-ghost:hover { background: var(--surface-3); }
+        .btn-ok { background: var(--ok-grad); color: #052e16; }
+        .btn-ok:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(34, 197, 94, 0.4); }
+        .btn-danger { background: rgba(239, 68, 68, 0.14); color: #fca5a5; border: 1px solid rgba(239,68,68,0.35); }
+        .btn-danger:hover { background: rgba(239, 68, 68, 0.24); }
+        .btn-sm { padding: 7px 11px; font-size: 12px; }
+        .toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+
+        /* Canvas */
+        .canvas-wrap {
+            position: relative; background: radial-gradient(120% 120% at 50% 0%, #0a1120 0%, #060a12 100%);
+            border-radius: 10px; overflow: hidden; border: 1px solid var(--panel-border);
+        }
+        canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
+        .canvas-wrap { height: 560px; }
+
+        /* Szkicownik na całe okno */
+        #card_cad.maximized {
+            position: fixed; inset: 44px 12px 12px; z-index: 900; margin: 0;
+            display: flex; flex-direction: column; background: var(--bg-2);
+            border-color: rgba(var(--ac2-rgb), 0.4);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+        }
+        #card_cad.maximized .card-body { flex: 1; min-height: 0; overflow: auto; }
+        #card_cad.maximized .canvas-wrap { flex: 1; height: auto; min-height: 0; }
+        .cad-full-btn { -webkit-app-region: no-drag; }
+
+        /* Wygenerowany G-code jako osobne, przesuwane i rozciągane okno */
+        #card_output {
+            position: fixed; z-index: 950; margin: 0;
+            width: 560px; height: 480px; min-width: 340px; min-height: 220px;
+            max-width: 96vw; max-height: 90vh;
+            display: flex; flex-direction: column;
+            resize: both; overflow: hidden;
+            background: var(--bg-2);
+            border: 1px solid rgba(var(--ac2-rgb), 0.45);
+            box-shadow: 0 24px 70px rgba(0,0,0,0.62);
+            -webkit-app-region: no-drag;
+        }
+        #card_output .card-head { cursor: move; user-select: none; flex-shrink: 0; }
+        #card_output .card-body { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 12px; }
+        #card_output .output { flex: 1; height: auto; min-height: 0; }
+        #card_output .win-x {
+            width: 28px; height: 28px; padding: 0; border-radius: 8px; font-size: 16px;
+            background: transparent; color: var(--text-dim); border: 1px solid var(--stroke);
+        }
+        #card_output .win-x:hover { background: #ef4444; color: #fff; border-color: #ef4444; }
+
+        /* Pływające okno „Wymiarowanie" (tabela) — jak okno G-code */
+        #dims_float {
+            position: fixed; z-index: 951; margin: 0;
+            width: 480px; height: 440px; min-width: 320px; min-height: 220px;
+            max-width: 96vw; max-height: 90vh;
+            display: flex; flex-direction: column;
+            resize: both; overflow: hidden;
+            background: var(--bg-2);
+            border: 1px solid rgba(var(--ac2-rgb), 0.45);
+            box-shadow: 0 24px 70px rgba(0,0,0,0.62);
+            -webkit-app-region: no-drag;
+        }
+        #dims_float .card-head { cursor: move; user-select: none; flex-shrink: 0; }
+        #dims_float .card-body { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 12px; }
+        #dims_float .win-x {
+            width: 28px; height: 28px; padding: 0; border-radius: 8px; font-size: 16px;
+            background: transparent; color: var(--text-dim); border: 1px solid var(--stroke);
+        }
+        #dims_float .win-x:hover { background: #ef4444; color: #fff; border-color: #ef4444; }
+        /* przycisk „Wymiarowanie" w szkicowniku — tylko na pełnym ekranie */
+        #btn_dims_float { display: none; -webkit-app-region: no-drag; }
+        #card_cad.maximized #btn_dims_float { display: inline-flex; }
+        .canvas-overlay {
+            position: absolute; top: 12px; left: 12px; display: flex; gap: 8px; flex-wrap: wrap;
+            pointer-events: none;
+        }
+        .badge {
+            font-size: 11px; font-weight: 600; padding: 5px 10px; border-radius: 7px;
+            background: rgba(9, 14, 25, 0.82); border: 1px solid var(--stroke);
+            color: var(--text-muted); backdrop-filter: blur(6px);
+        }
+        .badge b { color: #38bdf8; }
+        .badge.mode-dim b { color: #c084fc; }
+        .badge.mode-freehand b { color: #22c55e; }
+
+        /* Coordinate table */
+        .tbl-wrap { overflow-x: auto; border: 1px solid var(--panel-border); border-radius: 10px; }
+        table.coord { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+        table.coord th {
+            text-align: left; padding: 9px 10px; font-size: 10.5px; text-transform: uppercase;
+            letter-spacing: 0.5px; color: var(--text-dim); background: var(--surface-2);
+            border-bottom: 1px solid var(--panel-border); position: sticky; top: 0;
+        }
+        table.coord td { padding: 5px 8px; border-bottom: 1px solid rgba(148,163,184,0.07); }
+        table.coord tr:last-child td { border-bottom: none; }
+        table.coord tr.grv td { background: rgba(168, 85, 247, 0.06); }
+        table.coord td { transition: background 0.15s; }
+        table.coord tr.active-row td {
+            background: rgba(0, 154, 213, 0.18);
+            box-shadow: inset 0 1px 0 rgba(0, 154, 213, 0.55), inset 0 -1px 0 rgba(0, 154, 213, 0.55);
+        }
+        table.coord tr.active-row .idx { color: #38bdf8; }
+        table.coord tr.grv.active-row td {
+            background: rgba(168, 85, 247, 0.20);
+            box-shadow: inset 0 1px 0 rgba(168, 85, 247, 0.55), inset 0 -1px 0 rgba(168, 85, 247, 0.55);
+        }
+        table.coord input, table.coord .dd-toggle { padding: 7px 8px; font-size: 12.5px; }
+        table.coord .dd-menu { font-size: 12.5px; }
+        table.coord .idx { color: var(--text-dim); font-weight: 700; text-align: center; width: 34px; }
+        table.coord .row-del {
+            background: transparent; color: var(--text-dim); padding: 6px; border-radius: 6px; font-size: 15px;
+        }
+        table.coord .row-del:hover { color: var(--danger); background: rgba(239,68,68,0.12); }
+        .tbl-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+
+        /* Output */
+        .output {
+            background: var(--code-bg); color: var(--code-text);
+            font-family: 'Fira Code', 'JetBrains Mono', 'Courier New', monospace;
+            padding: 16px; border-radius: 10px; height: 300px; overflow-y: auto;
+            white-space: pre; font-size: 12.5px; line-height: 1.65;
+            border: 1px solid var(--panel-border); box-shadow: inset 0 6px 20px rgba(0,0,0,0.55);
+            tab-size: 2;
+        }
+        /* ── paski przewijania w kolorach aplikacji ─────────────── */
+        * { scrollbar-width: thin; scrollbar-color: var(--ac2) transparent; }
+        ::-webkit-scrollbar { width: 12px; height: 12px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb {
+            background: var(--brand-grad); border-radius: 999px;
+            border: 3px solid transparent; background-clip: padding-box;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(135deg, var(--ac2), var(--ac3));
+            border: 2px solid transparent; background-clip: padding-box;
+        }
+        ::-webkit-scrollbar-corner { background: transparent; }
+        .output::-webkit-scrollbar, .tbl-wrap::-webkit-scrollbar { width: 10px; height: 10px; }
+
+        .notice {
+            display: none; font-size: 12.5px; font-weight: 500; padding: 11px 13px;
+            border-radius: 9px; border: 1px solid rgba(239,68,68,0.4);
+            background: rgba(239,68,68,0.12); color: #fca5a5; align-items: center; gap: 9px;
+        }
+        .notice.show { display: flex; }
+
+        /* Toasts */
+        #toasts {
+            position: fixed; right: 22px; bottom: 22px; display: flex; flex-direction: column;
+            gap: 10px; z-index: 100;
+        }
+        .toast {
+            padding: 12px 16px; border-radius: 11px; font-size: 13px; font-weight: 600;
+            background: var(--surface-3); border: 1px solid var(--stroke); color: var(--text);
+            box-shadow: var(--shadow); display: flex; align-items: center; gap: 10px;
+            animation: slideIn 0.22s ease; max-width: 340px;
+        }
+        .toast.ok { border-color: rgba(34,197,94,0.45); }
+        .toast.ok .i { color: var(--ok); }
+        .toast.err { border-color: rgba(239,68,68,0.45); }
+        .toast.err .i { color: var(--danger); }
+        .toast.info .i { color: #38bdf8; }
+        @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: none; } }
+
+        .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 11px; color: var(--text-dim); }
+        .legend span { display: flex; align-items: center; gap: 6px; }
+        .legend i { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+
+        /* Tabs (Parametry / Wymiarowanie) */
+        .card-tabs {
+            display: flex; gap: 4px; padding: 8px 8px 0; border-bottom: 1px solid var(--panel-border);
+            background: rgba(255,255,255,0.015);
+        }
+        .card-tabs .tab {
+            flex: 1; background: transparent; color: var(--text-muted); border-radius: 10px 10px 0 0;
+            padding: 11px 10px; font-size: 12.5px; font-weight: 700; letter-spacing: 0.3px;
+            border: 1px solid transparent; border-bottom: none; position: relative; top: 1px;
+        }
+        .card-tabs .tab:hover { color: var(--text); background: var(--surface-2); }
+        .card-tabs .tab.active {
+            color: #38bdf8; background: var(--bg-2);
+            border-color: var(--panel-border); border-bottom: 1px solid var(--bg-2);
+        }
+        .tab-panel { display: none; }
+        .tab-panel.active { display: flex; flex-direction: column; gap: 15px; }
+
+        /* Parametry / Gwint / Wytaczanie: pola jednej wielkości, zwarte, zawijane */
+        #tab_params.active, #tab_thread.active, #tab_bore.active {
+            display: flex; flex-direction: row; flex-wrap: wrap; gap: 12px 14px; align-content: start;
+        }
+        #tab_params .grid-2, #tab_thread .grid-2, #tab_bore .grid-2 { display: contents; }
+        #tab_params > .field, #tab_params .grid-2 > .field,
+        #tab_thread > .field, #tab_thread .grid-2 > .field,
+        #tab_bore > .field, #tab_bore .grid-2 > .field {
+            flex: 1 1 168px; min-width: 150px; width: auto;
+        }
+        /* elementy pełnej szerokości */
+        #tab_params > .field:has(.seg), #tab_thread .field:has(.seg),
+        #tab_thread .field:has(#thread_dd),
+        #tab_params > .sub, #tab_thread > .sub, #tab_bore > .sub,
+        #btn_generate, #btn_gen_thread, #btn_gen_bore, #error_box, .combine-check, .thread-info,
+        #thread_custom_wrap {
+            flex: 1 1 100%; width: 100%;
+        }
+        #thread_custom_wrap > .field { flex: 1 1 168px; min-width: 150px; width: auto; }
+
+        /* G-code output with per-line spans + step highlight */
+        .output .ln { display: block; padding: 0 4px; border-radius: 3px; min-height: 1.35em; }
+        .output .ln.cur {
+            background: rgba(250, 204, 21, 0.16);
+            box-shadow: inset 3px 0 0 #facc15;
+            color: #fde68a;
+        }
+        .step-bar {
+            display: none; align-items: center; gap: 8px; flex-wrap: wrap;
+            padding: 10px 12px; border-radius: 9px; margin-bottom: 4px;
+            background: var(--surface-2); border: 1px solid var(--stroke);
+        }
+        .step-bar.show { display: flex; }
+        .step-bar .info { font-size: 12px; color: var(--text-muted); font-family: 'Fira Code', monospace; }
+        .step-bar .info b { color: var(--ac1); }
+
+        /* ── ustawienia: motyw + akcent ────────────────────────── */
+        .settings { display: flex; align-items: center; gap: 8px; }
+        .icon-btn {
+            width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center;
+            background: var(--surface-2); border: 1px solid var(--stroke); color: var(--text-muted);
+            cursor: pointer; font-size: 15px; transition: all 0.15s;
+        }
+        .icon-btn:hover { background: var(--surface-3); color: var(--text); }
+        .swatches { display: flex; gap: 5px; padding: 4px 6px; border-radius: 999px;
+            background: var(--surface-2); border: 1px solid var(--stroke); }
+        .swatch { width: 18px; height: 18px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; transition: transform 0.12s; }
+        .swatch:hover { transform: scale(1.15); }
+        .swatch.active { border-color: var(--text); }
+        .swatch.cyan   { background: linear-gradient(135deg,#22d3ee,#6366f1); }
+        .swatch.orange { background: linear-gradient(135deg,#fbbf24,#f97316); }
+        .swatch.green  { background: linear-gradient(135deg,#4ade80,#16a34a); }
+        .swatch.pink   { background: linear-gradient(135deg,#f472b6,#a855f7); }
+        .swatch.red    { background: linear-gradient(135deg,#fb7185,#dc2626); }
+    </style>
+</head>
+<body>
+    <div class="bg"><div class="glow g1"></div><div class="glow g2"></div><div class="glow g3"></div></div>
+
+    <!-- Pasek okna (frameless) w kolorze aplikacji -->
+    <div class="win-ctrl">
+        <img class="wc-ico" src="build/icon.png" alt="">
+        <div class="wc-title">CAM GENERATOR — GENERATOR G-CODE</div>
+        <div class="wc-btns">
+            <button class="wc-btn" id="win_min" title="Minimalizuj">—</button>
+            <button class="wc-btn" id="win_max" title="Maksymalizuj">▢</button>
+            <button class="wc-btn close" id="win_close" title="Zamknij">✕</button>
+        </div>
+    </div>
+
+    <div class="app">
+        <div class="content">
+            <div class="topbar">
+                <div class="brand-badge">G</div>
+                <div>
+                    <h1>CAM Studio — Generator G-code</h1>
+                    <div class="path"><b>Projekt</b> ▸ Haas ST-35Y ▸ <span id="path_mode">Toczenie zewnętrzne</span></div>
+                </div>
+                <div class="topbar-right">
+                    <div class="chip" id="chip_pts">0 punktów</div>
+                    <div class="settings">
+                        <div class="swatches" id="swatches" title="Kolor akcentu">
+                            <span class="swatch cyan active" data-accent="cyan"></span>
+                            <span class="swatch orange" data-accent="orange"></span>
+                            <span class="swatch green" data-accent="green"></span>
+                            <span class="swatch pink" data-accent="pink"></span>
+                            <span class="swatch red" data-accent="red"></span>
+                        </div>
+                        <button class="icon-btn" id="btn_theme" title="Motyw jasny / ciemny">🌙</button>
+                        <button class="icon-btn" id="nav_help" title="Pomoc / skróty">❔</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="workspace">
+                <!-- LEFT: parametry + wymiarowanie (przełączane zakładki) -->
+                <div>
+                    <div class="card">
+                        <div class="card-tabs">
+                            <button class="tab active" data-tab="params">⚙️ Parametry</button>
+                            <button class="tab" data-tab="dims">📐 Wymiarowanie</button>
+                            <button class="tab" data-tab="thread">🔩 Gwint</button>
+                            <button class="tab" data-tab="bore">◎ Wytaczanie</button>
+                        </div>
+                        <div class="card-body tab-panel active" id="tab_params">
+
+                            <div class="field">
+                                <label>Rodzaj obróbki</label>
+                                <div class="seg" id="seg_optype">
+                                    <input type="radio" id="op_ext" name="op_type" value="EXT" checked>
+                                    <label for="op_ext">⌭ Zewnętrzne</label>
+                                    <input type="radio" id="op_int" name="op_type" value="INT">
+                                    <label for="op_int">◎ Wytaczanie</label>
+                                </div>
+                            </div>
+
+                            <div class="field">
+                                <label>Sposób generowania kodu</label>
+                                <div class="seg" id="seg_codemode">
+                                    <input type="radio" id="code_cycle" name="code_mode" value="CYCLE" checked>
+                                    <label for="code_cycle">Cykl G71 / G70</label>
+                                    <input type="radio" id="code_blocks" name="code_mode" value="BLOCKS">
+                                    <label for="code_blocks">Blok po bloku</label>
+                                </div>
+                                <span class="hint" id="codemode_hint">Cykl: zwarty kod z G71 (zgrubnie) + G70 (wykańczanie). Blok po bloku: pełny, jawny kod — każde przejście osobno, bez cykli.</span>
+                            </div>
+
+
+                            <div class="grid-2">
+                                <div class="field">
+                                    <label id="lbl_blank">Średnica surówki Ø (mm)</label>
+                                    <input type="number" id="d_blank" value="90" step="1">
+                                </div>
+                                <div class="field" id="wrap_pilot" style="display:none;">
+                                    <label>Średnica otworu wstępnego Ø (mm)</label>
+                                    <input type="number" id="d_pilot" value="20" step="1">
+                                </div>
+                                <div class="field">
+                                    <label>Głębokość skrawania ap (mm)</label>
+                                    <input type="number" id="ap" value="2.00" step="0.1" min="0.05">
+                                </div>
+                            </div>
+
+                            <div class="field">
+                                <label>Tryb obrotów wrzeciona</label>
+                                <div class="seg" id="seg_spindle">
+                                    <input type="radio" id="mode_g96" name="spindle_mode" value="G96" checked>
+                                    <label for="mode_g96">G96 — stałe Vc</label>
+                                    <input type="radio" id="mode_g97" name="spindle_mode" value="G97">
+                                    <label for="mode_g97">G97 — stałe n</label>
+                                </div>
+                            </div>
+
+                            <div class="grid-2">
+                                <div class="field">
+                                    <label id="lbl_speed">Prędkość Vc (m/min)</label>
+                                    <input type="number" id="spindle_speed" value="180" min="1">
+                                </div>
+                                <div class="field">
+                                    <label>Maks. obroty (G50)</label>
+                                    <input type="number" id="g50_limit" value="2500" min="1">
+                                </div>
+                                <div class="field">
+                                    <label>Posuw zgrubny (mm/obr)</label>
+                                    <input type="number" id="feed_rough" value="0.25" step="0.01">
+                                </div>
+                                <div class="field">
+                                    <label>Posuw wykańczający (mm/obr)</label>
+                                    <input type="number" id="feed_finish" value="0.12" step="0.01">
+                                </div>
+                                <div class="field">
+                                    <label>Narzędzie i korektor (T)</label>
+                                    <input type="text" id="tool_no" value="0101">
+                                </div>
+                                <div class="field">
+                                    <label>Naddatek wykań. X (I)</label>
+                                    <input type="number" id="finish_allowance_x" value="0.40" step="0.05">
+                                </div>
+                                <div class="field">
+                                    <label>Naddatek wykań. Z (K)</label>
+                                    <input type="number" id="finish_allowance_z" value="0.10" step="0.05">
+                                </div>
+                                <div class="field">
+                                    <label>Bezpieczny start Z (mm)</label>
+                                    <input type="number" id="safe_z" value="5.00">
+                                </div>
+                            </div>
+
+                            <div id="error_box" class="notice"><span>⚠️</span><span id="error_txt"></span></div>
+                            <button class="btn-primary" id="btn_generate">⚡ Generuj G-code z modelu</button>
+                        </div>
+
+                        <!-- ZAKŁADKA: Wymiarowanie (tabela współrzędnych) -->
+                        <div class="card-body tab-panel" id="tab_dims">
+                            <div class="sub" style="font-size:11px;color:var(--text-dim);">
+                                Wpisuj wartości bezpośrednio: Ø X, długość Z, faza/promień na narożu.
+                            </div>
+                            <div class="seg" id="seg_dims_target" style="padding:2px;">
+                                <input type="radio" id="dimt_ext" name="dims_target" value="TURN" checked>
+                                <label for="dimt_ext" style="padding:7px 8px;">⌭ Zewnętrzne (toczenie)</label>
+                                <input type="radio" id="dimt_int" name="dims_target" value="BORE">
+                                <label for="dimt_int" style="padding:7px 8px;">◎ Wewnętrzne (wytaczanie)</label>
+                            </div>
+                            <div class="tbl-wrap">
+                                <table class="coord">
+                                    <thead>
+                                        <tr>
+                                            <th>#</th>
+                                            <th>Ø X (mm)</th>
+                                            <th>Z (mm)</th>
+                                            <th>Naroże</th>
+                                            <th>Wart. (mm)</th>
+                                            <th></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="coord_body"></tbody>
+                                </table>
+                            </div>
+                            <div class="tbl-actions">
+                                <button class="btn-ok btn-sm" id="btn_add_row">＋ Dodaj punkt</button>
+                                <button class="btn-ghost btn-sm" id="btn_load_demo">📄 Wczytaj przykład</button>
+                            </div>
+                        </div>
+
+                        <!-- ZAKŁADKA: Gwintowanie (G92 / G76) -->
+                        <div class="card-body tab-panel" id="tab_thread">
+                            <div class="field">
+                                <label>Gwint (tabela znormalizowana)</label>
+                                <div class="corner-dd" id="thread_dd" style="position:relative;">
+                                    <button type="button" class="dd-toggle" id="thread_dd_toggle">
+                                        <span class="dd-label" id="thread_dd_label">M16 × 1.5</span>
+                                        <span class="dd-caret">▾</span>
+                                    </button>
+                                    <div class="dd-menu" id="thread_dd_menu" hidden></div>
+                                </div>
+                            </div>
+
+                            <div class="grid-2" id="thread_custom_wrap" style="display:none;">
+                                <div class="field">
+                                    <label>Śr. nominalna Ø (mm)</label>
+                                    <input type="number" id="thread_d" value="16" step="0.1">
+                                </div>
+                                <div class="field">
+                                    <label>Skok P (mm)</label>
+                                    <input type="number" id="thread_p" value="1.5" step="0.05">
+                                </div>
+                            </div>
+
+                            <div class="grid-2">
+                                <div class="field">
+                                    <label>Rodzaj gwintu</label>
+                                    <div class="seg" id="seg_thread_side">
+                                        <input type="radio" id="thr_ext" name="thread_side" value="EXT" checked>
+                                        <label for="thr_ext">Zewnętrzny</label>
+                                        <input type="radio" id="thr_int" name="thread_side" value="INT">
+                                        <label for="thr_int">Wewnętrzny</label>
+                                    </div>
+                                </div>
+                                <div class="field">
+                                    <label>Cykl gwintowania</label>
+                                    <div class="seg accent" id="seg_thread_cycle">
+                                        <input type="radio" id="thr_g76" name="thread_cycle" value="G76" checked>
+                                        <label for="thr_g76">G76</label>
+                                        <input type="radio" id="thr_g92" name="thread_cycle" value="G92">
+                                        <label for="thr_g92">G92</label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="grid-2">
+                                <div class="field">
+                                    <label>Start gwintu Z (mm)</label>
+                                    <input type="number" id="thread_z0" value="0" step="0.5">
+                                </div>
+                                <div class="field">
+                                    <label>Długość gwintu (mm)</label>
+                                    <input type="number" id="thread_len" value="18" step="0.5" min="0.5">
+                                </div>
+                            </div>
+
+                            <div class="field">
+                                <label>Sposób dosuwu (naddatek na przejścia)</label>
+                                <div class="seg" id="seg_thread_infeed">
+                                    <input type="radio" id="thr_by_passes" name="thread_infeed" value="PASSES" checked>
+                                    <label for="thr_by_passes">Liczba przejść</label>
+                                    <input type="radio" id="thr_by_depth" name="thread_infeed" value="DEPTH">
+                                    <label for="thr_by_depth">Głębokość wcięcia</label>
+                                </div>
+                            </div>
+
+                            <div class="grid-2">
+                                <div class="field" id="wrap_thr_passes">
+                                    <label>Liczba przejść</label>
+                                    <input type="number" id="thread_passes" value="5" step="1" min="1">
+                                </div>
+                                <div class="field" id="wrap_thr_depth" style="display:none;">
+                                    <label>Głębokość wcięcia / przejście (mm)</label>
+                                    <input type="number" id="thread_depth" value="0.30" step="0.05" min="0.02">
+                                </div>
+                                <div class="field">
+                                    <label>Obroty n — G97 (obr/min)</label>
+                                    <input type="number" id="thread_rpm" value="500" min="1">
+                                </div>
+                                <div class="field">
+                                    <label>Narzędzie i korektor (T)</label>
+                                    <input type="text" id="thread_tool" value="303">
+                                </div>
+                                <div class="field">
+                                    <label>Wyjście / dobieg Z (mm)</label>
+                                    <input type="number" id="thread_safe_z" value="5.00" step="0.5">
+                                </div>
+                            </div>
+
+                            <label class="combine-check">
+                                <input type="checkbox" id="thread_combine">
+                                <span>Połącz z toczeniem (profil z zakładki Parametry) — jeden program</span>
+                            </label>
+
+                            <div id="thread_info" class="thread-info"></div>
+                            <button class="btn-primary" id="btn_gen_thread">🔩 Generuj kod gwintu</button>
+                        </div>
+
+                        <!-- ZAKŁADKA: Wytaczanie wewnętrzne (G71/G70) — wstawiane jak gwint -->
+                        <div class="card-body tab-panel" id="tab_bore">
+                            <div class="sub" style="font-size:11px;color:var(--text-dim);">
+                                Prosty otwór walcowy: podaj średnicę i głębokość — kod G71/G70 dopisze się osobno lub po toczeniu.
+                            </div>
+                            <div class="grid-2">
+                                <div class="field">
+                                    <label>Średnica otworu Ø (mm)</label>
+                                    <input type="number" id="bore_dia" value="30" step="0.1" min="0.5">
+                                </div>
+                                <div class="field">
+                                    <label>Głębokość otworu Z (mm)</label>
+                                    <input type="number" id="bore_len" value="25" step="0.5" min="0.5">
+                                </div>
+                                <div class="field">
+                                    <label>Otwór wstępny Ø (mm)</label>
+                                    <input type="number" id="bore_pilot" value="20" step="0.5" min="0.5">
+                                </div>
+                                <div class="field">
+                                    <label>Głębokość skrawania ap (mm)</label>
+                                    <input type="number" id="bore_ap" value="1.50" step="0.1" min="0.05">
+                                </div>
+                                <div class="field">
+                                    <label>Prędkość Vc (m/min)</label>
+                                    <input type="number" id="bore_vc" value="150" min="1">
+                                </div>
+                                <div class="field">
+                                    <label>Maks. obroty (G50)</label>
+                                    <input type="number" id="bore_g50" value="2500" min="1">
+                                </div>
+                                <div class="field">
+                                    <label>Posuw zgrubny (mm/obr)</label>
+                                    <input type="number" id="bore_frough" value="0.15" step="0.01">
+                                </div>
+                                <div class="field">
+                                    <label>Posuw wykańczający (mm/obr)</label>
+                                    <input type="number" id="bore_ffin" value="0.08" step="0.01">
+                                </div>
+                                <div class="field">
+                                    <label>Naddatek wykań. X (I)</label>
+                                    <input type="number" id="bore_allow" value="0.30" step="0.05">
+                                </div>
+                                <div class="field">
+                                    <label>Narzędzie i korektor (T)</label>
+                                    <input type="text" id="bore_tool" value="505">
+                                </div>
+                                <div class="field">
+                                    <label>Wyjście / dobieg Z (mm)</label>
+                                    <input type="number" id="bore_safe_z" value="5.00" step="0.5">
+                                </div>
+                            </div>
+
+                            <label class="combine-check">
+                                <input type="checkbox" id="bore_sketch" checked>
+                                <span>Rysuj profil wytaczania w szkicowniku (razem z toczeniem)</span>
+                            </label>
+                            <label class="combine-check">
+                                <input type="checkbox" id="bore_combine" checked>
+                                <span>Połącz z toczeniem (profil z zakładki Parametry) — jeden program</span>
+                            </label>
+
+                            <div id="bore_info" class="thread-info"></div>
+                            <button class="btn-primary" id="btn_gen_bore">◎ Generuj kod wytaczania</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- RIGHT column -->
+                <div style="min-width:0;">
+                    <!-- CAD -->
+                    <div class="card" id="card_cad">
+                        <div class="card-head">
+                            <div class="ico">✏️</div>
+                            <div>
+                                <h2 id="cad_title">Szkicownik profilu 2D</h2>
+                                <div class="sub">PPM (lub Shift+LPM) = przesuwanie, kółko = zoom. Najedź na punkt lub linię, aby zobaczyć wymiar. Siatka w realnych mm — węzły na 0.1 / 0.5 / 1 mm (gęstsza przy przybliżeniu).</div>
+                            </div>
+                            <div class="right">
+                                <div class="seg accent" id="seg_sketch_target" style="padding:2px; display:none;" title="Który profil rysujesz">
+                                    <input type="radio" id="target_turn" name="sketch_target" value="TURN" checked>
+                                    <label for="target_turn" style="padding:7px 10px;">⌭ Toczenie</label>
+                                    <input type="radio" id="target_bore" name="sketch_target" value="BORE">
+                                    <label for="target_bore" style="padding:7px 10px;">◎ Wytaczanie</label>
+                                </div>
+                                <div class="seg" id="seg_tool" style="padding:2px;">
+                                    <input type="radio" id="tool_sketch" name="cad_tool" value="SKETCH" checked>
+                                    <label for="tool_sketch" style="padding:7px 10px;">✏️ Rysuj</label>
+                                    <input type="radio" id="tool_freehand" name="cad_tool" value="FREEHAND">
+                                    <label for="tool_freehand" style="padding:7px 10px;">🖊️ Odręcznie</label>
+                                    <input type="radio" id="tool_insert" name="cad_tool" value="INSERT">
+                                    <label for="tool_insert" style="padding:7px 10px;">➕ Wstaw punkt</label>
+                                    <input type="radio" id="tool_fillet" name="cad_tool" value="FILLET">
+                                    <label for="tool_fillet" style="padding:7px 10px;">◜ Faza / R</label>
+                                </div>
+                                <button class="btn-ghost btn-sm" id="btn_dims_float" title="Otwórz tabelę wymiarowania" style="margin-left:8px;">📐 Wymiarowanie</button>
+                                <button class="btn-ghost btn-sm cad-full-btn" id="btn_cad_full" title="Powiększ szkicownik na całe okno" style="margin-left:8px; font-size:15px;">⛶</button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="canvas-wrap">
+                                <canvas id="simCanvas"></canvas>
+                                <div class="canvas-overlay">
+                                    <div class="badge" id="badge_mode">Tryb: <b>Rysowanie</b></div>
+                                    <div class="badge" id="badge_pos">X — Z —</div>
+                                </div>
+                            </div>
+                            <div class="legend">
+                                <span><i style="background:#00b4e6"></i> Profil detalu</span>
+                                <span><i style="background:#facc15"></i> Naroże (faza / promień)</span>
+                                <span><i style="background:#22c55e"></i> Podgląd linii</span>
+                                <span><i style="background:#ef4444"></i> Ścieżka narzędzia</span>
+                            </div>
+                            <div class="toolbar">
+                                <button class="btn-danger btn-sm" id="btn_clear_cad">🗑 Wyczyść</button>
+                                <button class="btn-ghost btn-sm" id="btn_undo_cad">↶ Cofnij</button>
+                                <button class="btn-ghost btn-sm" id="btn_reset_view">⛶ Reset widoku</button>
+                                <button class="btn-ok btn-sm" id="btn_sim_start">▶ Animuj obróbkę</button>
+                                <button class="btn-ghost btn-sm" id="btn_sim_reset">⏹ Reset animacji</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Output (osobne, przesuwane okno) -->
+                    <div class="card" id="card_output" style="display:none;">
+                        <div class="card-head" id="output_titlebar">
+                            <div class="ico">📄</div>
+                            <div>
+                                <h2>Wygenerowany G-code</h2>
+                                <div class="sub">Haas ST-35Y · przeciągnij nagłówek, rozciągnij za róg</div>
+                            </div>
+                            <div class="right">
+                                <button class="win-x" id="btn_output_close" title="Zamknij okno (Esc)">✕</button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="toolbar">
+                                <button class="btn-ghost btn-sm" id="btn_step_mode">▷ Krok po kroku</button>
+                                <button class="btn-ok btn-sm" id="btn_copy">📋 Kopiuj</button>
+                                <button class="btn-ok btn-sm" id="btn_download">⬇ Pobierz .nc</button>
+                            </div>
+                            <div class="step-bar" id="step_bar">
+                                <button class="btn-ghost btn-sm" id="btn_step_prev">◀ Poprzedni</button>
+                                <button class="btn-ghost btn-sm" id="btn_step_next">Następny ▶</button>
+                                <span class="info" id="step_info">Krok — / —</span>
+                            </div>
+                            <div id="nc_output" class="output">Narysuj lub wpisz profil w tabeli, a następnie kliknij „Generuj G-code".</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pływające okno „Wymiarowanie" (przesuwane) — treść wstawiana z zakładki Wymiarowanie -->
+    <div class="card" id="dims_float" style="display:none;">
+        <div class="card-head" id="dims_float_titlebar">
+            <div class="ico">📐</div>
+            <div>
+                <h2>Wymiarowanie</h2>
+                <div class="sub">Przeciągnij nagłówek, rozciągnij za róg</div>
+            </div>
+            <div class="right">
+                <button class="win-x" id="btn_dims_close" title="Zamknij okno (Esc)">✕</button>
+            </div>
+        </div>
+        <div class="card-body" id="dims_float_body"></div>
+    </div>
+
+    <div id="toasts"></div>
+
+    <script>
+        /* ============================================================
+           STAN APLIKACJI
+           profile[i] = { x: diameter, z: length, corner: 'none'|'C'|'R', cval: number, groove: bool }
+           ============================================================ */
+        let profile = [];
+        let boreProfile = [];              // profil wytaczania rysowany w tym samym szkicowniku
+        let sketchTarget = 'TURN';         // 'TURN' | 'BORE' — do którego profilu trafiają rysowane punkty
+        let tableTarget = 'TURN';          // 'TURN' | 'BORE' — który profil pokazuje/edytuje tabela wymiarowania
+        let simulationPath = [];
+        let animationId = null, simIndex = 0, currentSimPos = { x: 0, z: 0 }, isAnimating = false;
+
+        let scale = 4.0, originX = 230, originZ = 300;
+        let activeRowIdx = null;
+        let isDragging = false, startDragPos = { x: 0, y: 0 };
+        let currentMouseGrid = { x: 0, z: 0 };
+        let mouseInCanvas = false;
+        let isFreehandDrawing = false;
+        let freehandRaw = [];
+        let hoverPointIdx = -1;            // podświetlony/przyciągany punkt profilu pod kursorem
+        let hoverSegIdx = -1;              // linia (segment) pod kursorem — pokazuje wymiar / miejsce wstawienia
+
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+        const ncOutput = document.getElementById('nc_output');
+
+        function opType()  { return document.querySelector('input[name="op_type"]:checked').value; }        // EXT / INT
+        function g71Type() { return '2'; }        // zawsze Typ 2 (dowolny profil, podcięcia)
+        function cadTool() { return document.querySelector('input[name="cad_tool"]:checked').value; }        // SKETCH / FREEHAND / FILLET
+        function codeMode() { return document.querySelector('input[name="code_mode"]:checked').value; }      // CYCLE / BLOCKS
+        function isInternal() { return opType() === 'INT'; }
+        // Rysowanie wytaczania w tym samym szkicowniku (osobny profil boreProfile)
+        function boreSketchOn() { const el = document.getElementById('bore_sketch'); return !!(el && el.checked); }
+        function drawTarget() { return (boreSketchOn() && sketchTarget === 'BORE') ? 'BORE' : 'TURN'; }
+        function activeSketch() { return drawTarget() === 'BORE' ? boreProfile : profile; }
+        // Profil pokazywany/edytowany w tabeli wymiarowania (zewn. toczenie lub wewn. wytaczanie)
+        function tableProfile() { return tableTarget === 'BORE' ? boreProfile : profile; }
+        // Po edycji w tabeli: dla wytaczania odśwież tylko rysunek/opis, dla toczenia pełny refresh
+        function afterTableChange() {
+            if (tableTarget === 'BORE') { renderTable(); drawCAD(); updateBoreInfo(); }
+            else { syncBlank(); refreshAll(); }
+        }
+
+        /* ---------- Toasts ---------- */
+        function toast(msg, type = 'info') {
+            const t = document.createElement('div');
+            t.className = 'toast ' + type;
+            const icon = type === 'ok' ? '✓' : type === 'err' ? '⚠' : 'ℹ';
+            t.innerHTML = `<span class="i">${icon}</span><span>${msg}</span>`;
+            document.getElementById('toasts').appendChild(t);
+            setTimeout(() => { t.style.opacity = '0'; t.style.transform = 'translateX(20px)'; }, 2600);
+            setTimeout(() => t.remove(), 3000);
+        }
+        function showError(msg) {
+            const box = document.getElementById('error_box');
+            document.getElementById('error_txt').innerText = msg;
+            box.classList.add('show');
+            setTimeout(() => box.classList.remove('show'), 4200);
+        }
+
+        /* ---------- Demo profiles ---------- */
+        function demoExternal() {
+            return [
+                { x: 30, z: 0,   corner: 'none', cval: 0, groove: false },
+                { x: 30, z: -20, corner: 'C', cval: 1.5, groove: false },
+                { x: 50, z: -20, corner: 'R', cval: 2, groove: false },
+                { x: 50, z: -45, corner: 'none', cval: 0, groove: false },
+                { x: 72, z: -45, corner: 'R', cval: 3, groove: false },
+                { x: 72, z: -70, corner: 'none', cval: 0, groove: false }
+            ];
+        }
+        function demoInternal() {
+            return [
+                { x: 40, z: 0,   corner: 'none', cval: 0, groove: false },
+                { x: 40, z: -25, corner: 'C', cval: 1, groove: false },
+                { x: 28, z: -25, corner: 'none', cval: 0, groove: false },
+                { x: 28, z: -55, corner: 'none', cval: 0, groove: false }
+            ];
+        }
+
+        /* ============================================================
+           TABELA WYMIARÓW (nowe, wygodne wymiarowanie)
+           ============================================================ */
+        function renderTable() {
+            const body = document.getElementById('coord_body');
+            const arr = tableProfile();
+            body.innerHTML = '';
+            activeRowIdx = null;
+            arr.forEach((pt, i) => {
+                const tr = document.createElement('tr');
+                if (pt.groove) tr.className = 'grv';
+                tr.innerHTML = `
+                    <td class="idx">${i}${pt.groove ? ' ▽' : ''}</td>
+                    <td><input type="number" step="0.1" value="${fmt(pt.x)}" data-i="${i}" data-k="x"></td>
+                    <td><input type="number" step="0.1" value="${fmt(pt.z)}" data-i="${i}" data-k="z"></td>
+                    <td>
+                        <div class="corner-dd" data-i="${i}">
+                            <button type="button" class="dd-toggle" data-i="${i}">
+                                <span class="dd-label">${cornerLabel(pt.corner)}</span>
+                                <span class="dd-caret">▾</span>
+                            </button>
+                            <div class="dd-menu" hidden>
+                                <div class="dd-opt${pt.corner==='none'?' active':''}" data-value="none">—</div>
+                                <div class="dd-opt${pt.corner==='C'?' active':''}" data-value="C">Faza C</div>
+                                <div class="dd-opt${pt.corner==='R'?' active':''}" data-value="R">Promień R</div>
+                            </div>
+                        </div>
+                    </td>
+                    <td><input type="number" step="0.1" min="0" value="${fmt(pt.cval)}" data-i="${i}" data-k="cval" ${pt.corner==='none'?'disabled':''}></td>
+                    <td><button class="row-del" data-del="${i}" title="Usuń punkt">✕</button></td>
+                `;
+                body.appendChild(tr);
+            });
+
+            body.querySelectorAll('input').forEach(el => {
+                el.addEventListener('change', onTableEdit);
+                el.addEventListener('focus', () => setActiveRow(parseInt(el.dataset.i)));
+                el.addEventListener('blur', () => setActiveRow(null));
+            });
+            body.querySelectorAll('.dd-toggle').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const menu = btn.nextElementSibling;
+                    const willOpen = menu.hidden;
+                    closeAllCornerMenus();
+                    if (willOpen) {
+                        menu.hidden = false;
+                        menu.classList.remove('flip-up');
+                        btn.classList.add('open');
+                        setActiveRow(parseInt(btn.dataset.i));
+                        // odwróć menu do góry, jeśli nie mieści się pod tabelą (np. ostatnie wiersze)
+                        const wrap = document.querySelector('.tbl-wrap');
+                        if (wrap && menu.getBoundingClientRect().bottom > wrap.getBoundingClientRect().bottom) {
+                            menu.classList.add('flip-up');
+                        }
+                    }
+                });
+            });
+            body.querySelectorAll('.dd-opt').forEach(opt => {
+                opt.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const dd = opt.closest('.corner-dd');
+                    const i = parseInt(dd.dataset.i);
+                    const a = tableProfile();
+                    if (!a[i]) return;
+                    a[i].corner = opt.dataset.value;
+                    closeAllCornerMenus();
+                    setActiveRow(null);
+                    afterTableChange();
+                });
+            });
+            body.querySelectorAll('[data-del]').forEach(el => {
+                el.addEventListener('click', () => {
+                    const idx = parseInt(el.dataset.del);
+                    tableProfile().splice(idx, 1);
+                    afterTableChange();
+                });
+            });
+            document.getElementById('chip_pts').innerText = arr.length + ' punktów';
+        }
+
+        function cornerLabel(c) { return c === 'C' ? 'Faza C' : c === 'R' ? 'Promień R' : '—'; }
+        function closeAllCornerMenus() {
+            document.querySelectorAll('#coord_body .dd-menu').forEach(m => m.hidden = true);
+            document.querySelectorAll('#coord_body .dd-toggle').forEach(b => b.classList.remove('open'));
+            const tm = document.getElementById('thread_dd_menu');
+            const tt = document.getElementById('thread_dd_toggle');
+            if (tm) tm.hidden = true;
+            if (tt) tt.classList.remove('open');
+        }
+        document.addEventListener('click', closeAllCornerMenus);
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAllCornerMenus(); });
+
+        function fmt(v) { return (Math.round(v * 1000) / 1000).toString(); }
+
+        // Format NC: wymiar zawsze z kropką dziesiętną (np. X25.0, Z5.)
+        function fmtNC(v) {
+            const r = Math.round(v * 1000) / 1000;
+            let s = r.toString();
+            if (!s.includes('.')) s += '.';
+            return s;
+        }
+
+        function setActiveRow(idx) {
+            activeRowIdx = idx;
+            document.querySelectorAll('#coord_body tr').forEach((tr, i) => {
+                tr.classList.toggle('active-row', i === idx);
+            });
+            drawCAD();
+        }
+
+        function onTableEdit(e) {
+            const i = parseInt(e.target.dataset.i);
+            const k = e.target.dataset.k;
+            const arr = tableProfile();
+            if (!arr[i]) return;
+            if (k === 'corner') {
+                arr[i].corner = e.target.value;
+            } else {
+                let val = parseFloat(e.target.value);
+                if (isNaN(val)) val = 0;
+                if (k === 'x' && val < 0) val = 0;
+                if (k === 'cval' && val < 0) val = 0;
+                arr[i][k] = val;
+            }
+            afterTableChange();
+        }
+
+        /* ============================================================
+           MINIATURY POMOCNICZE (styl grafik VPS Haas) — co oznacza dane pole
+           ============================================================ */
+        function dimSvg(type) {
+            const R = '#ef4444', T = '#fecaca';
+            // wspólna scena: oś (linia przerywana), uchwyt (lewo), detal (prostokąt nad osią)
+            const base =
+                '<line x1="0" y1="48" x2="120" y2="48" stroke="#f59e0b" stroke-width="1.4" stroke-dasharray="7 4"/>' +
+                '<rect x="3" y="14" width="20" height="40" rx="2" fill="#5b6b85" stroke="#8794ad"/>' +
+                '<rect x="6" y="23" width="6" height="8" rx="1" fill="#38455e"/>' +
+                '<rect x="6" y="37" width="6" height="8" rx="1" fill="#38455e"/>' +
+                '<rect x="23" y="26" width="66" height="22" fill="#93a3b8" stroke="#cbd5e1" stroke-width="1"/>';
+            const geo = {
+                od:
+                    '<line x1="99" y1="22" x2="99" y2="50" stroke="' + R + '" stroke-width="1.6"/>' +
+                    '<path d="M99 22 l-3 5 h6 z" fill="' + R + '"/><path d="M99 50 l-3 -5 h6 z" fill="' + R + '"/>' +
+                    '<line x1="90" y1="26" x2="108" y2="26" stroke="' + R + '" stroke-width="1"/>' +
+                    '<text x="106" y="44" font-size="14" fill="' + T + '" font-family="monospace">Ø</text>',
+                ap:
+                    '<rect x="40" y="26" width="42" height="5" fill="rgba(239,68,68,.2)" stroke="' + R + '" stroke-dasharray="4 3"/>' +
+                    '<line x1="85" y1="26" x2="85" y2="31" stroke="' + R + '" stroke-width="1.6"/>' +
+                    '<path d="M85 26 l-2.5 3 h5 z" fill="' + R + '"/><path d="M85 31 l-2.5 -3 h5 z" fill="' + R + '"/>' +
+                    '<text x="92" y="33" font-size="11" fill="' + T + '" font-family="monospace">ap</text>',
+                allowX:
+                    '<rect x="40" y="22" width="42" height="4" fill="rgba(239,68,68,.28)" stroke="' + R + '" stroke-dasharray="3 2"/>' +
+                    '<line x1="86" y1="22" x2="86" y2="26" stroke="' + R + '" stroke-width="1.6"/>' +
+                    '<path d="M86 22 l-2.5 3 h5 z" fill="' + R + '"/><path d="M86 26 l-2.5 -3 h5 z" fill="' + R + '"/>' +
+                    '<text x="92" y="26" font-size="11" fill="' + T + '" font-family="monospace">I</text>',
+                allowZ:
+                    '<rect x="89" y="26" width="4" height="22" fill="rgba(239,68,68,.28)" stroke="' + R + '" stroke-dasharray="3 2"/>' +
+                    '<line x1="89" y1="37" x2="101" y2="37" stroke="' + R + '" stroke-width="1.6"/>' +
+                    '<path d="M89 37 l3 -2.5 v5 z" fill="' + R + '"/><path d="M101 37 l-3 -2.5 v5 z" fill="' + R + '"/>' +
+                    '<text x="96" y="24" font-size="11" fill="' + T + '" font-family="monospace">K</text>',
+                safez:
+                    '<line x1="89" y1="37" x2="110" y2="37" stroke="' + R + '" stroke-width="1.6"/>' +
+                    '<path d="M89 37 l4 -3 v6 z" fill="' + R + '"/>' +
+                    '<path d="M112 30 l-7 4 v6 z" fill="#38455e" stroke="#8794ad"/>' +
+                    '<text x="92" y="24" font-size="11" fill="' + T + '" font-family="monospace">Z</text>',
+                holeDia:
+                    '<rect x="40" y="40" width="49" height="8" fill="#0b1120" stroke="' + R + '" stroke-dasharray="4 3"/>' +
+                    '<line x1="80" y1="40" x2="80" y2="48" stroke="' + R + '" stroke-width="1.6"/>' +
+                    '<path d="M80 40 l-2.5 3 h5 z" fill="' + R + '"/><path d="M80 48 l-2.5 -3 h5 z" fill="' + R + '"/>' +
+                    '<text x="92" y="47" font-size="12" fill="' + T + '" font-family="monospace">Ø</text>',
+                boreDia:
+                    '<rect x="36" y="38" width="53" height="10" fill="#0b1120" stroke="' + R + '" stroke-dasharray="4 3"/>' +
+                    '<line x1="78" y1="38" x2="78" y2="48" stroke="' + R + '" stroke-width="1.6"/>' +
+                    '<path d="M78 38 l-2.5 3 h5 z" fill="' + R + '"/><path d="M78 48 l-2.5 -3 h5 z" fill="' + R + '"/>' +
+                    '<text x="92" y="47" font-size="12" fill="' + T + '" font-family="monospace">Ø</text>',
+                boreLen:
+                    '<rect x="36" y="40" width="53" height="8" fill="#0b1120" stroke="#64748b" stroke-dasharray="3 2"/>' +
+                    '<line x1="37" y1="44" x2="88" y2="44" stroke="' + R + '" stroke-width="1.6"/>' +
+                    '<path d="M37 44 l4 -2.5 v5 z" fill="' + R + '"/><path d="M88 44 l-4 -2.5 v5 z" fill="' + R + '"/>' +
+                    '<text x="55" y="40" font-size="11" fill="' + T + '" font-family="monospace">Z</text>'
+            };
+            const solo = {
+                speed:
+                    '<circle cx="60" cy="30" r="16" fill="none" stroke="#93a3b8" stroke-width="2"/>' +
+                    '<path d="M60 14 a16 16 0 0 1 14 8" fill="none" stroke="' + R + '" stroke-width="2.2"/>' +
+                    '<path d="M74 22 l2 -7 -7 2 z" fill="' + R + '"/>' +
+                    '<circle cx="60" cy="30" r="2.5" fill="#cbd5e1"/>',
+                feed:
+                    '<rect x="72" y="18" width="40" height="24" fill="#93a3b8" stroke="#cbd5e1"/>' +
+                    '<line x1="16" y1="30" x2="66" y2="30" stroke="' + R + '" stroke-width="2.4"/>' +
+                    '<path d="M66 30 l-8 -5 v10 z" fill="' + R + '"/>' +
+                    '<text x="20" y="24" font-size="11" fill="' + T + '" font-family="monospace">F</text>',
+                tool:
+                    '<rect x="10" y="26" width="34" height="8" fill="#5b6b85" stroke="#8794ad"/>' +
+                    '<path d="M44 30 l16 -8 v16 z" fill="#38455e" stroke="#cbd5e1"/>' +
+                    '<rect x="72" y="16" width="40" height="28" fill="#93a3b8" stroke="#cbd5e1"/>',
+                limit:
+                    '<path d="M40 42 a20 20 0 0 1 40 0" fill="none" stroke="#93a3b8" stroke-width="2.4"/>' +
+                    '<line x1="60" y1="42" x2="74" y2="28" stroke="' + R + '" stroke-width="2.2"/>' +
+                    '<circle cx="60" cy="42" r="2.5" fill="#cbd5e1"/>' +
+                    '<text x="46" y="54" font-size="9" fill="#94a3b8" font-family="monospace">max</text>'
+            };
+            const inner = geo[type] ? (base + geo[type]) : (solo[type] || base);
+            return '<svg viewBox="0 0 120 60" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">' + inner + '</svg>';
+        }
+
+        // Które pole dostaje jaką grafikę + podpowiedź (tytuł)
+        const DIM_PICS = {
+            d_blank: ['od', 'Średnica surówki / detalu (Ø zewn.)'],
+            d_pilot: ['holeDia', 'Średnica otworu wstępnego (Ø)'],
+            ap: ['ap', 'Głębokość skrawania na przejście'],
+            spindle_speed: ['speed', 'Prędkość / obroty wrzeciona'],
+            g50_limit: ['limit', 'Maks. obroty (G50)'],
+            feed_rough: ['feed', 'Posuw zgrubny'],
+            feed_finish: ['feed', 'Posuw wykańczający'],
+            tool_no: ['tool', 'Narzędzie i korektor'],
+            finish_allowance_x: ['allowX', 'Naddatek wykańczający w X (I)'],
+            finish_allowance_z: ['allowZ', 'Naddatek wykańczający w Z (K)'],
+            safe_z: ['safez', 'Bezpieczny dobieg / start w Z'],
+            bore_dia: ['boreDia', 'Średnica otworu (docelowa Ø)'],
+            bore_len: ['boreLen', 'Głębokość otworu w Z'],
+            bore_pilot: ['holeDia', 'Średnica otworu wstępnego (Ø)'],
+            bore_ap: ['ap', 'Głębokość skrawania na przejście'],
+            bore_vc: ['speed', 'Prędkość / obroty wrzeciona'],
+            bore_g50: ['limit', 'Maks. obroty (G50)'],
+            bore_frough: ['feed', 'Posuw zgrubny'],
+            bore_ffin: ['feed', 'Posuw wykańczający'],
+            bore_allow: ['allowX', 'Naddatek wykańczający w X (I)'],
+            bore_tool: ['tool', 'Narzędzie i korektor'],
+            bore_safe_z: ['safez', 'Bezpieczny dobieg / start w Z']
+        };
+        function injectDimPics() {
+            for (const id in DIM_PICS) {
+                const el = document.getElementById(id);
+                if (!el) continue;
+                const field = el.closest('.field');
+                if (!field || field.querySelector('.pic')) continue;
+                const span = document.createElement('span');
+                span.className = 'pic';
+                span.title = DIM_PICS[id][1];
+                span.innerHTML = dimSvg(DIM_PICS[id][0]);
+                const label = field.querySelector('label');
+                if (label) label.insertAdjacentElement('afterend', span);
+                else field.insertBefore(span, el);
+            }
+        }
+
+        function syncBlank() {
+            if (isInternal()) return;
+            const maxX = profile.length ? Math.max(...profile.map(p => p.x)) : 0;
+            const blankEl = document.getElementById('d_blank');
+            if (maxX >= parseFloat(blankEl.value)) blankEl.value = Math.ceil(maxX + 10);
+        }
+
+        function refreshAll() {
+            renderTable();
+            drawCAD();
+            if (profile.length >= 2) generateGcode();
+        }
+
+        /* ============================================================
+           MAPOWANIE WSPÓŁRZĘDNYCH
+           ============================================================ */
+        let cadInited = false;
+        // Wyśrodkuj widok wg rozmiaru płótna: Z=0 przy prawej krawędzi, oś obrotu nisko.
+        function centerView() {
+            scale = 4.0;
+            originZ = Math.max(200, canvas.width - 130);
+            originX = Math.max(160, canvas.height - 90);
+        }
+        function setupCanvas() {
+            const wrap = canvas.parentNode;
+            const prevW = canvas.width, prevH = canvas.height;
+            canvas.width = wrap.clientWidth || 800;
+            canvas.height = wrap.clientHeight || 460;
+            if (!cadInited) { cadInited = true; centerView(); }
+            else if (prevW && prevH) {
+                // utrzymaj środek widoku przy zmianie rozmiaru płótna
+                originZ += (canvas.width - prevW) / 2;
+                originX += (canvas.height - prevH) / 2;
+            }
+            drawCAD();
+        }
+        function getXPix(diam) { return originX - (diam / 2) * scale; }
+        function getZPix(zVal) { return originZ + zVal * scale; }
+        function toMachineCoords(pixelX, pixelZ) {
+            return { x: ((originX - pixelX) / scale) * 2, z: (pixelZ - originZ) / scale };
+        }
+
+        // Ciąg "ładnych" kroków siatki [mm] — oczka zawsze wypadają na wartościach realnych
+        const NICE = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500];
+        // Podstawowy (drobny) krok siatki [mm] tak, by oczko miało ~targetPx pikseli
+        function gridMinorMm(targetPx) {
+            const raw = targetPx / scale;
+            let best = NICE[0];
+            for (const c of NICE) if (c <= raw) best = c; // największy krok <= raw
+            return best;
+        }
+        // Krok drobnej siatki [px] — gęsta siatka (~13 px na oczko)
+        function gridStepMm() { return Math.max(0.01, gridMinorMm(13)); }
+        // Krok przyciągania [mm] = krok drobnej siatki — rysunek trafia dokładnie
+        // w węzły widocznej siatki (od 0.01 mm przy dużym przybliżeniu).
+        function snapMm() { return gridStepMm(); }
+        function snapVal(v, step) { return Math.round(Math.round(v / step) * step * 1000) / 1000; }
+
+        // Pozycja kursora w pikselach BITMAPY płótna (uwzględnia różnicę CSS↔bitmapa,
+        // np. gdy szkicownik jest na cały ekran) — spójna z getZPix/getXPix.
+        function canvasPx(e) {
+            const rect = canvas.getBoundingClientRect();
+            const sx = rect.width ? canvas.width / rect.width : 1;
+            const sy = rect.height ? canvas.height / rect.height : 1;
+            return { mZ: (e.clientX - rect.left) * sx, mX: (e.clientY - rect.top) * sy };
+        }
+
+        function getMouseCoordinates(e) {
+            const { mZ, mX } = canvasPx(e);
+            let coords = toMachineCoords(mX, mZ);
+            const s = snapMm();
+            let zVal = snapVal(coords.z, s);
+            let xVal = snapVal(coords.x, s);
+            if (zVal > 0) zVal = 0;
+            if (xVal < 0) xVal = 0;
+
+            // orto/45° snap wg poprzedniego punktu aktywnego profilu (tylko szkic)
+            const orthoArr = activeSketch();
+            if (orthoArr.length > 0 && !isAnimating && cadTool() === 'SKETCH') {
+                const last = orthoArr[orthoArr.length - 1];
+                const dZ = zVal - last.z;
+                const dX_rad = (xVal - last.x) / 2;
+                if (dZ !== 0 || dX_rad !== 0) {
+                    let deg = Math.atan2(dX_rad, dZ) * 180 / Math.PI;
+                    if (deg < 0) deg += 360;
+                    const th = 8;
+                    if (Math.abs(deg) < th || Math.abs(deg - 360) < th || Math.abs(deg - 180) < th) xVal = last.x;
+                    else if (Math.abs(deg - 90) < th || Math.abs(deg - 270) < th) zVal = last.z;
+                }
+            }
+            return { x: xVal, z: zVal };
+        }
+
+        // Surowa pozycja (bez snapowania) — do rysowania odręcznego (profil: Z<=0, X>=0)
+        function getRawMachineCoords(e) {
+            const coords = getUnclampedMachineCoords(e);
+            let z = coords.z, x = coords.x;
+            if (z > 0) z = 0;
+            if (x < 0) x = 0;
+            return { x, z };
+        }
+
+        // Zupełnie surowa pozycja, bez żadnego przycinania — do kalibracji podkładu
+        // (kliknięcia kalibracyjne mogą wypaść poza zakresem Z<=0 / X>=0 profilu).
+        function getUnclampedMachineCoords(e) {
+            const { mZ, mX } = canvasPx(e);
+            return toMachineCoords(mX, mZ);
+        }
+
+        // Uproszczenie Douglasa-Peuckera odręcznej kreski do rozsądnej liczby punktów profilu.
+        // Odległości liczone w płaszczyźnie Z / promień (x/2), spójnie z resztą geometrii.
+        function rdpSimplify(points, epsilon) {
+            if (points.length < 3) return points.slice();
+            function distToSeg(p, a, b) {
+                const az = a.z, ar = a.x / 2, bz = b.z, br = b.x / 2, pz = p.z, pr = p.x / 2;
+                const dz = bz - az, dr = br - ar;
+                const len2 = dz * dz + dr * dr;
+                if (len2 < 1e-9) return Math.hypot(pz - az, pr - ar);
+                let t = ((pz - az) * dz + (pr - ar) * dr) / len2;
+                t = Math.max(0, Math.min(1, t));
+                return Math.hypot(pz - (az + t * dz), pr - (ar + t * dr));
+            }
+            let maxD = 0, idx = 0;
+            for (let i = 1; i < points.length - 1; i++) {
+                const d = distToSeg(points[i], points[0], points[points.length - 1]);
+                if (d > maxD) { maxD = d; idx = i; }
+            }
+            if (maxD > epsilon) {
+                const left = rdpSimplify(points.slice(0, idx + 1), epsilon);
+                const right = rdpSimplify(points.slice(idx), epsilon);
+                return left.slice(0, -1).concat(right);
+            }
+            return [points[0], points[points.length - 1]];
+        }
+
+        function finishFreehandStroke() {
+            const raw = freehandRaw;
+            freehandRaw = [];
+            if (raw.length < 2) { drawCAD(); return; }
+            const simplified = rdpSimplify(raw, 0.6);
+            if (simplified.length < 2) { drawCAD(); return; }
+            profile = simplified.map(p => ({ x: p.x, z: p.z, corner: 'none', cval: 0, groove: false }));
+            syncBlank();
+            refreshAll();
+            toast('Wygenerowano profil z odręcznego rysunku (' + profile.length + ' punktów).', 'ok');
+        }
+
+        /* ============================================================
+           MYSZ / RYSOWANIE PROFILU
+           ============================================================ */
+        // Znajduje najbliższy punkt profilu pod kursorem (do przyciągania i pokazywania wymiaru)
+        function nearestProfilePoint(e) {
+            if (!profile.length) return -1;
+            const { mZ, mX } = canvasPx(e);
+            let best = -1, bestD = 12;
+            for (let i = 0; i < profile.length; i++) {
+                const d = Math.hypot(getZPix(profile[i].z) - mZ, getXPix(profile[i].x) - mX);
+                if (d < bestD) { bestD = d; best = i; }
+            }
+            return best;
+        }
+
+        // Odległość punktu (px) od odcinka (px)
+        function distPointToSegPx(px, py, ax, ay, bx, by) {
+            const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
+            if (len2 < 1e-6) return Math.hypot(px - ax, py - ay);
+            let t = ((px - ax) * dx + (py - ay) * dy) / len2;
+            t = Math.max(0, Math.min(1, t));
+            return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+        }
+
+        // Najbliższy segment profilu pod kursorem — zwraca i (odcinek profile[i-1]..profile[i])
+        function nearestSegmentIndex(e) {
+            if (profile.length < 2) return -1;
+            const { mZ, mX } = canvasPx(e);
+            let best = -1, bestD = 10; // próg [px]
+            for (let i = 1; i < profile.length; i++) {
+                const a = profile[i - 1], b = profile[i];
+                const d = distPointToSegPx(mZ, mX, getZPix(a.z), getXPix(a.x), getZPix(b.z), getXPix(b.x));
+                if (d < bestD) { bestD = d; best = i; }
+            }
+            return best;
+        }
+
+        // Wstawia punkt na istniejącej linii (np. w połowie — do zrobienia wcięcia/podcięcia)
+        function insertPointOnSegment(e) {
+            if (profile.length < 2) { showError('Najpierw narysuj profil — potrzebna jest linia.'); return; }
+            const si = nearestSegmentIndex(e);
+            if (si < 1) { showError('Najedź na istniejącą linię, aby wstawić punkt.'); return; }
+            const a = profile[si - 1], b = profile[si];
+            const pt = getMouseCoordinates(e);
+            // utrzymaj kolejność Z (malejąco) w obrębie odcinka
+            const zHi = Math.max(a.z, b.z), zLo = Math.min(a.z, b.z);
+            let z = Math.min(zHi, Math.max(zLo, pt.z));
+            let x = Math.max(0, pt.x);
+            profile.splice(si, 0, { x, z, corner: 'none', cval: 0, groove: false });
+            hoverSegIdx = -1;
+            syncBlank();
+            activeRowIdx = si;
+            refreshAll();
+            toast('Dodano punkt na linii — zmień jego Ø/Z w tabeli, aby zrobić wcięcie.', 'ok');
+        }
+
+        canvas.addEventListener('mousedown', (e) => {
+            // Przesuwanie pola roboczego: PPM, środkowy przycisk lub Shift+LPM
+            if (e.button === 2 || e.button === 1 || (e.button === 0 && e.shiftKey)) {
+                isDragging = true; startDragPos = { x: e.clientX, y: e.clientY };
+                canvas.style.cursor = 'grabbing'; return;
+            }
+            if (e.button !== 0 || isAnimating) return;
+
+            if (cadTool() === 'FILLET') { applyCornerAt(e); return; }
+
+            if (cadTool() === 'INSERT') { insertPointOnSegment(e); return; }
+
+            if (cadTool() === 'FREEHAND') {
+                isFreehandDrawing = true;
+                freehandRaw = [getRawMachineCoords(e)];
+                return;
+            }
+
+            const pt = getMouseCoordinates(e);
+
+            // SKETCH — do aktywnego profilu (toczenie lub wytaczanie)
+            const drawBore = drawTarget() === 'BORE';
+            const arr = drawBore ? boreProfile : profile;
+            const last = arr.length ? arr[arr.length - 1] : { x: (drawBore || isInternal()) ? 20 : 0, z: 0 };
+            if (arr.length && pt.z > last.z) { showError('Nowy punkt musi iść w lewo (Z ≤ poprzedniemu).'); return; }
+            if (!drawBore && codeMode() === 'CYCLE' && g71Type() === '1' && profile.length) {
+                if (!isInternal() && pt.x < last.x) { showError('Typ 1: średnica (X) nie może maleć. Użyj Typ 2 dla podcięć.'); return; }
+                if (isInternal() && pt.x > last.x) { showError('Typ 1 (wytaczanie): średnica otworu nie może rosnąć w głąb. Użyj Typ 2.'); return; }
+            }
+            if (arr.length && pt.x === last.x && pt.z === last.z) return;
+
+            arr.push({ x: pt.x, z: pt.z, corner: 'none', cval: 0, groove: false });
+            if (drawBore) { drawCAD(); updateBoreInfo(); if (tableTarget === 'BORE') renderTable(); }
+            else { syncBlank(); refreshAll(); }
+        });
+
+        // Wyłącz menu kontekstowe na płótnie — PPM służy do przesuwania widoku
+        canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+        window.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                const rect = canvas.getBoundingClientRect();
+                const sx = rect.width ? canvas.width / rect.width : 1;
+                const sy = rect.height ? canvas.height / rect.height : 1;
+                originZ += (e.clientX - startDragPos.x) * sx;
+                originX += (e.clientY - startDragPos.y) * sy;
+                startDragPos = { x: e.clientX, y: e.clientY };
+                drawCAD();
+            } else if (isFreehandDrawing) {
+                const pt = getRawMachineCoords(e);
+                const last = freehandRaw[freehandRaw.length - 1];
+                const dz = pt.z - last.z, dr = (pt.x - last.x) / 2;
+                if (Math.hypot(dz, dr) > 0.4) freehandRaw.push(pt);
+                document.getElementById('badge_pos').innerHTML = `X <b>${fmt(pt.x)}</b> &nbsp; Z <b>${fmt(pt.z)}</b>`;
+                drawCAD();
+            } else {
+                currentMouseGrid = getMouseCoordinates(e);
+                const bore = drawTarget() === 'BORE';
+                hoverPointIdx = (mouseInCanvas && !bore) ? nearestProfilePoint(e) : -1;
+                hoverSegIdx = (mouseInCanvas && !bore && hoverPointIdx < 0) ? nearestSegmentIndex(e) : -1;
+                canvas.style.cursor = hoverPointIdx >= 0 ? 'pointer'
+                    : (cadTool() === 'INSERT' && hoverSegIdx >= 0) ? 'copy'
+                    : (cadTool() === 'FILLET' || hoverSegIdx >= 0) ? 'pointer' : 'crosshair';
+                document.getElementById('badge_pos').innerHTML = `X <b>${fmt(currentMouseGrid.x)}</b> &nbsp; Z <b>${fmt(currentMouseGrid.z)}</b>`;
+                if (!isAnimating) drawCAD();
+            }
+        });
+        window.addEventListener('mouseup', () => {
+            if (isDragging) { isDragging = false; canvas.style.cursor = 'crosshair'; }
+            if (isFreehandDrawing) { isFreehandDrawing = false; finishFreehandStroke(); }
+        });
+
+        // Podgląd kreskowanej linii tylko gdy kursor jest nad polem szkicu
+        canvas.addEventListener('mouseenter', () => { mouseInCanvas = true; });
+        canvas.addEventListener('mouseleave', () => { mouseInCanvas = false; hoverPointIdx = -1; hoverSegIdx = -1; if (!isAnimating) drawCAD(); });
+
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const { mZ, mX } = canvasPx(e);
+            const under = toMachineCoords(mX, mZ);
+            scale *= e.deltaY < 0 ? 1.12 : 1 / 1.12;
+            scale = Math.max(0.8, Math.min(240, scale)); // duży zoom -> siatka i przyciąganie do 0.05 mm
+            originZ = mZ - under.z * scale;
+            originX = mX + (under.x / 2) * scale;
+            drawCAD();
+        });
+
+        /* ---------- Faza / promień na narożu (klik w styk linii) ---------- */
+        // Znajduje najbliższe naroże (wierzchołek wewnętrzny) do kliknięcia
+        function nearestCornerIndex(e) {
+            const { mZ, mX } = canvasPx(e);
+            let best = -1, bestDist = 15; // próg w px
+            for (let i = 1; i < profile.length - 1; i++) {
+                const px = getZPix(profile[i].z), py = getXPix(profile[i].x);
+                const d = Math.hypot(px - mZ, py - mX);
+                if (d < bestDist) { bestDist = d; best = i; }
+            }
+            return best;
+        }
+
+        function applyCornerAt(e) {
+            if (profile.length < 3) { showError('Najpierw narysuj profil — potrzebne są przynajmniej dwa styki linii.'); return; }
+            const idx = nearestCornerIndex(e);
+            if (idx < 0) { showError('Kliknij dokładnie na styk dwóch linii (naroże).'); return; }
+            openCornerDialog(idx);
+        }
+
+        function openCornerDialog(idx) {
+            const pt = profile[idx];
+            let kind = prompt('Naroże #' + idx + ' — wpisz rodzaj:\n  C = faza,  R = promień,  0 = usuń',
+                              pt.corner === 'none' ? 'C' : pt.corner);
+            if (kind === null) return;
+            kind = kind.trim().toUpperCase();
+            if (kind === '0' || kind === 'NONE' || kind === '') {
+                pt.corner = 'none'; pt.cval = 0;
+                toast('Usunięto fazę/promień na narożu #' + idx + '.', 'info');
+                refreshAll(); return;
+            }
+            if (kind !== 'C' && kind !== 'R') { showError('Wpisz C (faza), R (promień) lub 0.'); return; }
+            const vStr = prompt((kind === 'C' ? 'Faza C' : 'Promień R') + ' na narożu #' + idx + ' (mm):',
+                                pt.cval > 0 ? fmt(pt.cval) : '1');
+            if (vStr === null) return;
+            const v = parseFloat(vStr);
+            if (isNaN(v) || v <= 0) { showError('Podaj dodatnią wartość.'); return; }
+            pt.corner = kind; pt.cval = v;
+            toast((kind === 'C' ? 'Dodano fazę C' : 'Dodano promień R') + fmt(v) + ' na narożu #' + idx + '.', 'ok');
+            refreshAll();
+        }
+
+        /* ============================================================
+           RYSOWANIE
+           ============================================================ */
+        function drawCAD() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const dBlank = parseFloat(document.getElementById('d_blank').value) || 90;
+            const internal = isInternal();
+
+            // Siatka realnych milimetrów — węzły zawsze na "ładnych" wartościach (…0.05, 0.1, 0.5, 1 mm…).
+            // Ten sam krok mm w kierunku Z i promienia -> oczka są kwadratowe w px (krok = step*scale).
+            const step = gridStepMm();          // drobny krok [mm]
+            const majEvery = 5;                 // mocniejsza linia co 5 oczek
+            const stepPx = step * scale;
+            // zakres widocznych współrzędnych
+            const zL = (0 - originZ) / scale, zR = (canvas.width - originZ) / scale;   // [mm] w osi Z
+            const rTop = (originX - 0) / scale, rBot = (originX - canvas.height) / scale; // promień [mm]
+            const eps = 1e-6;
+
+            // pionowe linie (stała wartość Z)
+            let kz0 = Math.ceil(zL / step - eps), kz1 = Math.floor(zR / step + eps);
+            for (let k = kz0; k <= kz1; k++) {
+                const zPix = originZ + k * step * scale;
+                const isMajor = (((k % majEvery) + majEvery) % majEvery) === 0;
+                ctx.lineWidth = 1;
+                ctx.strokeStyle = isMajor ? 'rgba(148,163,184,0.16)' : 'rgba(148,163,184,0.055)';
+                ctx.beginPath(); ctx.moveTo(zPix, 0); ctx.lineTo(zPix, canvas.height); ctx.stroke();
+            }
+            // poziome linie (stały promień -> średnica = 2*promień)
+            let kr0 = Math.ceil(rBot / step - eps), kr1 = Math.floor(rTop / step + eps);
+            for (let k = kr0; k <= kr1; k++) {
+                const xPix = originX - k * step * scale;
+                const isMajor = (((k % majEvery) + majEvery) % majEvery) === 0;
+                ctx.lineWidth = 1;
+                ctx.strokeStyle = isMajor ? 'rgba(148,163,184,0.16)' : 'rgba(148,163,184,0.055)';
+                ctx.beginPath(); ctx.moveTo(0, xPix); ctx.lineTo(canvas.width, xPix); ctx.stroke();
+            }
+
+            // oś obrotu
+            ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 1.4; ctx.setLineDash([9, 5]);
+            ctx.beginPath(); ctx.moveTo(0, originX); ctx.lineTo(canvas.width, originX); ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.fillStyle = '#f59e0b'; ctx.font = '10px monospace';
+            ctx.fillText('OŚ  Z / CL', 8, originX - 6);
+
+            // etykiety osi na liniach głównych (realne mm) — większe i jasne, dobrze widoczne
+            const majStep = step * majEvery;
+            ctx.font = 'bold 12px monospace';
+            ctx.fillStyle = '#f1f5f9';
+            ctx.shadowColor = 'rgba(0,0,0,0.85)'; ctx.shadowBlur = 3;
+            for (let k = kz0; k <= kz1; k++) {
+                if ((((k % majEvery) + majEvery) % majEvery) !== 0) continue;
+                const zVal = Math.round(k * step * 1000) / 1000;
+                if (zVal > eps) continue; // profil: Z ≤ 0
+                ctx.fillText(fmt(zVal), originZ + k * step * scale - 8, originX + 17);
+            }
+            for (let k = kr0; k <= kr1; k++) {
+                if ((((k % majEvery) + majEvery) % majEvery) !== 0) continue;
+                const diam = Math.round(k * step * 2 * 1000) / 1000;
+                if (diam <= eps) continue; // pomiń oś (Ø0)
+                ctx.fillText('Ø' + fmt(diam), originZ + 6, originX - k * step * scale + 3);
+            }
+            ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
+
+            // materiał
+            const zsProfile = profile.map(p => p.z);
+            const zMin = zsProfile.length ? Math.min(...zsProfile) : -60;
+            if (internal) {
+                // rura: OD blank, otwór wstępny; usuwany materiał między otworem a profilem
+                const dPilot = parseFloat(document.getElementById('d_pilot').value) || 20;
+                ctx.fillStyle = 'rgba(148,163,184,0.10)';
+                ctx.fillRect(getZPix(0), getXPix(dBlank), (getZPix(zMin) - getZPix(0)), originX - getXPix(dBlank));
+                ctx.strokeStyle = 'rgba(148,163,184,0.25)';
+                ctx.strokeRect(getZPix(0), getXPix(dBlank), (getZPix(zMin) - getZPix(0)), originX - getXPix(dBlank));
+                // otwór wstępny (linia)
+                ctx.strokeStyle = 'rgba(245,158,11,0.5)'; ctx.setLineDash([5, 4]); ctx.lineWidth = 1.2;
+                ctx.beginPath(); ctx.moveTo(getZPix(0), getXPix(dPilot)); ctx.lineTo(getZPix(zMin), getXPix(dPilot)); ctx.stroke();
+                ctx.setLineDash([]);
+            } else {
+                ctx.fillStyle = 'rgba(148,163,184,0.08)';
+                ctx.strokeStyle = 'rgba(148,163,184,0.2)';
+                ctx.fillRect(getZPix(0), getXPix(dBlank), (getZPix(zMin) - getZPix(0)), originX - getXPix(dBlank));
+                ctx.strokeRect(getZPix(0), getXPix(dBlank), (getZPix(zMin) - getZPix(0)), originX - getXPix(dBlank));
+            }
+
+            // symulacja
+            if (isAnimating && simulationPath.length) {
+                ctx.strokeStyle = 'rgba(239,68,68,0.4)'; ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.moveTo(getZPix(simulationPath[0].z), getXPix(simulationPath[0].x));
+                for (let i = 1; i <= simIndex && i < simulationPath.length; i++)
+                    ctx.lineTo(getZPix(simulationPath[i].z), getXPix(simulationPath[i].x));
+                ctx.stroke();
+                const pX = getXPix(currentSimPos.x), pZ = getZPix(currentSimPos.z);
+                ctx.fillStyle = '#ef4444';
+                ctx.beginPath();
+                if (internal) { ctx.moveTo(pZ, pX); ctx.lineTo(pZ - 12, pX + 8); ctx.lineTo(pZ - 4, pX + 12); }
+                else { ctx.moveTo(pZ, pX); ctx.lineTo(pZ - 12, pX - 8); ctx.lineTo(pZ - 4, pX - 12); }
+                ctx.closePath(); ctx.fill();
+            }
+
+            // znacznik trybu krokowego (pozycja narzędzia bieżącej linii kodu)
+            if (stepMode && stepPos && !isAnimating) {
+                const pX = getXPix(stepPos.x), pZ = getZPix(stepPos.z);
+                ctx.strokeStyle = '#facc15'; ctx.lineWidth = 1.4; ctx.setLineDash([4, 3]);
+                ctx.beginPath(); ctx.moveTo(pZ, 0); ctx.lineTo(pZ, canvas.height);
+                ctx.moveTo(0, pX); ctx.lineTo(canvas.width, pX); ctx.stroke(); ctx.setLineDash([]);
+                ctx.fillStyle = '#facc15';
+                ctx.beginPath();
+                if (internal) { ctx.moveTo(pZ, pX); ctx.lineTo(pZ - 13, pX + 9); ctx.lineTo(pZ - 4, pX + 13); }
+                else { ctx.moveTo(pZ, pX); ctx.lineTo(pZ - 13, pX - 9); ctx.lineTo(pZ - 4, pX - 13); }
+                ctx.closePath(); ctx.fill();
+            }
+
+            // profil (z fazami/promieniami)
+            if (profile.length) {
+                const render = buildRenderPath(profile);
+                // segmenty rowka innym kolorem
+                ctx.lineWidth = 3; ctx.lineJoin = 'round';
+                for (let i = 1; i < render.length; i++) {
+                    const a = render[i - 1], b = render[i];
+                    ctx.strokeStyle = (a.groove && b.groove) ? '#a855f7' : '#00b4e6';
+                    ctx.beginPath();
+                    ctx.moveTo(getZPix(a.z), getXPix(a.x));
+                    ctx.lineTo(getZPix(b.z), getXPix(b.x));
+                    ctx.stroke();
+                }
+                // węzły
+                profile.forEach((pt, i) => {
+                    const px = getZPix(pt.z), py = getXPix(pt.x);
+                    if (i === activeRowIdx && tableTarget !== 'BORE') {
+                        // punkt edytowany w tabeli — wyróżnienie
+                        ctx.strokeStyle = '#facc15'; ctx.lineWidth = 2;
+                        ctx.beginPath(); ctx.arc(px, py, 9, 0, 2 * Math.PI); ctx.stroke();
+                        ctx.fillStyle = 'rgba(250, 204, 21, 0.25)';
+                        ctx.beginPath(); ctx.arc(px, py, 9, 0, 2 * Math.PI); ctx.fill();
+                    }
+                    ctx.fillStyle = pt.groove ? '#c084fc' : '#38bdf8';
+                    ctx.beginPath(); ctx.arc(px, py, 4, 0, 2 * Math.PI); ctx.fill();
+                    ctx.fillStyle = '#0b1120'; ctx.font = 'bold 9px monospace';
+                    ctx.fillText(i, px - 3, py + 3);
+                });
+
+                // auto-wymiary (odczyt z tabeli, rysowane lekko)
+                drawAutoDims();
+            }
+
+            // profil wytaczania (pomarańczowy) — rysowany w tym samym szkicowniku
+            if (boreSketchOn() && boreProfile.length) {
+                const brender = buildRenderPath(boreProfile);
+                ctx.lineWidth = 3; ctx.lineJoin = 'round';
+                ctx.strokeStyle = '#fb923c';
+                ctx.beginPath();
+                ctx.moveTo(getZPix(brender[0].z), getXPix(brender[0].x));
+                for (let i = 1; i < brender.length; i++) ctx.lineTo(getZPix(brender[i].z), getXPix(brender[i].x));
+                ctx.stroke();
+                boreProfile.forEach((pt, i) => {
+                    const px = getZPix(pt.z), py = getXPix(pt.x);
+                    if (i === activeRowIdx && tableTarget === 'BORE') {
+                        ctx.strokeStyle = '#facc15'; ctx.lineWidth = 2;
+                        ctx.beginPath(); ctx.arc(px, py, 9, 0, 2 * Math.PI); ctx.stroke();
+                        ctx.fillStyle = 'rgba(250, 204, 21, 0.25)';
+                        ctx.beginPath(); ctx.arc(px, py, 9, 0, 2 * Math.PI); ctx.fill();
+                    }
+                    ctx.fillStyle = '#fdba74';
+                    ctx.beginPath(); ctx.arc(px, py, 4, 0, 2 * Math.PI); ctx.fill();
+                    ctx.fillStyle = '#0b1120'; ctx.font = 'bold 9px monospace';
+                    ctx.fillText(i, px - 3, py + 3);
+                });
+                // wymiary segmentów
+                ctx.font = '10px monospace';
+                for (let i = 1; i < boreProfile.length; i++) {
+                    const a = boreProfile[i - 1], b = boreProfile[i];
+                    const midZ = (getZPix(a.z) + getZPix(b.z)) / 2, midX = (getXPix(a.x) + getXPix(b.x)) / 2;
+                    ctx.fillStyle = '#fdba74';
+                    if (Math.abs(a.z - b.z) < 0.1 && Math.abs(a.x - b.x) > 0.1) ctx.fillText('Ø' + fmt(b.x), midZ + 6, midX);
+                    else if (Math.abs(a.x - b.x) < 0.1 && Math.abs(a.z - b.z) > 0.1) ctx.fillText(fmt(Math.abs(b.z - a.z)), midZ - 6, midX - 6);
+                }
+            }
+
+            // podgląd linii — tylko gdy kursor jest nad polem szkicu i nie przyciągamy punktu
+            const previewArr = activeSketch();
+            const previewColor = drawTarget() === 'BORE' ? '#fb923c' : '#22c55e';
+            if (!isAnimating && mouseInCanvas && hoverPointIdx < 0 && cadTool() === 'SKETCH' && previewArr.length) {
+                const last = previewArr[previewArr.length - 1];
+                if (currentMouseGrid.z <= last.z) {
+                    ctx.strokeStyle = previewColor; ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
+                    ctx.beginPath();
+                    ctx.moveTo(getZPix(last.z), getXPix(last.x));
+                    ctx.lineTo(getZPix(currentMouseGrid.z), getXPix(currentMouseGrid.x));
+                    ctx.stroke(); ctx.setLineDash([]);
+                    // kąt rysowanej linii względem osi Z (0° = wzdłuż osi, 90° = czoło)
+                    const dz = currentMouseGrid.z - last.z, dr = (currentMouseGrid.x - last.x) / 2;
+                    let angTxt = '';
+                    if (Math.hypot(dz, dr) > 0.5) {
+                        const ang = Math.atan2(Math.abs(dr), Math.abs(dz)) * 180 / Math.PI;
+                        angTxt = '  ∠' + (Math.round(ang * 10) / 10) + '°';
+                    }
+                    // długość rysowanej linii
+                    const segL = Math.hypot(dz, dr);
+                    const lenTxt = segL > 0.05 ? '  L' + fmt(Math.round(segL * 100) / 100) : '';
+                    ctx.fillStyle = previewColor; ctx.font = '11px monospace';
+                    ctx.fillText(`Ø${fmt(currentMouseGrid.x)}  Z${fmt(currentMouseGrid.z)}${angTxt}${lenTxt}`,
+                        getZPix(currentMouseGrid.z) + 10, getXPix(currentMouseGrid.x) - 8);
+                }
+            }
+
+            // przyciąganie / wymiar punktu profilu pod kursorem
+            if (!isAnimating && hoverPointIdx >= 0 && hoverPointIdx < profile.length) {
+                const pt = profile[hoverPointIdx];
+                const px = getZPix(pt.z), py = getXPix(pt.x);
+                ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.arc(px, py, 8, 0, 2 * Math.PI); ctx.stroke();
+                // linie odniesienia do osi i czoła
+                ctx.setLineDash([3, 3]); ctx.strokeStyle = 'rgba(34,211,238,0.5)';
+                ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px, originX);
+                ctx.moveTo(px, py); ctx.lineTo(getZPix(0), py); ctx.stroke(); ctx.setLineDash([]);
+                const lbl = `#${hoverPointIdx}  Ø${fmt(pt.x)}  Z${fmt(pt.z)}`;
+                ctx.font = 'bold 12px monospace';
+                const w = ctx.measureText(lbl).width + 12;
+                ctx.fillStyle = 'rgba(9,14,25,0.92)';
+                ctx.fillRect(px + 12, py - 24, w, 20);
+                ctx.strokeStyle = 'rgba(34,211,238,0.5)'; ctx.lineWidth = 1;
+                ctx.strokeRect(px + 12, py - 24, w, 20);
+                ctx.fillStyle = '#67e8f9';
+                ctx.fillText(lbl, px + 18, py - 10);
+            }
+
+            // wymiar linii (segmentu) pod kursorem — długość / wysokość
+            if (!isAnimating && hoverPointIdx < 0 && hoverSegIdx >= 1 && hoverSegIdx < profile.length) {
+                const a = profile[hoverSegIdx - 1], b = profile[hoverSegIdx];
+                const ax = getZPix(a.z), ay = getXPix(a.x), bx = getZPix(b.z), by = getXPix(b.x);
+                const insertMode = cadTool() === 'INSERT';
+                ctx.strokeStyle = insertMode ? '#f472b6' : '#22d3ee';
+                ctx.lineWidth = 3.5; ctx.lineCap = 'round';
+                ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+                ctx.lineCap = 'butt';
+                const dz = b.z - a.z, dDiam = b.x - a.x, dr = dDiam / 2;
+                const L = Math.round(Math.hypot(dz, dr) * 100) / 100;
+                const parts = ['L' + fmt(L)];
+                if (Math.abs(dz) > 0.005) parts.push('ΔZ' + fmt(Math.round(Math.abs(dz) * 100) / 100));
+                if (Math.abs(dDiam) > 0.005) parts.push('ΔØ' + fmt(Math.round(Math.abs(dDiam) * 100) / 100));
+                const lbl = parts.join('  ');
+                const mx = (ax + bx) / 2, my = (ay + by) / 2;
+                ctx.font = 'bold 12px monospace';
+                const w = ctx.measureText(lbl).width + 12;
+                ctx.fillStyle = 'rgba(9,14,25,0.92)';
+                ctx.fillRect(mx + 12, my - 26, w, 20);
+                ctx.strokeStyle = insertMode ? 'rgba(244,114,182,0.6)' : 'rgba(34,211,238,0.5)'; ctx.lineWidth = 1;
+                ctx.strokeRect(mx + 12, my - 26, w, 20);
+                ctx.fillStyle = insertMode ? '#fbcfe8' : '#67e8f9';
+                ctx.fillText(lbl, mx + 18, my - 12);
+            }
+
+            // podgląd rysowania odręcznego (flamaster)
+            if (isFreehandDrawing && freehandRaw.length > 1) {
+                ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 2.5; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+                ctx.beginPath();
+                ctx.moveTo(getZPix(freehandRaw[0].z), getXPix(freehandRaw[0].x));
+                for (let i = 1; i < freehandRaw.length; i++) {
+                    ctx.lineTo(getZPix(freehandRaw[i].z), getXPix(freehandRaw[i].x));
+                }
+                ctx.stroke();
+            }
+        }
+
+        // wymiary czytelnie, bez klikania (wartości wprost przy segmentach)
+        function drawAutoDims() {
+            ctx.font = '10px monospace';
+            for (let i = 1; i < profile.length; i++) {
+                const a = profile[i - 1], b = profile[i];
+                const midZ = (getZPix(a.z) + getZPix(b.z)) / 2;
+                const midX = (getXPix(a.x) + getXPix(b.x)) / 2;
+                if (Math.abs(a.z - b.z) < 0.1 && Math.abs(a.x - b.x) > 0.1) {
+                    // segment pionowy -> średnica
+                    ctx.fillStyle = b.groove ? '#c084fc' : '#7dd3fc';
+                    ctx.fillText('Ø' + fmt(b.x), midZ + 6, midX);
+                } else if (Math.abs(a.x - b.x) < 0.1 && Math.abs(a.z - b.z) > 0.1) {
+                    ctx.fillStyle = b.groove ? '#c084fc' : '#7dd3fc';
+                    ctx.fillText(fmt(Math.abs(b.z - a.z)), midZ - 6, midX - 6);
+                }
+            }
+        }
+
+        // rozwija fazy/promienie na segmenty do rysowania
+        function buildRenderPath(pts) {
+            if (pts.length < 3) return pts.map(p => ({ x: p.x, z: p.z, groove: p.groove }));
+            const out = [{ x: pts[0].x, z: pts[0].z, groove: pts[0].groove }];
+            for (let i = 1; i < pts.length - 1; i++) {
+                const p = pts[i];
+                if (p.corner === 'none' || !p.cval) { out.push({ x: p.x, z: p.z, groove: p.groove }); continue; }
+                const prev = pts[i - 1], next = pts[i + 1];
+                let c = cornerTangent(prev, p, next, p.corner, p.cval);
+                c = Math.min(c, 0.49 * segLen(prev, p), 0.49 * segLen(p, next));
+                const inA = unit(p, prev), outA = unit(p, next);
+                const pIn = { x: p.x + inA.x * c * 2, z: p.z + inA.z * c, groove: p.groove };
+                const pOut = { x: p.x + outA.x * c * 2, z: p.z + outA.z * c, groove: p.groove };
+                out.push(pIn);
+                if (p.corner === 'R') {
+                    // łuk aproksymowany
+                    for (let t = 0.25; t < 1; t += 0.25) {
+                        out.push({
+                            x: (1 - t) * (1 - t) * pIn.x + 2 * (1 - t) * t * p.x + t * t * pOut.x,
+                            z: (1 - t) * (1 - t) * pIn.z + 2 * (1 - t) * t * p.z + t * t * pOut.z,
+                            groove: p.groove
+                        });
+                    }
+                }
+                out.push(pOut);
+            }
+            out.push({ x: pts[pts.length - 1].x, z: pts[pts.length - 1].z, groove: pts[pts.length - 1].groove });
+            return out;
+        }
+        function segLen(a, b) { const dx = (a.x - b.x) / 2, dz = a.z - b.z; return Math.hypot(dx, dz); }
+        function unit(from, to) { const dx = (to.x - from.x) / 2, dz = to.z - from.z, l = Math.hypot(dx, dz) || 1; return { x: dx / l, z: dz / l }; }
+
+        /* ============================================================
+           GEOMETRIA NAROŻY (faza / promień) -> jawne ruchy G-code
+           Fazy jako G01 X.. Z.., promienie jako G02/G03 X.. Z.. R..
+           ============================================================ */
+        // punkt w odległości t od `from` w kierunku `toward` (w płaszczyźnie Z–promień)
+        function pointAlong(from, toward, t) {
+            const fr = from.x / 2, tr = toward.x / 2;
+            const dz = toward.z - from.z, dr = tr - fr;
+            const L = Math.hypot(dz, dr) || 1;
+            return { z: from.z + dz / L * t, x: (fr + dr / L * t) * 2 };
+        }
+        // długość styczności naroża: faza = ramię C; promień = R / tan(kąt/2)
+        function cornerTangent(prev, p, next, type, cval) {
+            if (type === 'C') return cval;
+            const v1z = prev.z - p.z, v1r = (prev.x - p.x) / 2;
+            const v2z = next.z - p.z, v2r = (next.x - p.x) / 2;
+            const a1 = Math.hypot(v1z, v1r) || 1, a2 = Math.hypot(v2z, v2r) || 1;
+            let cosang = (v1z * v2z + v1r * v2r) / (a1 * a2);
+            cosang = Math.max(-1, Math.min(1, cosang));
+            const ang = Math.acos(cosang);
+            const tt = Math.tan(ang / 2);
+            return Math.abs(tt) < 1e-6 ? cval : cval / tt;
+        }
+        // kierunek łuku: Z poziomo w prawo, promień pionowo w górę; CCW -> G03, CW -> G02
+        function arcDir(prev, p, next) {
+            const inz = p.z - prev.z, inr = (p.x - prev.x) / 2;
+            const outz = next.z - p.z, outr = (next.x - p.x) / 2;
+            const cross = inz * outr - inr * outz;
+            return cross > 0 ? 'G03' : 'G02';
+        }
+        // buduje listę ruchów konturu (z rozwinięciem faz i promieni)
+        function buildContourMoves(pts) {
+            const moves = [];
+            const n = pts.length;
+            for (let i = 1; i < n; i++) {
+                const p = pts[i], prev = pts[i - 1];
+                const interior = i < n - 1;
+                const hasCorner = interior && p.corner && p.corner !== 'none' && p.cval > 0;
+                if (!hasCorner) { moves.push({ g: 'G01', x: p.x, z: p.z }); continue; }
+                const next = pts[i + 1];
+                let t = cornerTangent(prev, p, next, p.corner, p.cval);
+                t = Math.min(t, 0.98 * segLen(prev, p), 0.98 * segLen(p, next));
+                if (t <= 1e-4) { moves.push({ g: 'G01', x: p.x, z: p.z }); continue; }
+                const pin = pointAlong(p, prev, t);
+                const pout = pointAlong(p, next, t);
+                moves.push({ g: 'G01', x: pin.x, z: pin.z });
+                if (p.corner === 'C') moves.push({ g: 'G01', x: pout.x, z: pout.z, chamfer: true });
+                else moves.push({ g: arcDir(prev, p, next), x: pout.x, z: pout.z, r: p.cval });
+            }
+            return moves;
+        }
+        // wspólna emisja ruchów konturu (używana i przez cykl G71/G70, i przez tryb blokowy)
+        function emitMoveLines(g, moves, startX, startZ) {
+            let curX = startX, curZ = startZ;
+            for (const m of moves) {
+                let line = m.g;
+                if (m.g === 'G02' || m.g === 'G03') {
+                    line += ' X' + fmtNC(m.x) + ' Z' + fmtNC(m.z) + ' R' + fmtNC(m.r);
+                } else if (m.chamfer) {
+                    line += ' X' + fmtNC(m.x) + ' Z' + fmtNC(m.z);   // jawna faza
+                } else {
+                    if (Math.abs(m.x - curX) > 1e-6) line += ' X' + fmtNC(m.x);
+                    if (Math.abs(m.z - curZ) > 1e-6) line += ' Z' + fmtNC(m.z);
+                }
+                g.push(line);
+                curX = m.x; curZ = m.z;
+            }
+        }
+
+        function emitContour(g, first, type2, fFin, approachX, P, Q) {
+            if (type2) {
+                g.push(`N${P} G00 X${fmtNC(first.x)} Z${fmtNC(first.z)}`);
+            } else {
+                g.push(`N${P} G00 X${fmtNC(first.x)}`);
+                g.push(`G01 Z${fmtNC(first.z)} F${fmtNC(fFin)}`);
+            }
+            emitMoveLines(g, buildContourMoves(profile), first.x, first.z);
+            g.push(`N${Q} G00 X${fmtNC(approachX)}`);
+        }
+
+        // Kontur G71/G70 z podanego (dowolnego) profilu — typ 2 (dowolny kształt/podcięcia)
+        function emitContourPts(g, pts, approachX, P, Q) {
+            const first = pts[0];
+            g.push(`N${P} G00 X${fmtNC(first.x)} Z${fmtNC(first.z)}`);
+            emitMoveLines(g, buildContourMoves(pts), first.x, first.z);
+            g.push(`N${Q} G00 X${fmtNC(approachX)}`);
+        }
+
+        // Tryb "blok po bloku": jawne przejścia zgrubne (bez G71) + osobny przejazd wykańczający (bez G70)
+        function emitRoughBlocks(g, internal, dBlank, dPilot, ap, allowX, fRough, approachX, safeZ, minX, maxX) {
+            const passes = computeRoughPasses(internal, dBlank, dPilot, ap, allowX, minX, maxX);
+            let passNum = 0, firstCut = true;
+            for (const pass of passes) {
+                passNum++;
+                g.push(`(PRZEJSCIE ZGRUBNE ${passNum} - Fi${fmt(pass.d)})`);
+                for (const iv of pass.intervals) {
+                    // dojazd przez bezpieczną średnicę podejścia — bezpieczne nawet gdy
+                    // pomiędzy odcinkami zostaje nieobrobiona "wysepka" (naddatek)
+                    g.push(`G00 Z${fmtNC(iv.zStart)}`);
+                    g.push(`G00 X${fmtNC(pass.d)}`);
+                    g.push(`G01 Z${fmtNC(iv.zEnd)}${firstCut ? ' F' + fmtNC(fRough) : ''}`);
+                    firstCut = false;
+                    g.push(`G00 X${fmtNC(approachX)}`);
+                }
+            }
+            g.push(`G00 Z${fmtNC(safeZ)}`);
+        }
+
+        function emitFinishBlock(g, first, fFin, approachX) {
+            g.push('(PRZEJSCIE WYKANCZAJACE)');
+            g.push(`G00 X${fmtNC(first.x)}`);
+            g.push(`G01 Z${fmtNC(first.z)} F${fmtNC(fFin)}`);
+            emitMoveLines(g, buildContourMoves(profile), first.x, first.z);
+            g.push(`G00 X${fmtNC(approachX)}`);
+        }
+
+        // Buduje część roboczą toczenia (od linii narzędzia do wyjścia), bez nagłówka i stopki programu.
+        // Zwraca { lines, header, sim } lub null przy błędzie.
+        function turningBody() {
+            if (profile.length < 2) { showError('Za mało punktów profilu.'); return null; }
+
+            const internal = isInternal();
+            const mode = codeMode();               // CYCLE / BLOCKS
+            const type2 = g71Type() === '2';
+            const dBlank = parseFloat(document.getElementById('d_blank').value);
+            const dPilot = parseFloat(document.getElementById('d_pilot').value) || 20;
+            const ap = parseFloat(document.getElementById('ap').value);
+            const isG96 = document.querySelector('input[name="spindle_mode"]:checked').value === 'G96';
+            const speed = parseFloat(document.getElementById('spindle_speed').value);
+            const g50 = parseFloat(document.getElementById('g50_limit').value);
+            const fRough = parseFloat(document.getElementById('feed_rough').value);
+            const fFin = parseFloat(document.getElementById('feed_finish').value);
+            const tool = document.getElementById('tool_no').value;
+            const allowX = parseFloat(document.getElementById('finish_allowance_x').value);
+            const allowZ = parseFloat(document.getElementById('finish_allowance_z').value);
+            const safeZ = parseFloat(document.getElementById('safe_z').value);
+
+            if (mode === 'CYCLE' && !type2) {
+                for (let i = 1; i < profile.length; i++) {
+                    if (!internal && profile[i].x < profile[i - 1].x - 1e-6) { showError('Typ 1: profil zewn. musi rosnąć. Przełącz na Typ 2 lub na "Blok po bloku".'); return null; }
+                    if (internal && profile[i].x > profile[i - 1].x + 1e-6) { showError('Typ 1: otwór nie może rosnąć w głąb. Przełącz na Typ 2 lub na "Blok po bloku".'); return null; }
+                }
+            }
+
+            const g = [];
+            const P = 10, Q = 20;
+            const zMin = Math.min(...profile.map(p => p.z));
+            const maxX = Math.max(...profile.map(p => p.x));
+            const minX = Math.min(...profile.map(p => p.x));
+            const modeTag = mode === 'CYCLE' ? ('G71 TYP ' + (type2 ? '2' : '1')) : 'BLOK PO BLOKU';
+
+            g.push('T' + tool + ' (' + (internal ? 'NOZ WYTACZAK' : 'NOZ ZEWNETRZNY') + ')');
+            g.push('G54');
+            if (isG96) { g.push('G50 S' + g50); g.push('G96 S' + Math.round(speed) + ' M03'); }
+            else { g.push('G97 S' + Math.round(speed) + ' M03'); }
+
+            const Iout = internal ? -Math.abs(allowX) : Math.abs(allowX);
+            const approachX = internal ? Math.max(dPilot - 2, 1) : dBlank + 6;
+
+            g.push('G00 Z' + fmtNC(safeZ) + ' M08');
+            g.push('G00 X' + fmtNC(approachX));
+
+            if (mode === 'CYCLE') {
+                g.push('');
+                g.push(`G71 P${P} Q${Q} D${fmtNC(ap)} I${fmtNC(Iout)} K${fmtNC(allowZ)} F${fmtNC(fRough)}`);
+                emitContour(g, profile[0], type2, fFin, approachX, P, Q);
+                g.push('');
+                g.push(`G70 P${P} Q${Q} F${fmtNC(fFin)}`);
+            } else {
+                g.push('');
+                emitRoughBlocks(g, internal, dBlank, dPilot, ap, allowX, fRough, approachX, safeZ, minX, maxX);
+                g.push('');
+                emitFinishBlock(g, profile[0], fFin, approachX);
+            }
+            g.push('');
+            g.push('G00 Z' + fmtNC(safeZ) + ' M09');
+
+            return {
+                lines: g,
+                header: 'HAAS ST-35Y - ' + (internal ? 'WYTACZANIE WEWN.' : 'TOCZENIE ZEWN.') + ' - ' + modeTag,
+                sim: { internal, dBlank, dPilot, ap, allowX, safeZ, approachX, zMin, maxX, minX }
+            };
+        }
+
+        function generateGcode() {
+            const t = turningBody();
+            if (!t) return;
+            const g = ['%', 'O1002 (' + t.header + ')', 'G21 G18', 'G40 G80 G99', '']
+                .concat(t.lines)
+                .concat(['G00 G53 X0. Y0.', 'G53 Z0.', 'M05', 'M30', '%']);
+            renderOutput(g);
+            const s = t.sim;
+            buildSimPath(s.internal, s.dBlank, s.dPilot, s.ap, s.allowX, s.safeZ, s.approachX, s.zMin, s.maxX, s.minX);
+            if (!isAnimating && simulationPath.length) currentSimPos = { ...simulationPath[0] };
+        }
+
+        /* ============================================================
+           WYJŚCIE + GENEROWANIE KROK PO KROKU
+           ============================================================ */
+        let codeLines = [];      // { text, x, z, isMotion }
+        let stepMode = false;
+        let stepIndex = 0;
+        let stepPos = null;      // pozycja narzędzia w bieżącym kroku
+
+        function escapeHTML(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+        /* ---------- Okno z G-code: przesuwanie, rozciąganie, pamięć położenia ---------- */
+        const OUT_KEY = 'camOutputWinGeom';
+        const outputWin = document.getElementById('card_output');
+        const outputBar = document.getElementById('output_titlebar');
+
+        function saveOutputGeom() {
+            if (outputWin.style.display === 'none') return;
+            const g = {
+                left: outputWin.style.left, top: outputWin.style.top,
+                width: outputWin.offsetWidth + 'px', height: outputWin.offsetHeight + 'px'
+            };
+            try { localStorage.setItem(OUT_KEY, JSON.stringify(g)); } catch (e) {}
+        }
+        function placeOutputDefault() {
+            const w = 560, h = 480;
+            outputWin.style.width = w + 'px'; outputWin.style.height = h + 'px';
+            outputWin.style.left = Math.max(12, window.innerWidth - w - 28) + 'px';
+            // niżej niż nagłówek szkicownika, aby nie zasłaniać przycisków (⛶, Wymiarowanie)
+            outputWin.style.top = '214px';
+        }
+        function restoreOutputGeom() {
+            try {
+                const g = JSON.parse(localStorage.getItem(OUT_KEY));
+                if (g && g.left) {
+                    outputWin.style.left = g.left; outputWin.style.top = g.top;
+                    if (g.width) outputWin.style.width = g.width;
+                    if (g.height) outputWin.style.height = g.height;
+                    return true;
+                }
+            } catch (e) {}
+            return false;
+        }
+        function ensureOutputOnScreen() {
+            const w = outputWin.offsetWidth, h = outputWin.offsetHeight;
+            let left = parseFloat(outputWin.style.left) || 0;
+            let top = parseFloat(outputWin.style.top) || 96;
+            left = Math.max(0, Math.min(window.innerWidth - Math.min(w, window.innerWidth), left));
+            top = Math.max(38, Math.min(window.innerHeight - 60, top));
+            outputWin.style.left = left + 'px'; outputWin.style.top = top + 'px';
+        }
+        function revealOutput() {
+            outputWin.style.display = '';
+            if (!outputWin.dataset.placed) {
+                if (!restoreOutputGeom()) placeOutputDefault();
+                outputWin.dataset.placed = '1';
+            }
+            ensureOutputOnScreen();
+        }
+        document.getElementById('btn_output_close').addEventListener('click', () => { outputWin.style.display = 'none'; });
+
+        // przeciąganie za pasek tytułu
+        let outDrag = null;
+        outputBar.addEventListener('mousedown', (e) => {
+            if (e.target.closest('button')) return;
+            const r = outputWin.getBoundingClientRect();
+            outDrag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+            outputWin.style.transition = 'none';
+            e.preventDefault();
+        });
+        window.addEventListener('mousemove', (e) => {
+            if (!outDrag) return;
+            const w = outputWin.offsetWidth, h = outputWin.offsetHeight;
+            let left = Math.max(0, Math.min(window.innerWidth - w, e.clientX - outDrag.dx));
+            let top = Math.max(38, Math.min(window.innerHeight - 40, e.clientY - outDrag.dy));
+            outputWin.style.left = left + 'px'; outputWin.style.top = top + 'px';
+        });
+        window.addEventListener('mouseup', () => { if (outDrag) { outDrag = null; saveOutputGeom(); } });
+
+        // zapamiętaj rozmiar po rozciągnięciu (uchwyt w rogu)
+        if (window.ResizeObserver) new ResizeObserver(() => saveOutputGeom()).observe(outputWin);
+
+        /* ---------- Uniwersalne pływające okno (przesuwanie + pamięć położenia) ---------- */
+        function makeFloatingWindow(win, bar, key) {
+            function save() {
+                if (win.style.display === 'none') return;
+                try { localStorage.setItem(key, JSON.stringify({ left: win.style.left, top: win.style.top, width: win.offsetWidth + 'px', height: win.offsetHeight + 'px' })); } catch (e) {}
+            }
+            function restore() {
+                try {
+                    const g = JSON.parse(localStorage.getItem(key));
+                    if (g && g.left) { win.style.left = g.left; win.style.top = g.top; if (g.width) win.style.width = g.width; if (g.height) win.style.height = g.height; return true; }
+                } catch (e) {}
+                return false;
+            }
+            function ensureOnScreen() {
+                const w = win.offsetWidth;
+                let left = parseFloat(win.style.left) || 0, top = parseFloat(win.style.top) || 96;
+                left = Math.max(0, Math.min(window.innerWidth - Math.min(w, window.innerWidth), left));
+                top = Math.max(38, Math.min(window.innerHeight - 60, top));
+                win.style.left = left + 'px'; win.style.top = top + 'px';
+            }
+            let drag = null;
+            bar.addEventListener('mousedown', (e) => {
+                if (e.target.closest('button')) return;
+                const r = win.getBoundingClientRect();
+                drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+                e.preventDefault();
+            });
+            window.addEventListener('mousemove', (e) => {
+                if (!drag) return;
+                const w = win.offsetWidth;
+                win.style.left = Math.max(0, Math.min(window.innerWidth - w, e.clientX - drag.dx)) + 'px';
+                win.style.top = Math.max(38, Math.min(window.innerHeight - 40, e.clientY - drag.dy)) + 'px';
+            });
+            window.addEventListener('mouseup', () => { if (drag) { drag = null; save(); } });
+            if (window.ResizeObserver) new ResizeObserver(() => save()).observe(win);
+            return { save, restore, ensureOnScreen };
+        }
+
+        /* ---------- Pływające okno „Wymiarowanie" (tabela punktów) ---------- */
+        const dimsFloat = document.getElementById('dims_float');
+        const dimsBody = document.getElementById('dims_float_body');
+        const dimsTab = document.getElementById('tab_dims');
+        const dimsWin = makeFloatingWindow(dimsFloat, document.getElementById('dims_float_titlebar'), 'camDimsWinGeom');
+        let dimsFloatOpen = false;
+        function placeDimsDefault() {
+            dimsFloat.style.width = '480px'; dimsFloat.style.height = '440px';
+            dimsFloat.style.left = '40px'; dimsFloat.style.top = '120px';
+        }
+        function openDimsFloat() {
+            if (dimsFloatOpen) return;
+            while (dimsTab.firstChild) dimsBody.appendChild(dimsTab.firstChild); // przenieś treść zakładki
+            dimsFloat.style.display = '';
+            if (!dimsFloat.dataset.placed) { if (!dimsWin.restore()) placeDimsDefault(); dimsFloat.dataset.placed = '1'; }
+            dimsWin.ensureOnScreen();
+            dimsFloatOpen = true;
+            renderTable();
+        }
+        function closeDimsFloat() {
+            if (!dimsFloatOpen) return;
+            while (dimsBody.firstChild) dimsTab.appendChild(dimsBody.firstChild); // oddaj treść zakładce
+            dimsFloat.style.display = 'none';
+            dimsFloatOpen = false;
+        }
+        document.getElementById('btn_dims_float').addEventListener('click', () => {
+            dimsFloatOpen ? closeDimsFloat() : openDimsFloat();
+        });
+        document.getElementById('btn_dims_close').addEventListener('click', closeDimsFloat);
+
+        function renderOutput(lines) {
+            // zbuduj model kroków z modalnym X/Z (średnica)
+            codeLines = [];
+            let curX = null, curZ = null;
+            lines.forEach(text => {
+                const mX = text.match(/X(-?\d+\.?\d*)/);
+                const mZ = text.match(/Z(-?\d+\.?\d*)/);
+                if (mX) curX = parseFloat(mX[1]);
+                if (mZ) curZ = parseFloat(mZ[1]);
+                const isMotion = /\bG0?[0-3]\b/.test(text) && (mX || mZ);
+                codeLines.push({ text, x: curX, z: curZ, isMotion });
+            });
+            // wyrenderuj każdą linię jako span (do podświetlania w trybie krokowym)
+            ncOutput.innerHTML = codeLines
+                .map((l, i) => `<span class="ln" data-ln="${i}">${escapeHTML(l.text)}</span>`)
+                .join('');
+            if (stepMode) { stepIndex = Math.min(stepIndex, codeLines.length - 1); highlightStep(); }
+        }
+
+        function setStepMode(on) {
+            stepMode = on;
+            document.getElementById('step_bar').classList.toggle('show', on);
+            document.getElementById('btn_step_mode').innerText = on ? '■ Zakończ tryb krokowy' : '▷ Krok po kroku';
+            if (on) {
+                if (!codeLines.length) { showError('Najpierw wygeneruj G-code.'); setStepMode(false); return; }
+                stepIndex = 0; highlightStep();
+            } else {
+                stepPos = null;
+                ncOutput.querySelectorAll('.ln.cur').forEach(el => el.classList.remove('cur'));
+                drawCAD();
+            }
+        }
+
+        function stepGo(dir) {
+            if (!stepMode || !codeLines.length) return;
+            stepIndex = Math.max(0, Math.min(codeLines.length - 1, stepIndex + dir));
+            highlightStep();
+        }
+
+        function highlightStep() {
+            ncOutput.querySelectorAll('.ln').forEach(el => {
+                el.classList.toggle('cur', parseInt(el.dataset.ln) === stepIndex);
+            });
+            const cur = ncOutput.querySelector('.ln.cur');
+            if (cur) cur.scrollIntoView({ block: 'nearest' });
+            const l = codeLines[stepIndex];
+            document.getElementById('step_info').innerHTML =
+                `Krok <b>${stepIndex + 1}</b> / ${codeLines.length}` +
+                (l && l.isMotion && l.x != null ? ` &nbsp;→&nbsp; X<b>${fmt(l.x)}</b> Z<b>${l.z != null ? fmt(l.z) : '—'}</b>` : '');
+            // pozycja narzędzia dla bieżącej linii ruchu
+            if (l && l.x != null && l.z != null) stepPos = { x: l.x, z: l.z };
+            drawCAD();
+        }
+
+        /* ============================================================
+           SYMULACJA ŚCIEŻKI (podgląd zgrubny + wykańczający)
+           ============================================================ */
+        function sampleProfile(nStep) {
+            // gęste próbki (z, x) wzdłuż konturu
+            const out = [];
+            const render = buildRenderPath(profile);
+            for (let i = 1; i < render.length; i++) {
+                const a = render[i - 1], b = render[i];
+                for (let t = 0; t <= 1; t += 0.05) {
+                    out.push({ z: a.z + (b.z - a.z) * t, x: a.x + (b.x - a.x) * t });
+                }
+            }
+            return out;
+        }
+
+        // Wyznacza listę przejść zgrubnych z uwzględnieniem lokalnego profilu (rowki / podcięcia).
+        // Każde przejście na średnicy d może obejmować KILKA rozłącznych odcinków Z, jeśli
+        // pomiędzy nimi profil ma "wysepkę" (naddatek grubszy niż d) — np. dno rowka wymaga
+        // dalszego zbliżania się średnicy d już po tym, jak sąsiednie płaskie odcinki są gotowe.
+        function computeRoughPasses(internal, dBlank, dPilot, ap, allowX, minX, maxX) {
+            const sorted = sampleProfile().sort((a, b) => b.z - a.z); // Z: 0 -> najbardziej ujemne
+            const eps = 1e-6;
+
+            function intervalsForDiameter(d) {
+                const out = [];
+                let start = null, lastZ = null;
+                for (const s of sorted) {
+                    const hit = internal ? (s.x - allowX * 2) > d + eps : (s.x + allowX * 2) < d - eps;
+                    if (hit && start === null) start = s.z;
+                    if (!hit && start !== null) { out.push({ zStart: start, zEnd: lastZ }); start = null; }
+                    lastZ = s.z;
+                }
+                if (start !== null) out.push({ zStart: start, zEnd: lastZ });
+                return out.filter(iv => iv.zStart - iv.zEnd > 0.1);
+            }
+
+            const passes = [];
+            if (!internal) {
+                let d = dBlank;
+                const target = minX + allowX * 2; // najgłębszy lokalny cel (np. dno rowka)
+                let guard = 0;
+                while (d > target + 0.01 && guard++ < 600) {
+                    d -= ap * 2;
+                    if (d < target) d = target;
+                    const intervals = intervalsForDiameter(d);
+                    if (intervals.length) passes.push({ d, intervals });
+                }
+            } else {
+                let d = dPilot;
+                const target = maxX - allowX * 2; // najszersze lokalne rozszerzenie (np. kieszeń w otworze)
+                let guard = 0;
+                while (d < target - 0.01 && guard++ < 600) {
+                    d += ap * 2;
+                    if (d > target) d = target;
+                    const intervals = intervalsForDiameter(d);
+                    if (intervals.length) passes.push({ d, intervals });
+                }
+            }
+            return passes;
+        }
+
+        function buildSimPath(internal, dBlank, dPilot, ap, allowX, safeZ, approachX, zMin, maxX, minX) {
+            simulationPath = [];
+            simulationPath.push({ x: approachX, z: safeZ, type: 'G0' });
+
+            const passes = computeRoughPasses(internal, dBlank, dPilot, ap, allowX, minX, maxX);
+            for (const pass of passes) {
+                for (const iv of pass.intervals) {
+                    simulationPath.push({ x: approachX, z: iv.zStart, type: 'G0' });
+                    simulationPath.push({ x: pass.d, z: iv.zStart, type: 'G0' });
+                    simulationPath.push({ x: pass.d, z: iv.zEnd, type: 'G1' });
+                    simulationPath.push({ x: approachX, z: iv.zEnd, type: 'G1' });
+                }
+            }
+            simulationPath.push({ x: approachX, z: safeZ, type: 'G0' });
+
+            // przejście wykańczające po konturze
+            simulationPath.push({ x: approachX, z: safeZ, type: 'G0' });
+            const render = buildRenderPath(profile);
+            render.forEach(p => simulationPath.push({ x: p.x, z: p.z, type: 'G1' }));
+            simulationPath.push({ x: approachX, z: zMin, type: 'G1' });
+            simulationPath.push({ x: approachX, z: safeZ, type: 'G0' });
+        }
+
+        function updateAnimation() {
+            if (simIndex >= simulationPath.length) { stopAnimation(); toast('Symulacja zakończona.', 'ok'); return; }
+            const t = simulationPath[simIndex];
+            const dx = t.x - currentSimPos.x, dz = t.z - currentSimPos.z;
+            const dist = Math.hypot(dx, dz);
+            const step = t.type === 'G0' ? 6 : 1.4;
+            if (dist <= step) { currentSimPos = { x: t.x, z: t.z }; simIndex++; }
+            else { currentSimPos.x += dx / dist * step; currentSimPos.z += dz / dist * step; }
+            drawCAD();
+            animationId = requestAnimationFrame(updateAnimation);
+        }
+        function stopAnimation() {
+            isAnimating = false;
+            if (animationId) cancelAnimationFrame(animationId);
+            animationId = null;
+            document.getElementById('cad_title').innerText = 'Szkicownik profilu 2D';
+            drawCAD();
+        }
+
+        /* ============================================================
+           GWINTOWANIE (G92 / G76) — tabela gwintów + generowanie kodu
+           ============================================================ */
+        // Formy gwintów: kąt zarysu, współczynniki głębokości (na promieniu), stożek (na średnicy/długość)
+        const FORM = {
+            M:    { angle: 60, kExt: 0.6134, kInt: 0.5413, taper: 0,      lbl: 'metryczny 60°' },
+            G:    { angle: 55, kExt: 0.6403, kInt: 0.6403, taper: 0,      lbl: 'BSP rurowy 55° (równoległy G)' },
+            R:    { angle: 55, kExt: 0.6403, kInt: 0.6403, taper: 1 / 16, lbl: 'BSPT rurowy 55° (stożek 1:16)' },
+            NPT:  { angle: 60, kExt: 0.8000, kInt: 0.8000, taper: 1 / 16, lbl: 'NPT rurowy 60° (stożek 1:16)' },
+            NPTF: { angle: 60, kExt: 0.8000, kInt: 0.8000, taper: 1 / 16, lbl: 'NPTF dryseal 60° (stożek 1:16)' }
+        };
+        // Gwinty calowe: p = 25.4 / TPI. d = średnica zewn. (major) w mm.
+        function bsp(name, d, tpi, form) { return { name, d, tpi, form }; }
+        const THREADS = [
+            { header: 'METRYCZNE — ZWYKŁE' },
+            { name: 'M3 × 0.5', d: 3, p: 0.5, form: 'M' },
+            { name: 'M4 × 0.7', d: 4, p: 0.7, form: 'M' },
+            { name: 'M5 × 0.8', d: 5, p: 0.8, form: 'M' },
+            { name: 'M6 × 1.0', d: 6, p: 1.0, form: 'M' },
+            { name: 'M8 × 1.25', d: 8, p: 1.25, form: 'M' },
+            { name: 'M10 × 1.5', d: 10, p: 1.5, form: 'M' },
+            { name: 'M12 × 1.75', d: 12, p: 1.75, form: 'M' },
+            { name: 'M14 × 2.0', d: 14, p: 2.0, form: 'M' },
+            { name: 'M16 × 2.0', d: 16, p: 2.0, form: 'M' },
+            { name: 'M18 × 2.5', d: 18, p: 2.5, form: 'M' },
+            { name: 'M20 × 2.5', d: 20, p: 2.5, form: 'M' },
+            { name: 'M22 × 2.5', d: 22, p: 2.5, form: 'M' },
+            { name: 'M24 × 3.0', d: 24, p: 3.0, form: 'M' },
+            { name: 'M27 × 3.0', d: 27, p: 3.0, form: 'M' },
+            { name: 'M30 × 3.5', d: 30, p: 3.5, form: 'M' },
+            { name: 'M33 × 3.5', d: 33, p: 3.5, form: 'M' },
+            { name: 'M36 × 4.0', d: 36, p: 4.0, form: 'M' },
+            { name: 'M39 × 4.0', d: 39, p: 4.0, form: 'M' },
+            { name: 'M42 × 4.5', d: 42, p: 4.5, form: 'M' },
+            { name: 'M45 × 4.5', d: 45, p: 4.5, form: 'M' },
+            { name: 'M48 × 5.0', d: 48, p: 5.0, form: 'M' },
+            { name: 'M52 × 5.0', d: 52, p: 5.0, form: 'M' },
+            { name: 'M56 × 5.5', d: 56, p: 5.5, form: 'M' },
+            { name: 'M60 × 5.5', d: 60, p: 5.5, form: 'M' },
+            { name: 'M64 × 6.0', d: 64, p: 6.0, form: 'M' },
+            { name: 'M68 × 6.0', d: 68, p: 6.0, form: 'M' },
+            { name: 'M72 × 6.0', d: 72, p: 6.0, form: 'M' },
+            { name: 'M76 × 6.0', d: 76, p: 6.0, form: 'M' },
+            { name: 'M80 × 6.0', d: 80, p: 6.0, form: 'M' },
+            { name: 'M85 × 6.0', d: 85, p: 6.0, form: 'M' },
+            { name: 'M90 × 6.0', d: 90, p: 6.0, form: 'M' },
+            { name: 'M95 × 6.0', d: 95, p: 6.0, form: 'M' },
+            { name: 'M100 × 6.0', d: 100, p: 6.0, form: 'M' },
+            { name: 'M110 × 6.0', d: 110, p: 6.0, form: 'M' },
+            { name: 'M120 × 6.0', d: 120, p: 6.0, form: 'M' },
+            { name: 'M130 × 6.0', d: 130, p: 6.0, form: 'M' },
+
+            { header: 'METRYCZNE — DROBNOZWOJNE' },
+            { name: 'M8 × 1.0', d: 8, p: 1.0, form: 'M' },
+            { name: 'M10 × 1.25', d: 10, p: 1.25, form: 'M' },
+            { name: 'M10 × 1.0', d: 10, p: 1.0, form: 'M' },
+            { name: 'M12 × 1.5', d: 12, p: 1.5, form: 'M' },
+            { name: 'M12 × 1.25', d: 12, p: 1.25, form: 'M' },
+            { name: 'M14 × 1.5', d: 14, p: 1.5, form: 'M' },
+            { name: 'M16 × 1.5', d: 16, p: 1.5, form: 'M' },
+            { name: 'M18 × 1.5', d: 18, p: 1.5, form: 'M' },
+            { name: 'M20 × 1.5', d: 20, p: 1.5, form: 'M' },
+            { name: 'M22 × 1.5', d: 22, p: 1.5, form: 'M' },
+            { name: 'M24 × 2.0', d: 24, p: 2.0, form: 'M' },
+            { name: 'M24 × 1.5', d: 24, p: 1.5, form: 'M' },
+            { name: 'M27 × 2.0', d: 27, p: 2.0, form: 'M' },
+            { name: 'M30 × 2.0', d: 30, p: 2.0, form: 'M' },
+            { name: 'M30 × 1.5', d: 30, p: 1.5, form: 'M' },
+            { name: 'M33 × 2.0', d: 33, p: 2.0, form: 'M' },
+            { name: 'M36 × 3.0', d: 36, p: 3.0, form: 'M' },
+            { name: 'M36 × 2.0', d: 36, p: 2.0, form: 'M' },
+            { name: 'M39 × 3.0', d: 39, p: 3.0, form: 'M' },
+            { name: 'M42 × 3.0', d: 42, p: 3.0, form: 'M' },
+            { name: 'M42 × 2.0', d: 42, p: 2.0, form: 'M' },
+            { name: 'M45 × 3.0', d: 45, p: 3.0, form: 'M' },
+            { name: 'M48 × 3.0', d: 48, p: 3.0, form: 'M' },
+            { name: 'M48 × 2.0', d: 48, p: 2.0, form: 'M' },
+            { name: 'M52 × 3.0', d: 52, p: 3.0, form: 'M' },
+            { name: 'M56 × 4.0', d: 56, p: 4.0, form: 'M' },
+            { name: 'M56 × 2.0', d: 56, p: 2.0, form: 'M' },
+            { name: 'M60 × 4.0', d: 60, p: 4.0, form: 'M' },
+            { name: 'M64 × 4.0', d: 64, p: 4.0, form: 'M' },
+            { name: 'M64 × 3.0', d: 64, p: 3.0, form: 'M' },
+            { name: 'M72 × 4.0', d: 72, p: 4.0, form: 'M' },
+            { name: 'M72 × 3.0', d: 72, p: 3.0, form: 'M' },
+            { name: 'M80 × 4.0', d: 80, p: 4.0, form: 'M' },
+            { name: 'M80 × 3.0', d: 80, p: 3.0, form: 'M' },
+            { name: 'M90 × 4.0', d: 90, p: 4.0, form: 'M' },
+            { name: 'M90 × 3.0', d: 90, p: 3.0, form: 'M' },
+            { name: 'M100 × 4.0', d: 100, p: 4.0, form: 'M' },
+            { name: 'M100 × 3.0', d: 100, p: 3.0, form: 'M' },
+            { name: 'M110 × 4.0', d: 110, p: 4.0, form: 'M' },
+            { name: 'M120 × 4.0', d: 120, p: 4.0, form: 'M' },
+            { name: 'M130 × 4.0', d: 130, p: 4.0, form: 'M' },
+
+            { header: 'RUROWE BSP — RÓWNOLEGŁE (G, 55°)' },
+            bsp('G 1/8" (28 TPI)', 9.728, 28, 'G'),
+            bsp('G 1/4" (19 TPI)', 13.157, 19, 'G'),
+            bsp('G 3/8" (19 TPI)', 16.662, 19, 'G'),
+            bsp('G 1/2" (14 TPI)', 20.955, 14, 'G'),
+            bsp('G 5/8" (14 TPI)', 22.911, 14, 'G'),
+            bsp('G 3/4" (14 TPI)', 26.441, 14, 'G'),
+            bsp('G 7/8" (14 TPI)', 30.201, 14, 'G'),
+            bsp('G 1" (11 TPI)', 33.249, 11, 'G'),
+            bsp('G 1.1/4" (11 TPI)', 41.910, 11, 'G'),
+            bsp('G 1.1/2" (11 TPI)', 47.803, 11, 'G'),
+            bsp('G 1.3/4" (11 TPI)', 53.746, 11, 'G'),
+            bsp('G 2" (11 TPI)', 59.614, 11, 'G'),
+            bsp('G 2.1/2" (11 TPI)', 75.184, 11, 'G'),
+            bsp('G 3" (11 TPI)', 87.884, 11, 'G'),
+            bsp('G 4" (11 TPI)', 113.030, 11, 'G'),
+
+            { header: 'RUROWE BSPT — STOŻKOWE (R, 55° 1:16)' },
+            bsp('R 1/8" (28 TPI)', 9.728, 28, 'R'),
+            bsp('R 1/4" (19 TPI)', 13.157, 19, 'R'),
+            bsp('R 3/8" (19 TPI)', 16.662, 19, 'R'),
+            bsp('R 1/2" (14 TPI)', 20.955, 14, 'R'),
+            bsp('R 3/4" (14 TPI)', 26.441, 14, 'R'),
+            bsp('R 1" (11 TPI)', 33.249, 11, 'R'),
+            bsp('R 1.1/4" (11 TPI)', 41.910, 11, 'R'),
+            bsp('R 1.1/2" (11 TPI)', 47.803, 11, 'R'),
+            bsp('R 2" (11 TPI)', 59.614, 11, 'R'),
+            bsp('R 2.1/2" (11 TPI)', 75.184, 11, 'R'),
+            bsp('R 3" (11 TPI)', 87.884, 11, 'R'),
+            bsp('R 4" (11 TPI)', 113.030, 11, 'R'),
+
+            { header: 'RUROWE NPT / NPTF (60° 1:16)' },
+            bsp('NPT 1/16" (27 TPI)', 7.938, 27, 'NPT'),
+            bsp('NPT 1/8" (27 TPI)', 10.287, 27, 'NPT'),
+            bsp('NPT 1/4" (18 TPI)', 13.716, 18, 'NPT'),
+            bsp('NPT 3/8" (18 TPI)', 17.145, 18, 'NPT'),
+            bsp('NPT 1/2" (14 TPI)', 21.336, 14, 'NPT'),
+            bsp('NPT 3/4" (14 TPI)', 26.670, 14, 'NPT'),
+            bsp('NPT 1" (11.5 TPI)', 33.401, 11.5, 'NPT'),
+            bsp('NPT 1.1/4" (11.5 TPI)', 42.164, 11.5, 'NPT'),
+            bsp('NPT 1.1/2" (11.5 TPI)', 48.260, 11.5, 'NPT'),
+            bsp('NPT 2" (11.5 TPI)', 60.325, 11.5, 'NPT'),
+            bsp('NPT 2.1/2" (8 TPI)', 73.025, 8, 'NPT'),
+            bsp('NPT 3" (8 TPI)', 88.900, 8, 'NPT'),
+            bsp('NPT 4" (8 TPI)', 114.300, 8, 'NPT'),
+            bsp('NPTF 1/8" (27 TPI)', 10.287, 27, 'NPTF'),
+            bsp('NPTF 1/4" (18 TPI)', 13.716, 18, 'NPTF'),
+            bsp('NPTF 3/8" (18 TPI)', 17.145, 18, 'NPTF'),
+            bsp('NPTF 1/2" (14 TPI)', 21.336, 14, 'NPTF'),
+            bsp('NPTF 3/4" (14 TPI)', 26.670, 14, 'NPTF'),
+            bsp('NPTF 1" (11.5 TPI)', 33.401, 11.5, 'NPTF'),
+
+            { name: 'Własny (ręcznie)', custom: true, form: 'M' }
+        ];
+        let threadSel = THREADS.findIndex(t => t.name === 'M16 × 1.5');
+
+        function threadSide() { return document.querySelector('input[name="thread_side"]:checked').value; } // EXT / INT
+        function threadCycle() { return document.querySelector('input[name="thread_cycle"]:checked').value; } // G76 / G92
+        function threadInfeed() { return document.querySelector('input[name="thread_infeed"]:checked').value; } // PASSES / DEPTH
+
+        function renderThreadMenu() {
+            const menu = document.getElementById('thread_dd_menu');
+            menu.innerHTML = THREADS.map((t, i) => t.header
+                ? `<div class="dd-head">${t.header}</div>`
+                : `<div class="dd-opt${i === threadSel ? ' active' : ''}" data-ti="${i}">${t.name}</div>`).join('');
+            menu.querySelectorAll('.dd-opt').forEach(opt => {
+                opt.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    threadSel = parseInt(opt.dataset.ti);
+                    const t = THREADS[threadSel];
+                    document.getElementById('thread_dd_label').innerText = t.name;
+                    document.getElementById('thread_custom_wrap').style.display = t.custom ? 'grid' : 'none';
+                    if (!t.custom) {
+                        document.getElementById('thread_d').value = fmt(Math.round(t.d * 1000) / 1000);
+                        document.getElementById('thread_p').value = fmt(Math.round((t.tpi ? 25.4 / t.tpi : t.p) * 1000) / 1000);
+                    }
+                    closeAllCornerMenus();
+                    updateThreadInfo();
+                });
+            });
+        }
+
+        // Parametry geometryczne gwintu (uwzględnia formę: kąt, głębokość, stożek)
+        function threadGeom() {
+            const t = THREADS[threadSel];
+            const form = FORM[(t && t.form) || 'M'] || FORM.M;
+            let d, p;
+            if (t.custom) { d = parseFloat(document.getElementById('thread_d').value); p = parseFloat(document.getElementById('thread_p').value); }
+            else { d = t.d; p = t.tpi ? 25.4 / t.tpi : t.p; }
+            const internal = threadSide() === 'INT';
+            const hRad = (internal ? form.kInt : form.kExt) * p;
+            let majorDia, xFinal, startDia, approachDia;
+            if (!internal) {
+                majorDia = d;                       // średnica kryzy (crest) zewn.
+                xFinal = d - 2 * hRad;              // średnica rdzenia (minor)
+                startDia = d;                       // start od kryzy
+                approachDia = d + 2;                // bezpieczny dosuw
+            } else {
+                majorDia = d;                       // średnica gwintu (crest) w otworze = nominał
+                startDia = d - 2 * hRad;            // otwór wstępny (minor)
+                xFinal = d;                         // docinamy do średnicy nominalnej
+                approachDia = Math.max(startDia - 2, 1);
+            }
+            return { d, p, internal, hRad, majorDia, xFinal, startDia, approachDia,
+                     angle: form.angle, taperRatio: form.taper, formLbl: form.lbl };
+        }
+
+        // Lista średnic przejść (średnice absolutne X), z ostatnim przejściem = xFinal + przejście wygładzające
+        function threadPassDiameters(geo) {
+            const passes = [];
+            const totalDepth = geo.hRad; // na promieniu
+            const dir = geo.internal ? 1 : -1; // zewn. maleje, wewn. rośnie
+            const base = geo.startDia;
+            if (threadInfeed() === 'PASSES') {
+                const N = Math.max(1, Math.round(parseFloat(document.getElementById('thread_passes').value)));
+                for (let i = 1; i <= N; i++) {
+                    const cum = totalDepth * Math.sqrt(i / N);  // rozkład malejący (stały przekrój wióra)
+                    passes.push(base + dir * 2 * cum);
+                }
+            } else {
+                const ap = Math.max(0.02, parseFloat(document.getElementById('thread_depth').value));
+                let cum = 0;
+                while (cum < totalDepth - 1e-6) {
+                    cum = Math.min(cum + ap, totalDepth);
+                    passes.push(base + dir * 2 * cum);
+                }
+            }
+            passes.push(geo.xFinal); // przejście wygładzające (spring pass) na pełnej głębokości
+            return passes;
+        }
+
+        function updateThreadInfo() {
+            const geo = threadGeom();
+            if (isNaN(geo.d) || isNaN(geo.p) || geo.p <= 0) { document.getElementById('thread_info').innerHTML = 'Podaj poprawną średnicę i skok.'; return; }
+            const passes = threadPassDiameters(geo);
+            const r2 = v => fmt(Math.round(v * 100) / 100);
+            const el = document.getElementById('thread_info');
+            el.innerHTML =
+                `Forma: <b>${geo.formLbl}</b><br>` +
+                `Skok P: <b>${fmt(Math.round(geo.p * 1000) / 1000)}</b> mm &nbsp; Głębokość (promień): <b>${fmt(Math.round(geo.hRad * 1000) / 1000)}</b> mm<br>` +
+                (geo.internal
+                    ? `Otwór wstępny Ø: <b>${r2(geo.startDia)}</b> → gwint Ø<b>${r2(geo.majorDia)}</b><br>`
+                    : `Kryza Ø<b>${r2(geo.majorDia)}</b> → rdzeń Ø<b>${r2(geo.xFinal)}</b><br>`) +
+                (geo.taperRatio ? `Stożek: <b>1:16</b> — sprawdź kierunek na maszynie<br>` : '') +
+                `Liczba przejść: <b>${passes.length}</b> (w tym 1 wygładzające)`;
+        }
+
+        // Buduje część roboczą gwintowania (od komentarza narzędzia do M05), w formacie maszyny.
+        // Zwraca { lines, label } lub null przy błędzie.
+        function threadBody() {
+            const geo = threadGeom();
+            if (isNaN(geo.d) || isNaN(geo.p) || geo.p <= 0) { showError('Podaj poprawną średnicę i skok gwintu.'); return null; }
+            const z0 = parseFloat(document.getElementById('thread_z0').value);
+            const len = parseFloat(document.getElementById('thread_len').value);
+            const zEnd = z0 - Math.abs(len);
+            const rpm = Math.round(parseFloat(document.getElementById('thread_rpm').value));
+            const tool = document.getElementById('thread_tool').value;
+            const safeZ = parseFloat(document.getElementById('thread_safe_z').value);
+            const cycle = threadCycle();
+            const t = THREADS[threadSel];
+            const label = t.custom ? ('GWINT ' + fmt(geo.d) + 'x' + fmt(geo.p))
+                : ('GWINT ' + t.name.replace(/["×]/g, m => m === '×' ? 'x' : '').replace(/ /g, ''));
+
+            // formaty liczb wg maszyny: średnice/K/D = 2 miejsca; Z = z kropką; F = dokładny skok
+            const fx = v => (Math.round(v * 100) / 100).toFixed(2);
+            const fz = v => fmtNC(v);
+            const ff = v => fmtNC(v);
+
+            // stożek na promieniu: zewn. maleje ku końcowi (-Z) -> R ujemne; wewn. odwrotnie
+            const taperR = geo.taperRatio ? ((geo.internal ? 1 : -1) * (Math.abs(len) * geo.taperRatio) / 2) : 0;
+            const leadZ = z0 + Math.max(2, geo.p); // dobieg nad materiał
+
+            let firstDepth;
+            if (threadInfeed() === 'PASSES') {
+                const N = Math.max(1, Math.round(parseFloat(document.getElementById('thread_passes').value)));
+                firstDepth = geo.hRad / Math.sqrt(N);
+            } else {
+                firstDepth = Math.max(0.02, parseFloat(document.getElementById('thread_depth').value));
+            }
+
+            const g = [];
+            g.push('(NOZ DO GWINTOW ' + (geo.internal ? 'WEWN.' : 'ZEWN.') + ')');
+            g.push('T' + tool);
+            g.push('G54');
+            g.push('G97 S' + rpm + ' M03');
+            g.push('G00 Z' + fz(leadZ));
+            g.push('G00 X' + fx(geo.approachDia));
+            g.push('M24');
+            g.push('M08');
+
+            if (cycle === 'G92') {
+                // G92 modalne: pierwsza linia X/Z(/R)/F, kolejne tylko X
+                const dias = threadPassDiameters(geo);
+                for (let i = 0; i < dias.length; i++) {
+                    if (i === 0) {
+                        g.push('G92 X' + fx(dias[i]) + ' Z' + fz(zEnd) + (taperR ? ' R' + ff(taperR) : '') + ' F' + ff(geo.p));
+                    } else {
+                        g.push('X' + fx(dias[i]));
+                    }
+                }
+            } else {
+                // G76 jednoliniowy: X=dno, K=głębokość, D=1.wcięcie, F=skok, A=kąt
+                g.push('G76 X' + fx(geo.xFinal) + ' Z' + fz(zEnd) + ' K' + fx(geo.hRad) +
+                    ' D' + fx(firstDepth) + ' F' + ff(geo.p) + ' A' + geo.angle);
+                if (taperR) g.push('(GWINT STOZKOWY 1:16 - USTAW STOZEK NA MASZYNIE)');
+            }
+
+            g.push('G00 X' + fx(geo.approachDia) + ' M09');
+            g.push('Z' + fz(safeZ));
+            g.push('M05');
+            return { lines: g, label };
+        }
+
+        function generateThreadCode() {
+            const withTurning = document.getElementById('thread_combine').checked;
+            if (withTurning) { generateCombined(); return; }
+            const tb = threadBody();
+            if (!tb) return;
+            // Program w formacie maszyny (bez nagłówka), zakończony powrotem i M30
+            const g = tb.lines.concat(['G00 G53 X0 Y0', 'G53 Z0', 'M30', '%']);
+            renderOutput(g); revealOutput();
+            simulationPath = [];
+            if (stepMode) setStepMode(false);
+            toast('Wygenerowano kod gwintu (' + threadCycle() + ').', 'ok');
+        }
+
+        // Toczenie + gwintowanie w jednym programie
+        function generateCombined() {
+            const t = turningBody();
+            if (!t) return;
+            const th = threadBody();
+            if (!th) return;
+            const g = ['%', 'O1004 (TOCZENIE + ' + th.label + ')', 'G21 G18', 'G40 G80 G99', '']
+                .concat(t.lines)
+                .concat(['G00 G53 X0. Y0.', 'G53 Z0.', 'M05', '', '(--- ZMIANA NARZEDZIA: GWINT ---)'])
+                .concat(th.lines)
+                .concat(['', 'G00 G53 X0 Y0', 'G53 Z0', 'M30', '%']);
+            renderOutput(g); revealOutput();
+            const s = t.sim;
+            buildSimPath(s.internal, s.dBlank, s.dPilot, s.ap, s.allowX, s.safeZ, s.approachX, s.zMin, s.maxX, s.minX);
+            if (!isAnimating && simulationPath.length) currentSimPos = { ...simulationPath[0] };
+            toast('Wygenerowano: toczenie + gwint (' + threadCycle() + ').', 'ok');
+        }
+
+        /* ============================================================
+           WYTACZANIE WEWNĘTRZNE — wstawiane jak gwint (parametrycznie)
+           ============================================================ */
+        // Prosty otwór walcowy G71/G70 (bez nagłówka/stopki programu). Zwraca { lines, label } lub null.
+        function boreBody() {
+            const pilot = parseFloat(document.getElementById('bore_pilot').value);
+            const ap = parseFloat(document.getElementById('bore_ap').value);
+            const vc = parseFloat(document.getElementById('bore_vc').value);
+            const g50 = parseFloat(document.getElementById('bore_g50').value);
+            const fRough = parseFloat(document.getElementById('bore_frough').value);
+            const fFin = parseFloat(document.getElementById('bore_ffin').value);
+            const allowX = parseFloat(document.getElementById('bore_allow').value);
+            const tool = (document.getElementById('bore_tool').value || '505').trim();
+            const safeZ = parseFloat(document.getElementById('bore_safe_z').value);
+
+            const useSketch = boreSketchOn() && boreProfile.length >= 2;
+            let dia, len, contour;
+            if (useSketch) {
+                // Kontur z rysunku (może mieć stopnie / podcięcia)
+                dia = Math.max(...boreProfile.map(p => p.x));
+                const minDia = Math.min(...boreProfile.map(p => p.x));
+                len = Math.abs(Math.min(...boreProfile.map(p => p.z)));
+                if (!(pilot > 0) || pilot >= minDia) { showError('Wytaczanie: otwór wstępny musi być mniejszy od najmniejszej średnicy szkicu.'); return null; }
+                contour = boreProfile;
+            } else {
+                dia = parseFloat(document.getElementById('bore_dia').value);
+                len = Math.abs(parseFloat(document.getElementById('bore_len').value));
+                if (!(dia > 0) || !(len > 0)) { showError('Wytaczanie: podaj średnicę i głębokość otworu (albo narysuj profil).'); return null; }
+                if (!(pilot > 0) || pilot >= dia) { showError('Wytaczanie: otwór wstępny musi być mniejszy od średnicy docelowej.'); return null; }
+                contour = [
+                    { x: dia, z: 0, corner: 'none', cval: 0, groove: false },
+                    { x: dia, z: -len, corner: 'none', cval: 0, groove: false }
+                ];
+            }
+            if (!(ap > 0)) { showError('Wytaczanie: podaj głębokość skrawania ap.'); return null; }
+
+            // Inne numery bloków niż toczenie (P10/Q20) — losowe, nigdy 10/20
+            const P = 30 + 10 * Math.floor(Math.random() * 7); // 30..90
+            const Q = P + 10;
+            const approachX = Math.max(pilot - 2, 1), allowZ = 0.1;
+            const g = [];
+            g.push('(WYTACZANIE WEWN. Fi' + fmt(dia) + ' x ' + fmt(len) + ')');
+            g.push('T' + tool + ' (NOZ WYTACZAK)');
+            g.push('G54');
+            g.push('G50 S' + g50);
+            g.push('G96 S' + Math.round(vc) + ' M03');
+            g.push('G00 Z' + fmtNC(safeZ) + ' M08');
+            g.push('G00 X' + fmtNC(approachX));
+            g.push('');
+            g.push(`G71 P${P} Q${Q} D${fmtNC(ap)} I${fmtNC(-Math.abs(allowX))} K${fmtNC(allowZ)} F${fmtNC(fRough)}`);
+            emitContourPts(g, contour, approachX, P, Q);
+            g.push('');
+            g.push(`G70 P${P} Q${Q} F${fmtNC(fFin)}`);
+            g.push('G00 Z' + fmtNC(safeZ) + ' M09');
+            g.push('M05');
+            return { lines: g, label: 'WYTACZANIE Fi' + fmt(dia) };
+        }
+
+        function generateBoreCode() {
+            if (document.getElementById('bore_combine').checked) { generateBoreCombined(); return; }
+            const bb = boreBody();
+            if (!bb) return;
+            const g = ['%', 'O1006 (' + bb.label + ')', 'G21 G18', 'G40 G80 G99', '']
+                .concat(bb.lines)
+                .concat(['G00 G53 X0. Y0.', 'G53 Z0.', 'M30', '%']);
+            renderOutput(g); revealOutput();
+            simulationPath = [];
+            if (stepMode) setStepMode(false);
+            toast('Wygenerowano kod wytaczania.', 'ok');
+        }
+
+        // Toczenie + wytaczanie w jednym programie (jak toczenie + gwint)
+        function generateBoreCombined() {
+            const t = turningBody();
+            if (!t) return;
+            const bb = boreBody();
+            if (!bb) return;
+            const g = ['%', 'O1005 (TOCZENIE + ' + bb.label + ')', 'G21 G18', 'G40 G80 G99', '']
+                .concat(t.lines)
+                .concat(['G00 G53 X0. Y0.', 'G53 Z0.', 'M05', '', '(--- ZMIANA NARZEDZIA: WYTACZAK ---)'])
+                .concat(bb.lines)
+                .concat(['', 'G00 G53 X0 Y0', 'G53 Z0', 'M30', '%']);
+            renderOutput(g); revealOutput();
+            const s = t.sim;
+            buildSimPath(s.internal, s.dBlank, s.dPilot, s.ap, s.allowX, s.safeZ, s.approachX, s.zMin, s.maxX, s.minX);
+            if (!isAnimating && simulationPath.length) currentSimPos = { ...simulationPath[0] };
+            toast('Wygenerowano: toczenie + wytaczanie.', 'ok');
+        }
+
+        function updateBoreInfo() {
+            const el = document.getElementById('bore_info');
+            if (!el) return;
+            const pilot = parseFloat(document.getElementById('bore_pilot').value);
+            const ap = parseFloat(document.getElementById('bore_ap').value);
+            const tool = (document.getElementById('bore_tool').value || '505').trim();
+            const sketch = boreSketchOn();
+            let dia, len, minDia;
+            if (sketch && boreProfile.length >= 2) {
+                dia = Math.max(...boreProfile.map(p => p.x));
+                minDia = Math.min(...boreProfile.map(p => p.x));
+                len = Math.abs(Math.min(...boreProfile.map(p => p.z)));
+            } else if (sketch) {
+                el.innerHTML = 'Narysuj profil wytaczania w szkicowniku (przełącznik <b>◎ Wytaczanie</b> nad rysunkiem).';
+                return;
+            } else {
+                dia = parseFloat(document.getElementById('bore_dia').value);
+                minDia = dia;
+                len = Math.abs(parseFloat(document.getElementById('bore_len').value));
+            }
+            if (!(dia > 0) || !(pilot > 0) || !(len > 0) || !(ap > 0) || pilot >= minDia) { el.innerHTML = ''; return; }
+            const passes = Math.max(1, Math.ceil(((dia - pilot) / 2) / ap));
+            const src = sketch ? ' (z rysunku)' : '';
+            el.innerHTML = `Otwór <b>Ø${fmt(dia)}</b>${src} z Ø${fmt(pilot)}, głęb. <b>${fmt(len)} mm</b> · ~<b>${passes}</b> przejść zgrubnych (ap ${fmt(ap)}) · narzędzie <b>T${tool}</b>`;
+        }
+
+        // Pokaż/ukryj przełącznik „Toczenie / Wytaczanie" nad szkicownikiem
+        function updateSketchTargetUI() {
+            const on = boreSketchOn();
+            document.getElementById('seg_sketch_target').style.display = on ? 'flex' : 'none';
+            if (!on) {
+                sketchTarget = 'TURN';
+                document.getElementById('target_turn').checked = true;
+            }
+        }
+
+        /* ============================================================
+           UI: przełączniki, przyciski
+           ============================================================ */
+        function updateModeUI() {
+            const internal = isInternal();
+            document.getElementById('path_mode').innerText = internal ? 'Wytaczanie wewnętrzne' : 'Toczenie zewnętrzne';
+            document.getElementById('wrap_pilot').style.display = internal ? 'flex' : 'none';
+            document.getElementById('lbl_blank').innerText = internal ? 'Średnica zewn. detalu Ø (mm)' : 'Średnica surówki Ø (mm)';
+            document.getElementById('lbl_speed').innerText = document.querySelector('input[name="spindle_mode"]:checked').value === 'G96'
+                ? 'Prędkość Vc (m/min)' : 'Obroty n (obr/min)';
+            const blocks = codeMode() === 'BLOCKS';
+            document.getElementById('codemode_hint').innerText = blocks
+                ? 'Blok po bloku: pełny, jawny kod — każde przejście zgrubne osobno, bez cykli G71/G70.'
+                : 'Cykl: zwarty kod z G71 (zgrubnie) + G70 (wykańczanie).';
+
+            const tool = cadTool();
+            const badge = document.getElementById('badge_mode');
+            if (tool === 'FILLET') {
+                badge.innerHTML = 'Tryb: <b>Faza / Promień</b> — kliknij na styk linii';
+                badge.className = 'badge mode-dim';
+                canvas.style.cursor = 'pointer';
+            } else if (tool === 'INSERT') {
+                badge.innerHTML = 'Tryb: <b>Wstaw punkt</b> — kliknij na linię, aby dodać punkt (wcięcie)';
+                badge.className = 'badge mode-dim';
+                canvas.style.cursor = 'copy';
+            } else if (tool === 'FREEHAND') {
+                badge.innerHTML = 'Tryb: <b>Odręcznie</b> — przeciągnij, aby narysować profil';
+                badge.className = 'badge mode-freehand';
+                canvas.style.cursor = 'crosshair';
+            } else {
+                badge.innerHTML = 'Tryb: <b>' + (drawTarget() === 'BORE' ? 'Rysowanie wytaczania' : 'Rysowanie') + '</b>';
+                badge.className = 'badge';
+                canvas.style.cursor = 'crosshair';
+            }
+        }
+
+        document.querySelectorAll('input[name="op_type"]').forEach(r => r.addEventListener('change', () => {
+            updateModeUI();
+            // Geometria zewn. i wewn. to różne operacje — jeśli bieżący profil jest niezgodny
+            // z nowym trybem, wczytaj dopasowany przykład, aby nie zostawić nieaktualnego kodu.
+            const internal = isInternal();
+            if (profile.length < 2) {
+                profile = internal ? demoInternal() : demoExternal();
+                toast(internal ? 'Wczytano przykład otworu do wytaczania.' : 'Wczytano przykład wałka.', 'info');
+            }
+            syncBlank();
+            refreshAll();
+        }));
+        document.querySelectorAll('input[name="code_mode"]').forEach(r => r.addEventListener('change', () => { updateModeUI(); if (profile.length >= 2) generateGcode(); }));
+        document.querySelectorAll('input[name="cad_tool"]').forEach(r => r.addEventListener('change', updateModeUI));
+        document.querySelectorAll('input[name="spindle_mode"]').forEach(r => r.addEventListener('change', updateModeUI));
+
+        // przeliczenie po zmianie parametrów technologicznych
+        ['d_blank', 'd_pilot', 'ap', 'spindle_speed', 'g50_limit', 'feed_rough', 'feed_finish',
+         'tool_no', 'finish_allowance_x', 'finish_allowance_z', 'safe_z'].forEach(id => {
+            document.getElementById(id).addEventListener('change', () => { if (profile.length >= 2) generateGcode(); drawCAD(); });
+        });
+
+        document.getElementById('btn_generate').addEventListener('click', () => {
+            if (profile.length < 2) { showError('Najpierw utwórz profil (min. 2 punkty).'); return; }
+            generateGcode(); revealOutput();
+            toast('Wygenerowano G-code.', 'ok');
+        });
+
+        document.getElementById('btn_add_row').addEventListener('click', () => {
+            const arr = tableProfile();
+            const dflt = tableTarget === 'BORE' ? 24 : (isInternal() ? 20 : 0);
+            const last = arr.length ? arr[arr.length - 1] : { x: dflt, z: 0 };
+            arr.push({ x: last.x, z: last.z - 10, corner: 'none', cval: 0, groove: false });
+            afterTableChange();
+        });
+        document.getElementById('btn_load_demo').addEventListener('click', () => {
+            profile = isInternal() ? demoInternal() : demoExternal();
+            syncBlank(); refreshAll(); toast('Wczytano przykładowy profil.', 'info');
+        });
+
+        document.getElementById('btn_clear_cad').addEventListener('click', () => {
+            if (drawTarget() === 'BORE') {
+                boreProfile = []; drawCAD(); updateBoreInfo();
+                if (tableTarget === 'BORE') renderTable();
+                toast('Wyczyszczono profil wytaczania.', 'info');
+                return;
+            }
+            profile = []; simulationPath = []; codeLines = []; stopAnimation();
+            if (stepMode) setStepMode(false);
+            renderTable(); drawCAD();
+            ncOutput.innerText = 'Narysuj lub wpisz profil w tabeli, a następnie kliknij „Generuj G-code".';
+            toast('Wyczyszczono profil.', 'info');
+        });
+        document.getElementById('btn_undo_cad').addEventListener('click', () => {
+            if (drawTarget() === 'BORE') {
+                if (boreProfile.length) boreProfile.pop();
+                drawCAD(); updateBoreInfo();
+                if (tableTarget === 'BORE') renderTable();
+                return;
+            }
+            if (profile.length) profile.pop();
+            stopAnimation(); refreshAll();
+        });
+        document.getElementById('btn_reset_view').addEventListener('click', () => {
+            centerView(); drawCAD();
+        });
+
+        // Powiększ szkicownik na całe okno / przywróć
+        function setCadFull(on) {
+            const card = document.getElementById('card_cad');
+            const btn = document.getElementById('btn_cad_full');
+            card.classList.toggle('maximized', on);
+            btn.innerHTML = on ? '🗕' : '⛶';
+            btn.title = on ? 'Przywróć rozmiar szkicownika' : 'Powiększ szkicownik na całe okno';
+            // wyjście z pełnego ekranu — schowaj okno wymiarowania (treść wraca do zakładki)
+            if (!on) closeDimsFloat();
+            // po zmianie układu przelicz rozmiar płótna
+            requestAnimationFrame(() => { setupCanvas(); });
+        }
+        document.getElementById('btn_cad_full').addEventListener('click', () => {
+            setCadFull(!document.getElementById('card_cad').classList.contains('maximized'));
+        });
+        window.addEventListener('keydown', (e) => {
+            if (e.key !== 'Escape') return;
+            if (dimsFloatOpen) { closeDimsFloat(); return; }
+            if (document.getElementById('card_cad').classList.contains('maximized')) { setCadFull(false); return; }
+            if (outputWin.style.display !== 'none') outputWin.style.display = 'none';
+        });
+        document.getElementById('btn_sim_start').addEventListener('click', () => {
+            if (profile.length < 2) { showError('Najpierw utwórz profil.'); return; }
+            stopAnimation(); generateGcode();
+            if (!simulationPath.length) return;
+            isAnimating = true;
+            document.getElementById('cad_title').innerText = 'Wizualizacja ścieżki narzędzia…';
+            simIndex = 0; currentSimPos = { ...simulationPath[0] };
+            updateAnimation();
+        });
+        document.getElementById('btn_sim_reset').addEventListener('click', () => {
+            stopAnimation(); if (simulationPath.length) currentSimPos = { ...simulationPath[0] }; drawCAD();
+        });
+
+        function currentCodeText() {
+            return codeLines.length ? codeLines.map(l => l.text).join('\n') : '';
+        }
+
+        document.getElementById('btn_copy').addEventListener('click', () => {
+            const txt = currentCodeText();
+            if (!txt) { showError('Najpierw wygeneruj G-code.'); return; }
+            navigator.clipboard.writeText(txt).then(() => toast('Skopiowano G-code do schowka.', 'ok'));
+        });
+        document.getElementById('btn_download').addEventListener('click', () => {
+            const txt = currentCodeText();
+            if (!txt) { showError('Najpierw wygeneruj G-code.'); return; }
+            const blob = new Blob([txt], { type: 'text/plain' });
+            const a = document.createElement('a');
+            a.download = 'haas_st35y_' + (isInternal() ? 'wytaczanie' : 'toczenie') + '.nc';
+            a.href = URL.createObjectURL(blob); a.click();
+            toast('Pobrano plik .nc', 'ok');
+        });
+
+        // Zakładki: Parametry / Wymiarowanie
+        function switchTab(name) {
+            document.querySelectorAll('.card-tabs .tab').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+            document.getElementById('tab_params').classList.toggle('active', name === 'params');
+            document.getElementById('tab_dims').classList.toggle('active', name === 'dims');
+            document.getElementById('tab_thread').classList.toggle('active', name === 'thread');
+            document.getElementById('tab_bore').classList.toggle('active', name === 'bore');
+        }
+        document.querySelectorAll('.card-tabs .tab').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
+
+        // ---- Gwintowanie: obsługa UI ----
+        document.getElementById('thread_dd_toggle').addEventListener('click', (e) => {
+            e.stopPropagation();
+            const menu = document.getElementById('thread_dd_menu');
+            const willOpen = menu.hidden;
+            closeAllCornerMenus();
+            if (willOpen) { menu.hidden = false; document.getElementById('thread_dd_toggle').classList.add('open'); }
+        });
+        document.querySelectorAll('input[name="thread_side"]').forEach(r => r.addEventListener('change', updateThreadInfo));
+        document.querySelectorAll('input[name="thread_cycle"]').forEach(r => r.addEventListener('change', updateThreadInfo));
+        document.querySelectorAll('input[name="thread_infeed"]').forEach(r => r.addEventListener('change', () => {
+            const byDepth = threadInfeed() === 'DEPTH';
+            document.getElementById('wrap_thr_passes').style.display = byDepth ? 'none' : 'flex';
+            document.getElementById('wrap_thr_depth').style.display = byDepth ? 'flex' : 'none';
+            updateThreadInfo();
+        }));
+        ['thread_d', 'thread_p', 'thread_passes', 'thread_depth'].forEach(id =>
+            document.getElementById(id).addEventListener('input', updateThreadInfo));
+        document.getElementById('btn_gen_thread').addEventListener('click', generateThreadCode);
+        renderThreadMenu();
+        updateThreadInfo();
+
+        // Wytaczanie wewnętrzne (jak gwint)
+        ['bore_dia', 'bore_pilot', 'bore_len', 'bore_ap', 'bore_tool'].forEach(id =>
+            document.getElementById(id).addEventListener('input', updateBoreInfo));
+        document.getElementById('btn_gen_bore').addEventListener('click', generateBoreCode);
+        // Rysowanie wytaczania w szkicowniku
+        document.getElementById('bore_sketch').addEventListener('change', (e) => {
+            if (e.target.checked) {
+                // toczenie musi być zewnętrzne, wytaczanie rysujemy osobno
+                document.getElementById('op_ext').checked = true;
+                updateModeUI();
+                sketchTarget = 'BORE';
+                document.getElementById('target_bore').checked = true;
+                toast('Rysujesz teraz profil wytaczania (pomarańczowy). Przełącznik nad rysunkiem zmienia profil.', 'info');
+            }
+            updateSketchTargetUI();
+            updateBoreInfo();
+            drawCAD();
+        });
+        document.querySelectorAll('input[name="sketch_target"]').forEach(r => r.addEventListener('change', (e) => {
+            sketchTarget = e.target.value;
+            document.getElementById('badge_mode').innerHTML = 'Tryb: <b>' + (sketchTarget === 'BORE' ? 'Rysowanie wytaczania' : 'Rysowanie') + '</b>';
+            drawCAD();
+        }));
+        // Wymiarowanie: przełączanie tabeli między toczeniem (zewn.) a wytaczaniem (wewn.)
+        document.querySelectorAll('input[name="dims_target"]').forEach(r => r.addEventListener('change', (e) => {
+            tableTarget = e.target.value;
+            if (tableTarget === 'BORE' && !boreSketchOn()) {
+                // włącz wytaczanie w szkicowniku, aby edytowany profil był używany i rysowany
+                document.getElementById('bore_sketch').checked = true;
+                document.getElementById('op_ext').checked = true;
+                updateModeUI(); updateSketchTargetUI(); updateBoreInfo();
+            }
+            renderTable(); drawCAD();
+        }));
+        updateBoreInfo();
+        updateSketchTargetUI();
+
+        // Tryb krokowy
+        document.getElementById('btn_step_mode').addEventListener('click', () => setStepMode(!stepMode));
+        document.getElementById('btn_step_prev').addEventListener('click', () => stepGo(-1));
+        document.getElementById('btn_step_next').addEventListener('click', () => stepGo(1));
+
+        document.getElementById('nav_help').addEventListener('click', () => toast('Rysuj myszą, wpisuj wymiary w tabeli (zakładka), fazy/promienie klikając w naroże. Shift+przeciągnij = pan, kółko = zoom.', 'info'));
+
+        /* ---------- init ---------- */
+        /* ---------- Pasek okna (Electron, frameless) ---------- */
+        function winApi() { return window.cam || null; }
+        document.getElementById('win_min').addEventListener('click', () => winApi() && winApi().minimize());
+        document.getElementById('win_max').addEventListener('click', () => winApi() && winApi().toggleMaximize());
+        document.getElementById('win_close').addEventListener('click', () => winApi() && winApi().close());
+
+        /* ---------- Motyw i kolor akcentu ---------- */
+        const ACCENTS = ['cyan', 'orange', 'green', 'pink', 'red'];
+        function applyAccent(name) {
+            ACCENTS.forEach(a => document.body.classList.remove('accent-' + a));
+            if (name && name !== 'cyan') document.body.classList.add('accent-' + name);
+            document.querySelectorAll('#swatches .swatch').forEach(s =>
+                s.classList.toggle('active', s.dataset.accent === name));
+            try { localStorage.setItem('cam_accent', name); } catch (e) {}
+            syncWindowBar();
+            drawCAD();
+        }
+        function applyTheme(light) {
+            document.body.classList.toggle('light', light);
+            document.getElementById('btn_theme').innerText = light ? '☀️' : '🌙';
+            try { localStorage.setItem('cam_theme', light ? 'light' : 'dark'); } catch (e) {}
+            syncWindowBar();
+            drawCAD();
+        }
+        // przekaż kolor paska okna do procesu głównego (nakładka tytułu, jeśli używana)
+        function syncWindowBar() {
+            const api = winApi();
+            if (api && api.setBarColor) {
+                const cs = getComputedStyle(document.body);
+                api.setBarColor(cs.getPropertyValue('--bg').trim(), cs.getPropertyValue('--text').trim());
+            }
+        }
+        document.querySelectorAll('#swatches .swatch').forEach(s =>
+            s.addEventListener('click', () => applyAccent(s.dataset.accent)));
+        document.getElementById('btn_theme').addEventListener('click', () =>
+            applyTheme(!document.body.classList.contains('light')));
+
+        (function initTheme() {
+            let accent = 'cyan', light = false;
+            try {
+                accent = localStorage.getItem('cam_accent') || 'cyan';
+                light = localStorage.getItem('cam_theme') === 'light';
+            } catch (e) {}
+            applyAccent(accent);
+            applyTheme(light);
+        })();
+
+        window.addEventListener('load', () => {
+            profile = demoExternal();
+            injectDimPics();
+            updateModeUI();
+            setupCanvas();
+            renderTable();
+            generateGcode();
+            // Płótno zawsze dopasowane do rzeczywistego rozmiaru pola (także na cały ekran).
+            if (window.ResizeObserver) {
+                let raf = null;
+                new ResizeObserver(() => {
+                    if (raf) return;
+                    raf = requestAnimationFrame(() => { raf = null; setupCanvas(); });
+                }).observe(canvas.parentNode);
+            }
+        });
+        window.addEventListener('resize', () => setupCanvas());
+    </script>
+</body>
+</html>

@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<title>Szukaj — CNC Manager</title>
+<link rel="stylesheet" href="vendor/fonts.css">
+<style>
+  :root{
+    --ac1:#22d3ee;--ac2:#6366f1;--ac3:#a855f7;
+    --ac1-rgb:34,211,238;--ac2-rgb:99,102,241;--ac3-rgb:168,85,247;
+    --grad:linear-gradient(135deg,#22d3ee,#6366f1 55%,#a855f7);
+    --txt:#e9edf7;--mut:#8d96ad;
+    --panel:rgba(12,16,32,.80);
+  }
+  body.theme-orange{--ac1:#fbbf24;--ac1-rgb:251,191,36;--ac2:#f97316;--ac2-rgb:249,115,22;--ac3:#fb923c;--ac3-rgb:251,146,60;--grad:linear-gradient(135deg,#fbbf24,#fb923c 42%,#f97316)}
+  body.theme-green{--ac1:#4ade80;--ac1-rgb:74,222,128;--ac2:#22c55e;--ac2-rgb:34,197,94;--ac3:#34d399;--ac3-rgb:52,211,153;--grad:linear-gradient(135deg,#4ade80,#22c55e 45%,#16a34a)}
+  body.theme-red{--ac1:#fb7185;--ac1-rgb:251,113,133;--ac2:#ef4444;--ac2-rgb:239,68,68;--ac3:#f87171;--ac3-rgb:248,113,113;--grad:linear-gradient(135deg,#fb7185,#ef4444 45%,#dc2626)}
+  body.light{--txt:#1b2333;--mut:#5b6474;--panel:rgba(255,255,255,.78)}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:transparent;height:100%;overflow:hidden;
+    font-family:'Rajdhani','Segoe UI',system-ui,-apple-system,sans-serif;-webkit-user-select:none;user-select:none}
+  body{display:flex;align-items:center;padding:6px 10px}
+  .widget{
+    -webkit-app-region:drag;
+    flex:1;min-width:0;height:46px;padding:0 6px 0 14px;
+    display:flex;align-items:center;gap:10px;
+    background:var(--panel);backdrop-filter:blur(16px);
+    border:1px solid rgba(var(--ac2-rgb),.55);border-radius:14px;
+    box-shadow:0 6px 20px rgba(0,0,0,.5),0 0 18px rgba(var(--ac2-rgb),.28);
+    animation:pop .16s cubic-bezier(.3,1.4,.5,1) both;
+  }
+  @keyframes pop{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:none}}
+  .loupe{width:21px;height:21px;flex:none;stroke:var(--ac1);fill:none;stroke-width:2.2;stroke-linecap:round}
+  #q{
+    -webkit-app-region:no-drag;
+    flex:1;min-width:0;height:40px;border:none;outline:none;background:transparent;
+    color:var(--txt);font-family:inherit;font-size:1.05rem;font-weight:600;letter-spacing:.02em;
+    -webkit-user-select:text;user-select:text;
+  }
+  #q::placeholder{color:var(--mut)}
+  .go,.x{
+    -webkit-app-region:no-drag;flex:none;border:none;cursor:pointer;
+    display:grid;place-items:center;border-radius:10px;transition:transform .12s,filter .15s,background .15s;
+    font-family:inherit;
+  }
+  .go{width:36px;height:36px;background:var(--grad);color:#fff;box-shadow:0 3px 13px rgba(var(--ac2-rgb),.45)}
+  .go:hover{filter:brightness(1.1)}
+  .go:active{transform:scale(.9)}
+  .go svg{width:18px;height:18px;stroke:#fff;fill:none;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+  .cnt{
+    -webkit-app-region:no-drag;flex:none;min-width:28px;height:28px;padding:0 9px;
+    display:none;align-items:center;justify-content:center;border-radius:9px;
+    font-family:'Orbitron','Rajdhani',sans-serif;font-weight:700;font-size:.86rem;
+    background:rgba(var(--ac2-rgb),.16);border:1px solid rgba(var(--ac2-rgb),.5);color:var(--ac1);
+  }
+  .cnt.show{display:inline-flex}
+  .cnt.zero{background:rgba(248,113,113,.14);border-color:rgba(248,113,113,.45);color:#fca5a5}
+  .x{width:28px;height:28px;background:transparent;color:var(--mut);font-size:1.02rem;line-height:1}
+  .x:hover{background:rgba(255,255,255,.1);color:var(--txt)}
+  body.light .x:hover{background:rgba(15,23,42,.08)}
+</style>
+</head>
+<body>
+  <div class="widget">
+    <svg class="loupe" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3"></path></svg>
+    <input id="q" type="text" autocomplete="off" spellcheck="false" placeholder="Szukaj szkicu / programu…">
+    <span class="cnt" id="cnt" title="Znalezione programy"></span>
+    <button class="go" id="go" title="Pokaż w aplikacji (Enter)"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></button>
+    <button class="x" id="x" title="Ukryj widget (Esc)">&#10005;</button>
+  </div>
+<script>
+"use strict";
+const q = document.getElementById("q");
+const cnt = document.getElementById("cnt");
+function applyTheme(d) {
+  document.body.classList.remove("light", "theme-orange", "theme-green", "theme-red");
+  if (d) {
+    if (d.theme === "light") document.body.classList.add("light");
+    if (d.accent && d.accent !== "default") document.body.classList.add("theme-" + d.accent);
+  }
+  setTimeout(() => q.focus(), 30);   // każdorazowe pokazanie ustawia fokus w polu
+}
+/* pokazuje licznik znalezionych programów obok strzałki */
+function setCount(n) {
+  if (n == null || q.value.trim() === "") { cnt.classList.remove("show", "zero"); cnt.textContent = ""; return; }
+  cnt.textContent = n;
+  cnt.classList.add("show");
+  cnt.classList.toggle("zero", n === 0);
+}
+function submit() {
+  const v = q.value.trim();
+  if (!v) { q.focus(); return; }
+  window.native.widgetSubmit(v);   // aplikacja wychodzi na wierzch; widget ZOSTAJE
+}
+let liveTimer = null;
+q.addEventListener("input", () => {
+  const v = q.value.trim();
+  if (!v) { setCount(null); if (window.native.widgetQuery) window.native.widgetQuery(""); return; }
+  clearTimeout(liveTimer);
+  liveTimer = setTimeout(() => window.native.widgetQuery(v), 150);   // licznik na żywo
+});
+document.getElementById("go").addEventListener("click", submit);
+document.getElementById("x").addEventListener("click", () => window.native.widgetHide());
+q.addEventListener("keydown", e => {
+  if (e.key === "Enter") { e.preventDefault(); submit(); }
+  else if (e.key === "Escape") { e.preventDefault(); window.native.widgetHide(); }
+});
+if (window.native && window.native.onWidgetTheme) window.native.onWidgetTheme(applyTheme);
+if (window.native && window.native.onWidgetCount) window.native.onWidgetCount(setCount);
+(async () => {
+  try { applyTheme(await window.native.getWidgetData()); } catch (e) { setTimeout(() => q.focus(), 30); }
+})();
+</script>
+</body>
+</html>

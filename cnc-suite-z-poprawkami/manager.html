@@ -1,0 +1,4118 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CNC Manager — HAAS ST-35Y</title>
+<link rel="stylesheet" href="vendor/fonts.css">
+<!-- CNC Suite: jedyna zmiana wobec oryginału — integracja z powłoką kart -->
+<script src="shell/embed.js"></script>
+<style>
+  :root{
+    --bg0:#0c1020;
+    --bg1:#141a2e;
+    --card:rgba(255,255,255,.075);
+    --card-hi:rgba(255,255,255,.12);
+    --stroke:rgba(255,255,255,.13);
+    --stroke-hi:rgba(255,255,255,.24);
+    --txt:#e9edf7;
+    --mut:#8d96ad;
+    --ac1:#22d3ee;
+    --ac2:#6366f1;
+    --ac3:#a855f7;
+    --ac1-rgb:34,211,238;
+    --ac2-rgb:99,102,241;
+    --ac3-rgb:168,85,247;
+    --ok:#34d399;
+    --warn:#fbbf24;
+    --err:#f87171;
+    --grad:linear-gradient(135deg,#22d3ee,#6366f1 55%,#a855f7);
+    --grad-soft:linear-gradient(135deg,rgba(var(--ac1-rgb),.16),rgba(var(--ac2-rgb),.16) 55%,rgba(var(--ac3-rgb),.16));
+    --radius:16px;
+    --shadow:0 12px 40px rgba(0,0,0,.45);
+  }
+  /* ── kolory akcentu (wybierane w Ustawieniach) ──────────────── */
+  body.theme-orange{
+    --ac1:#fbbf24; --ac1-rgb:251,191,36;
+    --ac2:#f97316; --ac2-rgb:249,115,22;
+    --ac3:#fb923c; --ac3-rgb:251,146,60;
+    --grad:linear-gradient(135deg,#fbbf24,#fb923c 42%,#f97316);
+  }
+  body.theme-green{
+    --ac1:#4ade80; --ac1-rgb:74,222,128;
+    --ac2:#22c55e; --ac2-rgb:34,197,94;
+    --ac3:#34d399; --ac3-rgb:52,211,153;
+    --grad:linear-gradient(135deg,#4ade80,#22c55e 45%,#16a34a);
+  }
+  body.theme-red{
+    --ac1:#fb7185; --ac1-rgb:251,113,133;
+    --ac2:#ef4444; --ac2-rgb:239,68,68;
+    --ac3:#f87171; --ac3-rgb:248,113,113;
+    --grad:linear-gradient(135deg,#fb7185,#ef4444 45%,#dc2626);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scrollbar-color:#2a3350 transparent}
+  body{
+    font-family:'Rajdhani','Segoe UI',system-ui,-apple-system,Roboto,sans-serif;
+    font-weight:500;
+    background:var(--bg0);
+    color:var(--txt);
+    min-height:100vh;
+    overflow-x:hidden;
+    padding-top:34px;   /* miejsce na zintegrowany pasek okna */
+  }
+  /* ── czcionka gamingowa: akcenty Orbitron (logo, cyfry) ─────── */
+  .logo h1,.wc-title,.stat b,.badge-o,.win-ctrl .wc-title{
+    font-family:'Orbitron','Rajdhani',sans-serif;
+    letter-spacing:.02em;
+  }
+  /* pola i przyciski dziedziczą Rajdhani, ale G-kod zostaje monospace */
+  /* ── tło z gradientowymi poświatami (płynnie dryfujące) ─────── */
+  .bg{
+    position:fixed;inset:0;z-index:-1;overflow:hidden;
+    background:linear-gradient(180deg,var(--bg1),var(--bg0) 60%);
+  }
+  /* poświaty jako osobne warstwy — ruch przez transform (GPU),
+     bez przemalowywania tła, więc obciążenie jest znikome */
+  .glow{
+    position:absolute;border-radius:50%;pointer-events:none;
+    will-change:transform;
+  }
+  .glow.g1{
+    width:1300px;height:900px;top:-22%;right:-12%;
+    background:radial-gradient(closest-side,rgba(var(--ac3-rgb),.24),transparent 70%);
+    animation:drift1 19s ease-in-out infinite alternate;
+  }
+  .glow.g2{
+    width:1150px;height:850px;top:2%;left:-16%;
+    background:radial-gradient(closest-side,rgba(var(--ac1-rgb),.18),transparent 70%);
+    animation:drift2 23s ease-in-out infinite alternate;
+  }
+  .glow.g3{
+    width:1150px;height:1150px;bottom:-34%;left:34%;
+    background:radial-gradient(closest-side,rgba(var(--ac2-rgb),.22),transparent 70%);
+    animation:drift3 16s ease-in-out infinite alternate;
+  }
+  @keyframes drift1{
+    0%{transform:translate(0,0) scale(1)}
+    50%{transform:translate(-240px,150px) scale(1.16)}
+    100%{transform:translate(-90px,290px) scale(1.05)}
+  }
+  @keyframes drift2{
+    0%{transform:translate(0,0) scale(1)}
+    50%{transform:translate(260px,130px) scale(1.2)}
+    100%{transform:translate(120px,-70px) scale(1.08)}
+  }
+  @keyframes drift3{
+    0%{transform:translate(0,0) scale(1)}
+    50%{transform:translate(200px,-200px) scale(1.14)}
+    100%{transform:translate(-160px,-90px) scale(1.06)}
+  }
+  body.no-motion .glow{animation:none !important}
+  @media (prefers-reduced-motion: reduce){.glow{animation:none}}
+  .bg::after{
+    content:"";position:absolute;inset:0;
+    background-image:
+      linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px);
+    background-size:44px 44px;
+    mask-image:radial-gradient(ellipse at 50% 0%,#000 30%,transparent 75%);
+  }
+
+  /* ── zintegrowany pasek okna (minimize/maximize/close) ─────────────────── */
+  .win-ctrl{
+    position:fixed;top:0;left:0;right:0;z-index:500;height:34px;
+    display:flex;align-items:center;gap:1px;
+    background:rgba(8,11,22,.82);backdrop-filter:blur(18px);
+    border-bottom:1px solid var(--stroke);
+    -webkit-app-region:drag;
+  }
+  .win-ctrl .wc-title{
+    flex:1;padding-left:14px;font-size:.72rem;font-weight:700;letter-spacing:.1em;
+    color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;user-select:none;
+  }
+  .win-btn{
+    width:44px;height:34px;border:none;background:transparent;color:var(--mut);
+    cursor:pointer;display:grid;place-items:center;font-size:.9rem;flex:none;
+    transition:background .15s,color .15s;-webkit-app-region:no-drag;
+  }
+  .win-btn:hover{background:rgba(255,255,255,.08);color:var(--txt)}
+  .win-btn:active{background:rgba(255,255,255,.12)}
+  .win-btn.close:hover{background:rgba(248,113,113,.22);color:#fff}
+  body.light .win-ctrl{background:rgba(255,255,255,.85)}
+  body.light .win-btn:hover{background:rgba(15,23,42,.10)}
+  body.light .win-btn.close:hover{background:rgba(248,113,113,.85);color:#fff}
+
+  /* ── nagłówek ───────────────────────────────────────────────── */
+  header{
+    position:sticky;top:34px;z-index:50;
+    backdrop-filter:blur(18px);
+    background:rgba(8,11,22,.72);
+    border-bottom:1px solid var(--stroke);
+  }
+  .header-in{
+    max-width:1400px;margin:0 auto;padding:14px 24px;
+    display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+    -webkit-app-region:no-drag;
+  }
+  .logo{display:flex;align-items:center;gap:12px;user-select:none}
+  .logo-mark{
+    width:42px;height:42px;border-radius:12px;flex:none;
+    background:var(--grad);
+    display:grid;place-items:center;
+    box-shadow:0 4px 18px rgba(var(--ac2-rgb),.45);
+  }
+  .logo-mark svg{width:24px;height:24px}
+  .logo h1{
+    font-size:1.25rem;font-weight:700;letter-spacing:.02em;
+    background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent;
+    white-space:nowrap;
+  }
+  .machine{
+    font-size:.68rem;font-weight:600;letter-spacing:.12em;color:var(--mut);
+    border:1px solid var(--stroke);border-radius:999px;padding:4px 10px;
+    background:rgba(255,255,255,.03);white-space:nowrap;
+  }
+  .search-wrap{flex:1;min-width:240px;position:relative}
+  .search-wrap svg{
+    position:absolute;left:14px;top:50%;translate:0 -50%;
+    width:17px;height:17px;stroke:var(--mut);pointer-events:none;
+  }
+  #search{
+    width:100%;padding:11px 40px 11px 42px;
+    background:rgba(255,255,255,.05);
+    border:1px solid var(--stroke);border-radius:12px;
+    color:var(--txt);font-size:.92rem;outline:none;
+    transition:border-color .2s,box-shadow .2s,background .2s;
+  }
+  #search::placeholder{color:#5d6780}
+  #search:focus{
+    border-color:var(--ac1);
+    background:rgba(255,255,255,.07);
+    box-shadow:0 0 0 3px rgba(var(--ac1-rgb),.15),0 0 24px rgba(var(--ac1-rgb),.12);
+  }
+  .search-clear{
+    position:absolute;right:8px;top:50%;translate:0 -50%;
+    width:26px;height:26px;border-radius:8px;border:none;cursor:pointer;
+    background:transparent;color:var(--mut);font-size:1rem;line-height:1;
+    display:none;
+  }
+  .search-clear:hover{background:rgba(255,255,255,.08);color:var(--txt)}
+
+  /* ── przyciski ──────────────────────────────────────────────── */
+  .btn{
+    position:relative;overflow:hidden;
+    display:inline-flex;align-items:center;gap:8px;
+    padding:11px 20px;border-radius:12px;border:1px solid var(--stroke);
+    background:rgba(255,255,255,.05);color:var(--txt);
+    font-size:.9rem;font-weight:600;font-family:inherit;cursor:pointer;
+    transition:transform .12s,box-shadow .2s,border-color .2s,background .2s;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .btn:hover{border-color:var(--stroke-hi);background:rgba(255,255,255,.09)}
+  .btn:active{transform:translateY(1px) scale(.96);box-shadow:0 0 0 3px rgba(255,255,255,.10)}
+  .btn svg{width:17px;height:17px;flex:none}
+  .btn-primary{
+    background:var(--grad);border:none;color:#fff;
+    box-shadow:0 4px 20px rgba(var(--ac2-rgb),.40);
+  }
+  .btn-primary:hover{box-shadow:0 6px 28px rgba(var(--ac2-rgb),.60);background:var(--grad)}
+  .btn-primary:active{transform:translateY(1px) scale(.96);box-shadow:0 0 0 4px rgba(var(--ac2-rgb),.30),0 0 30px rgba(var(--ac3-rgb),.45)}
+  .btn-danger{color:#fca5a5}
+  .btn-danger:hover{border-color:rgba(248,113,113,.5);background:rgba(248,113,113,.10)}
+  .btn-danger:active{box-shadow:0 0 0 3px rgba(248,113,113,.25)}
+  .btn-sm{padding:8px 14px;font-size:.82rem;border-radius:10px}
+  .btn:disabled{opacity:.5;pointer-events:none}
+  /* przycisk w trakcie pracy (np. Odśwież podczas skanowania folderów) */
+  .btn.busy{opacity:.65;pointer-events:none}
+  .btn.busy svg{animation:btnSpin .9s linear infinite;transform-origin:50% 50%}
+  @keyframes btnSpin{to{transform:rotate(360deg)}}
+  .btn .dot{width:8px;height:8px;border-radius:50%;flex:none;display:none}
+  .btn.connected{border-color:rgba(52,211,153,.45)}
+  .btn.connected .dot{display:block;background:var(--ok);box-shadow:0 0 8px var(--ok)}
+  .btn.resume{border-color:rgba(251,191,36,.45)}
+  .btn.resume .dot{display:block;background:var(--warn);box-shadow:0 0 8px var(--warn)}
+
+  /* efekt fali po naciśnięciu */
+  .ripple{
+    position:absolute;border-radius:50%;pointer-events:none;
+    background:radial-gradient(circle,rgba(255,255,255,.35) 0%,rgba(255,255,255,0) 65%);
+    transform:scale(0);animation:ripple .6s ease-out forwards;
+  }
+  @keyframes ripple{to{transform:scale(1);opacity:0}}
+
+  /* ── układ główny ───────────────────────────────────────────── */
+  .layout{
+    max-width:1400px;margin:0 auto;padding:26px 24px 60px;
+    display:grid;grid-template-columns:250px 1fr;gap:26px;align-items:start;
+  }
+  @media(max-width:900px){.layout{grid-template-columns:1fr}}
+
+  aside{position:sticky;top:110px;display:flex;flex-direction:column;gap:18px}
+  @media(max-width:900px){aside{position:static}}
+  .panel{
+    background:var(--card);border:1px solid var(--stroke);
+    border-radius:var(--radius);padding:16px;
+  }
+  .panel h3{
+    font-size:.7rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--mut);margin-bottom:12px;
+  }
+  .chips{display:flex;flex-wrap:wrap;gap:8px}
+  .chip{
+    position:relative;overflow:hidden;
+    padding:7px 14px;border-radius:999px;cursor:pointer;
+    background:rgba(255,255,255,.05);border:1px solid var(--stroke);
+    color:var(--mut);font-size:.8rem;font-weight:600;font-family:inherit;
+    transition:all .18s;-webkit-tap-highlight-color:transparent;
+  }
+  .chip:hover{color:var(--txt);border-color:var(--stroke-hi)}
+  .chip:active{transform:scale(.94);box-shadow:0 0 0 3px rgba(var(--ac1-rgb),.22)}
+  .chip.on{
+    background:var(--grad-soft);color:var(--txt);
+    border-color:rgba(var(--ac2-rgb),.55);
+    box-shadow:0 0 16px rgba(var(--ac2-rgb),.25) inset,0 0 12px rgba(var(--ac2-rgb),.18);
+  }
+  .stats{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .stat{
+    background:rgba(255,255,255,.03);border:1px solid var(--stroke);
+    border-radius:12px;padding:12px 10px;text-align:center;
+  }
+  .stat b{
+    display:block;font-size:1.45rem;font-weight:800;
+    background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent;
+  }
+  .stat span{font-size:.68rem;color:var(--mut);letter-spacing:.05em}
+  /* klikalne kafelki: przełączanie widoku (programy/foldery) i aktywnego folderu */
+  .stat-btn{cursor:pointer;font-family:inherit;transition:border-color .15s,background .15s,box-shadow .15s;-webkit-tap-highlight-color:transparent}
+  .stat-btn:hover{border-color:var(--stroke-hi);background:rgba(255,255,255,.06)}
+  .stat-btn:active{transform:scale(.97)}
+  .stat-btn.active{
+    border-color:rgba(var(--ac2-rgb),.6);background:var(--grad-soft);
+    box-shadow:0 0 14px rgba(var(--ac2-rgb),.2) inset;
+  }
+  .stat-folder b{font-size:.92rem;line-height:1.25;padding:5px 0;word-break:break-word}
+  body.light .stat-btn:hover{background:rgba(15,23,42,.05)}
+  .sortsel{
+    width:100%;padding:10px 12px;border-radius:11px;cursor:pointer;
+    background:rgba(255,255,255,.05);border:1px solid var(--stroke);
+    color:var(--txt);font-size:.85rem;font-family:inherit;outline:none;
+    transition:border-color .2s,box-shadow .2s;
+  }
+  .sortsel:focus{border-color:var(--ac2);box-shadow:0 0 0 3px rgba(var(--ac2-rgb),.18)}
+  body.light .sortsel{background:rgba(15,23,42,.05)}
+  .sortsel option{background:#0c1120;color:var(--txt)}
+  body.light .sortsel option{background:#fff;color:#1b2333}
+  .sketch-in{
+    width:100%;margin-top:9px;padding:9px 12px;border-radius:11px;
+    background:rgba(255,255,255,.05);border:1px solid var(--stroke);
+    color:var(--txt);font-size:.83rem;font-family:inherit;outline:none;
+    transition:border-color .2s,box-shadow .2s;
+  }
+  .sketch-in::placeholder{color:#5d6780}
+  .sketch-in:focus{border-color:var(--ac1);box-shadow:0 0 0 3px rgba(var(--ac1-rgb),.15)}
+  body.light .sketch-in{background:rgba(15,23,42,.05)}
+  .onums{
+    display:flex;flex-wrap:wrap;gap:6px;align-content:flex-start;
+    height:180px;overflow-y:scroll;overflow-x:hidden;
+    padding:8px;border:1px solid var(--stroke);border-radius:11px;
+    background:rgba(0,0,0,.16);
+  }
+  .onums::-webkit-scrollbar{width:11px}
+  .onums::-webkit-scrollbar-track{background:rgba(255,255,255,.04);border-radius:99px}
+  .onums::-webkit-scrollbar-thumb{background:#2f3a5e;border-radius:99px;border:2px solid transparent;background-clip:padding-box}
+  .onums::-webkit-scrollbar-thumb:hover{background:#3d4a75;background-clip:padding-box}
+  body.light .onums{background:rgba(15,23,42,.04)}
+  .onum{
+    font-family:ui-monospace,Consolas,monospace;font-size:.72rem;
+    padding:3px 8px;border-radius:7px;
+    background:rgba(255,255,255,.05);border:1px solid var(--stroke);color:var(--mut);
+  }
+  .onum{cursor:pointer;transition:border-color .15s,color .15s}
+  .onum:hover{border-color:var(--stroke-hi);color:var(--txt)}
+  .onum.dup{color:var(--err);border-color:rgba(248,113,113,.5);font-weight:700}
+  .onum.dup:hover{background:rgba(248,113,113,.12)}
+
+  /* ── siatka kart ────────────────────────────────────────────── */
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:18px}
+  .card{
+    position:relative;overflow:hidden;cursor:pointer;
+    background:var(--card);border:1px solid var(--stroke);
+    border-radius:var(--radius);padding:18px;
+    transition:transform .18s,border-color .2s,box-shadow .25s,background .2s;
+    animation:fadeUp .35s ease both;
+    -webkit-tap-highlight-color:transparent;
+  }
+  @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  .card::before{
+    content:"";position:absolute;inset:0 0 auto 0;height:3px;
+    background:var(--grad);opacity:0;transition:opacity .25s;
+  }
+  .card:hover{
+    transform:translateY(-3px);
+    border-color:rgba(var(--ac2-rgb),.45);
+    box-shadow:0 14px 38px rgba(0,0,0,.45),0 0 26px rgba(var(--ac2-rgb),.14);
+    background:var(--card-hi);
+  }
+  .card:hover::before{opacity:1}
+  .card:active{
+    transform:translateY(0) scale(.985);
+    box-shadow:0 0 0 3px rgba(var(--ac2-rgb),.35),0 0 34px rgba(var(--ac3-rgb),.30);
+  }
+  .card-top{display:flex;align-items:flex-start;gap:10px;margin-bottom:8px}
+  .card h2{font-size:1.02rem;font-weight:700;line-height:1.3;flex:1;word-break:break-word}
+  .badge-o{
+    font-family:'Orbitron','Rajdhani',sans-serif;font-size:1rem;font-weight:800;
+    padding:6px 12px;border-radius:9px;flex:none;letter-spacing:.03em;
+    background:var(--grad-soft);border:1px solid rgba(var(--ac2-rgb),.55);color:#dbe3ff;
+    box-shadow:0 0 14px rgba(var(--ac2-rgb),.20);
+  }
+  .badge-o.big{font-size:1.4rem;padding:9px 18px;border-radius:12px;box-shadow:0 0 22px rgba(var(--ac2-rgb),.30)}
+  /* ── karty folderów (tryb „Szukaj w nazwach folderów") ── */
+  .folder-card .card-top{align-items:center}
+  .folder-card .folder-ico{font-size:1.5rem;line-height:1;flex:none;filter:drop-shadow(0 0 8px rgba(var(--ac2-rgb),.35))}
+  .folder-card h2{text-transform:none}
+  .folder-card:hover{border-color:rgba(var(--ac1-rgb),.5)}
+  .fav-btn{
+    flex:none;width:30px;height:30px;border-radius:9px;border:none;cursor:pointer;
+    background:transparent;display:grid;place-items:center;
+    transition:transform .15s,background .2s;
+  }
+  .fav-btn:hover{background:rgba(251,191,36,.12)}
+  .fav-btn:active{transform:scale(.8)}
+  .fav-btn svg{width:17px;height:17px;fill:none;stroke:#5d6780;stroke-width:2;transition:all .2s}
+  .fav-btn.on svg{fill:var(--warn);stroke:var(--warn);filter:drop-shadow(0 0 6px rgba(251,191,36,.6))}
+  .dir-btn{
+    flex:none;width:30px;height:30px;border-radius:9px;border:none;cursor:pointer;
+    background:transparent;display:grid;place-items:center;
+    transition:transform .15s,background .2s;
+  }
+  .dir-btn:hover{background:rgba(var(--ac1-rgb),.12)}
+  .dir-btn:active{transform:scale(.8);box-shadow:0 0 0 3px rgba(var(--ac1-rgb),.25)}
+  .dir-btn svg{width:17px;height:17px;fill:none;stroke:#5d6780;stroke-width:2;transition:stroke .2s}
+  .dir-btn:hover svg{stroke:var(--ac1)}
+  .orig-btn:hover{background:rgba(var(--ac3-rgb),.14)}
+  .orig-btn:hover svg{stroke:var(--ac3)}
+  .card-sub{font-size:.83rem;color:var(--mut);margin-bottom:12px;line-height:1.45}
+  .card-sub b{color:#b9c2d8;font-weight:600}
+  .card-mid{display:flex;gap:12px;align-items:stretch;margin-bottom:12px}
+  .card-mid .card-sub{flex:1;margin-bottom:0}
+  .thumb{
+    width:110px;min-height:78px;flex:none;border-radius:10px;overflow:hidden;
+    border:1px solid var(--stroke);background:rgba(255,255,255,.05);
+    display:grid;place-items:center;
+    transition:transform .15s,box-shadow .2s,border-color .2s;
+  }
+  .thumb.has{background:#fff;border-color:rgba(255,255,255,.25)}
+  .thumb img{width:100%;height:100%;object-fit:cover;display:block}
+  .thumb:hover{border-color:var(--ac1);box-shadow:0 0 18px rgba(var(--ac1-rgb),.30);transform:scale(1.05)}
+  .thumb svg{width:22px;height:22px;stroke:#39415c}
+  .thumb-add{
+    border-style:dashed;cursor:pointer;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+    background:transparent;color:#5d6780;font-family:inherit;font-size:.68rem;font-weight:700;
+    letter-spacing:.08em;
+  }
+  .thumb-add svg{width:18px;height:18px;stroke:#5d6780;transition:stroke .2s}
+  .thumb-add:hover{color:var(--ac1)}
+  .thumb-add:hover svg{stroke:var(--ac1)}
+  .thumb-add:active{transform:scale(.94);box-shadow:0 0 0 3px rgba(var(--ac1-rgb),.25)}
+  .thumb-wrap{position:relative;flex:none}
+  .thumb-ctrl{
+    position:absolute;top:-8px;right:-8px;display:flex;gap:4px;opacity:0;
+    transition:opacity .15s;z-index:2;
+  }
+  .card:hover .thumb-ctrl{opacity:1}
+  .thumb-del,.thumb-swap{
+    width:22px;height:22px;border-radius:50%;
+    font-size:.66rem;line-height:1;cursor:pointer;display:grid;place-items:center;
+    transition:background .15s,border-color .15s,box-shadow .15s,transform .12s;
+  }
+  .thumb-del{border:1px solid rgba(248,113,113,.6);background:#2a0f14;color:#fca5a5}
+  .thumb-del:hover{background:#7f1d1d;color:#fff}
+  .thumb-del:active,.thumb-swap:active{transform:scale(.82)}
+  /* ręczne dopasowanie rysunku */
+  .thumb-swap{border:1px solid rgba(var(--ac1-rgb),.6);background:#0f2230;color:#7dd3fc}
+  .thumb-swap svg{width:12px;height:12px}
+  .thumb-swap:hover{background:#134e63;color:#fff}
+  body.light .thumb-del{background:#fee2e2;color:#b91c1c}
+  body.light .thumb-swap{background:#dbeafe;color:#0369a1;border-color:rgba(2,132,199,.5)}
+  .card.drop-hot{
+    border-color:rgba(52,211,153,.65);
+    box-shadow:0 0 0 3px rgba(52,211,153,.25),0 0 26px rgba(52,211,153,.28);
+  }
+  .tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+  .tag{
+    font-size:.7rem;font-weight:600;padding:3px 10px;border-radius:999px;
+    background:rgba(var(--ac1-rgb),.10);border:1px solid rgba(var(--ac1-rgb),.28);color:#7dd3fc;
+  }
+  .card-foot{
+    display:flex;align-items:center;justify-content:space-between;
+    font-size:.72rem;color:#5d6780;
+    border-top:1px solid var(--stroke);padding-top:11px;
+  }
+  .card-foot .ver{display:inline-flex;align-items:center;gap:5px}
+  .card-foot svg{width:13px;height:13px;stroke:#5d6780}
+
+  .empty{
+    grid-column:1/-1;text-align:center;padding:70px 20px;color:var(--mut);
+    border:1px dashed var(--stroke);border-radius:var(--radius);
+  }
+  .empty svg{width:52px;height:52px;stroke:#39415c;margin-bottom:14px}
+  .empty p{font-size:.95rem}
+  .more-bar{
+    grid-column:1/-1;display:flex;align-items:center;justify-content:center;gap:14px;
+    padding:16px;color:var(--mut);font-size:.85rem;
+    border:1px dashed var(--stroke);border-radius:var(--radius);
+  }
+
+  /* pasek otwartego folderu (widok „Foldery" → wejście w folder) */
+  .dir-bar{
+    grid-column:1/-1;display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+    padding:11px 14px;margin-bottom:2px;
+    background:var(--grad-soft);border:1px solid rgba(var(--ac2-rgb),.35);
+    border-radius:var(--radius);
+  }
+  .dir-bar .dir-name{
+    font-weight:700;font-size:.92rem;color:var(--txt);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:52vw;
+  }
+  .dir-bar .dir-count{
+    font-size:.78rem;color:var(--mut);background:rgba(255,255,255,.06);
+    border:1px solid var(--stroke);border-radius:999px;padding:2px 10px;
+  }
+  body.light .dir-bar .dir-count{background:rgba(15,23,42,.05)}
+
+  /* ── modale ─────────────────────────────────────────────────── */
+  .modal{
+    position:fixed;inset:0;z-index:100;display:none;
+    align-items:flex-start;justify-content:center;
+    padding:4vh 16px;overflow:auto;
+    background:rgba(4,6,12,.72);backdrop-filter:blur(8px);
+  }
+  .modal.open{display:flex}
+  #mView{padding-top:0;align-items:center}
+  #mView.open{padding-top:0}
+  .dialog{
+    width:100%;max-width:860px;
+    background:linear-gradient(180deg,#111730,#0c1120 40%);
+    border:1px solid var(--stroke-hi);border-radius:20px;
+    box-shadow:var(--shadow),0 0 60px rgba(var(--ac2-rgb),.15);
+    animation:pop .22s cubic-bezier(.3,1.4,.5,1) both;
+  }
+  @keyframes pop{from{opacity:0;transform:scale(.96) translateY(12px)}to{opacity:1;transform:none}}
+  .dialog-head{
+    display:flex;align-items:center;gap:12px;
+    padding:20px 24px;border-bottom:1px solid var(--stroke);
+  }
+  .dialog-head h2{font-size:1.1rem;font-weight:700;flex:1}
+  .x-btn{
+    width:34px;height:34px;border-radius:10px;border:1px solid var(--stroke);
+    background:rgba(255,255,255,.04);color:var(--mut);cursor:pointer;
+    font-size:1.05rem;line-height:1;transition:all .15s;
+  }
+  .x-btn:hover{color:var(--txt);border-color:var(--stroke-hi)}
+  .x-btn:active{transform:scale(.88);box-shadow:0 0 0 3px rgba(255,255,255,.12)}
+  .dialog-body{padding:22px 24px}
+  .dialog-foot{
+    display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;
+    padding:16px 24px;border-top:1px solid var(--stroke);
+  }
+
+  /* formularz */
+  .fgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:640px){.fgrid{grid-template-columns:1fr}}
+  .field{display:flex;flex-direction:column;gap:6px}
+  .field.wide{grid-column:1/-1}
+  .field label{font-size:.74rem;font-weight:700;letter-spacing:.06em;color:var(--mut);text-transform:uppercase}
+  .field input,.field textarea{
+    padding:10px 13px;border-radius:11px;
+    background:rgba(255,255,255,.05);border:1px solid var(--stroke);
+    color:var(--txt);font-size:.9rem;font-family:inherit;outline:none;
+    transition:border-color .2s,box-shadow .2s;
+  }
+  .field textarea{resize:vertical;min-height:60px}
+  .field textarea.code-in{
+    font-family:ui-monospace,Consolas,"Cascadia Mono",monospace;
+    font-size:.84rem;min-height:260px;line-height:1.55;
+    background:rgba(0,0,0,.35);white-space:pre;
+  }
+  .field input:focus,.field textarea:focus{
+    border-color:var(--ac2);
+    box-shadow:0 0 0 3px rgba(var(--ac2-rgb),.18),0 0 20px rgba(var(--ac2-rgb),.12);
+  }
+  .field input.bad{border-color:var(--err);box-shadow:0 0 0 3px rgba(248,113,113,.15)}
+  .field .hint{font-size:.73rem;color:var(--err);display:none}
+  .field .hint.show{display:block}
+  .field-row{display:flex;gap:8px}
+  .field-row input{flex:1;min-width:0}
+  .mini-btn{
+    position:relative;overflow:hidden;flex:none;
+    padding:0 13px;border-radius:11px;border:1px solid var(--stroke);
+    background:rgba(255,255,255,.05);color:var(--mut);
+    font-size:.76rem;font-weight:700;font-family:inherit;cursor:pointer;
+    transition:all .15s;white-space:nowrap;
+  }
+  .mini-btn:hover{color:var(--txt);border-color:var(--stroke-hi)}
+  .mini-btn:active{transform:scale(.94);box-shadow:0 0 0 3px rgba(var(--ac1-rgb),.25)}
+  .field textarea.code-in.hot{
+    border-color:var(--ac1);
+    background:rgba(var(--ac1-rgb),.07);
+    box-shadow:0 0 0 3px rgba(var(--ac1-rgb),.28),0 0 34px rgba(var(--ac1-rgb),.22);
+  }
+  /* ── kontrola programu ── */
+  .chk-badge{
+    flex:none;cursor:pointer;font-family:inherit;font-size:.7rem;font-weight:800;
+    padding:2px 8px;border-radius:7px;letter-spacing:.02em;
+    background:rgba(251,191,36,.14);border:1px solid rgba(251,191,36,.45);color:#fbbf24;
+  }
+  .chk-badge:hover{background:rgba(251,191,36,.26)}
+  .chk-badge.chk-err{background:rgba(248,113,113,.14);border-color:rgba(248,113,113,.5);color:#f87171}
+  .chk-badge.chk-err:hover{background:rgba(248,113,113,.28)}
+  .chk-sum{font-size:.82rem;color:var(--mut);margin-bottom:14px;line-height:1.6}
+  .chk-row{
+    display:flex;align-items:flex-start;gap:11px;
+    padding:10px 12px;border-radius:10px;
+    background:rgba(255,255,255,.035);border:1px solid var(--stroke);
+  }
+  .chk-row.err{border-color:rgba(248,113,113,.4);background:rgba(248,113,113,.07)}
+  .chk-ln{
+    flex:none;min-width:52px;text-align:center;font-size:.72rem;font-weight:800;
+    color:var(--mut);padding:3px 7px;border-radius:6px;
+    background:rgba(0,0,0,.26);border:1px solid var(--stroke);
+  }
+  .chk-msg{flex:1;font-size:.84rem;color:var(--txt);line-height:1.5}
+  .chk-prog{
+    display:flex;align-items:center;gap:11px;cursor:pointer;
+    padding:10px 12px;border-radius:10px;
+    background:rgba(255,255,255,.035);border:1px solid var(--stroke);
+  }
+  .chk-prog:hover{background:rgba(255,255,255,.08);border-color:rgba(var(--ac2-rgb),.45)}
+  body.light .chk-row,body.light .chk-prog{background:rgba(15,23,42,.03)}
+
+  /* ── raport „Dopasuj rysunki" ── */
+  .mr-tabs{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+  .mr-tab{
+    flex:1 1 auto;padding:9px 13px;border-radius:10px;cursor:pointer;
+    background:rgba(255,255,255,.04);border:1px solid var(--stroke);
+    color:var(--mut);font-family:inherit;font-size:.8rem;font-weight:600;
+    display:flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap;
+  }
+  .mr-tab:hover{background:rgba(255,255,255,.08);color:var(--txt)}
+  .mr-tab.on{background:var(--grad-soft);border-color:rgba(var(--ac2-rgb),.55);color:var(--txt)}
+  .mr-tab .mr-count{
+    font-size:.72rem;font-weight:800;padding:1px 7px;border-radius:6px;
+    background:rgba(0,0,0,.28);border:1px solid var(--stroke);
+  }
+  .mr-list{max-height:56vh;overflow:auto;display:flex;flex-direction:column;gap:6px}
+  .mr-row{
+    display:flex;align-items:center;gap:12px;cursor:pointer;
+    padding:10px 12px;border-radius:10px;
+    background:rgba(255,255,255,.035);border:1px solid var(--stroke);
+  }
+  .mr-row:hover{background:rgba(255,255,255,.07);border-color:rgba(var(--ac2-rgb),.45)}
+  .mr-main{flex:1;min-width:0}
+  .mr-name{font-size:.86rem;font-weight:600;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mr-meta{font-size:.72rem;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mr-draw{
+    flex:none;font-size:.78rem;font-weight:700;color:var(--ac1);
+    padding:4px 9px;border-radius:8px;background:rgba(var(--ac1-rgb),.12);
+    border:1px solid rgba(var(--ac1-rgb),.35);
+  }
+  .mr-draw i{color:var(--mut);font-weight:600;font-style:normal}
+  .mr-empty{padding:26px;text-align:center;color:var(--mut);font-size:.86rem}
+  body.light .mr-row{background:rgba(15,23,42,.03)}
+  body.light .mr-row:hover{background:rgba(15,23,42,.07)}
+
+  .pdf-box{display:flex;flex-direction:column;gap:8px}
+  .pdf-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .pdf-row .mini-btn{padding:9px 14px}
+  .pdf-note{font-size:.76rem;color:var(--mut)}
+  .pdf-have{font-size:.8rem;color:#6ee7a0}
+  .pdf-item{
+    position:relative;overflow:hidden;cursor:pointer;
+    padding:9px 13px;border-radius:10px;font-size:.83rem;color:#b9c2d8;
+    background:rgba(255,255,255,.04);border:1px solid var(--stroke);
+    transition:all .15s;word-break:break-all;
+  }
+  .pdf-item:hover{border-color:var(--stroke-hi)}
+  .pdf-item:active{transform:scale(.985);box-shadow:0 0 0 3px rgba(52,211,153,.25)}
+  .pdf-item.on{
+    border-color:rgba(52,211,153,.55);background:rgba(52,211,153,.08);color:#d1fae5;
+    box-shadow:0 0 14px rgba(52,211,153,.18);
+  }
+  .pdf-item b{color:var(--ok);font-weight:600}
+
+  /* podgląd programu */
+  .meta-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:18px}
+  .meta{
+    background:rgba(255,255,255,.03);border:1px solid var(--stroke);
+    border-radius:11px;padding:10px 12px;
+  }
+  .meta span{display:block;font-size:.65rem;letter-spacing:.1em;text-transform:uppercase;color:#5d6780;margin-bottom:3px}
+  .meta b{font-size:.87rem;font-weight:600;word-break:break-word}
+  .sect{margin-top:20px}
+  .sect>h3{
+    font-size:.72rem;font-weight:700;letter-spacing:.13em;text-transform:uppercase;
+    color:var(--mut);margin-bottom:10px;display:flex;align-items:center;gap:8px;
+  }
+  .sect>h3::after{content:"";flex:1;height:1px;background:var(--stroke)}
+  pre.code{
+    background:rgba(0,0,0,.42);border:1px solid var(--stroke);border-radius:13px;
+    padding:16px 18px;overflow:auto;max-height:420px;
+    font-family:ui-monospace,Consolas,"Cascadia Mono",monospace;
+    font-size:.83rem;line-height:1.6;color:#cdd6ea;
+  }
+  .tk-com{color:#6ee7a0;font-style:italic}
+  .tk-g{color:#67e8f9;font-weight:600}
+  .tk-m{color:#f0abfc;font-weight:600}
+  .tk-n{color:#818cf8}
+  .tk-t{color:#fbbf24;font-weight:700}
+  .tk-f{color:#fda4af}
+  .tk-x{color:#e9edf7}
+  .tk-pct{color:#5d6780}
+  .tools{display:flex;flex-direction:column;gap:7px}
+  .tool{
+    display:flex;align-items:center;gap:12px;
+    background:rgba(255,255,255,.03);border:1px solid var(--stroke);
+    border-radius:10px;padding:9px 13px;font-size:.85rem;
+  }
+  .tool .tno{
+    font-family:ui-monospace,Consolas,monospace;font-weight:700;color:var(--warn);
+    background:rgba(251,191,36,.10);border:1px solid rgba(251,191,36,.3);
+    border-radius:7px;padding:3px 9px;flex:none;
+  }
+  .tool .tdesc{color:#b9c2d8}
+  .vers{display:flex;flex-direction:column;gap:8px}
+  .ver-item{
+    background:rgba(255,255,255,.03);border:1px solid var(--stroke);
+    border-radius:11px;overflow:hidden;
+  }
+  .ver-item summary{
+    display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+    padding:11px 14px;cursor:pointer;list-style:none;font-size:.85rem;
+    transition:background .15s;
+  }
+  .ver-item summary::-webkit-details-marker{display:none}
+  .ver-item summary:hover{background:rgba(255,255,255,.04)}
+  .ver-item summary:active{background:rgba(var(--ac2-rgb),.14)}
+  .ver-date{font-weight:600;color:#b9c2d8}
+  .ver-note{color:var(--mut);flex:1}
+  .ver-body{padding:0 14px 14px}
+
+  /* powiadomienia */
+  #toast{
+    position:fixed;bottom:26px;left:50%;translate:-50% 0;z-index:200;
+    display:flex;flex-direction:column;gap:10px;align-items:center;pointer-events:none;
+  }
+  .toast{
+    padding:12px 22px;border-radius:12px;font-size:.88rem;font-weight:600;
+    background:linear-gradient(135deg,rgba(var(--ac1-rgb),.18),rgba(var(--ac2-rgb),.18));
+    border:1px solid rgba(var(--ac2-rgb),.5);color:var(--txt);
+    backdrop-filter:blur(12px);
+    box-shadow:0 8px 30px rgba(0,0,0,.5),0 0 24px rgba(var(--ac2-rgb),.25);
+    animation:toastIn .25s ease both;
+  }
+  @keyframes toastIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+  .toast.out{animation:toastOut .3s ease both}
+  @keyframes toastOut{to{opacity:0;transform:translateY(10px)}}
+
+  ::-webkit-scrollbar{width:9px;height:9px}
+  ::-webkit-scrollbar-thumb{background:#242c48;border-radius:99px}
+  ::-webkit-scrollbar-thumb:hover{background:#2f3a5e}
+
+  /* ── jasny motyw ────────────────────────────────────────────── */
+  body.light{
+    --bg0:#dfe4ee;
+    --bg1:#ccd4e4;
+    --card:rgba(255,255,255,.9);
+    --card-hi:#ffffff;
+    --stroke:rgba(15,23,42,.14);
+    --stroke-hi:rgba(15,23,42,.3);
+    --txt:#1b2333;
+    --mut:#5b6474;
+    --shadow:0 12px 40px rgba(15,23,42,.16);
+  }
+  body.light .glow.g1{background:radial-gradient(closest-side,rgba(var(--ac3-rgb),.15),transparent 70%)}
+  body.light .glow.g2{background:radial-gradient(closest-side,rgba(var(--ac1-rgb),.14),transparent 70%)}
+  body.light .glow.g3{background:radial-gradient(closest-side,rgba(var(--ac2-rgb),.13),transparent 70%)}
+  body.light .bg::after{
+    background-image:
+      linear-gradient(rgba(15,23,42,.04) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(15,23,42,.04) 1px,transparent 1px);
+  }
+  body.light header{background:rgba(255,255,255,.80)}
+  body.light #search{background:rgba(15,23,42,.05)}
+  body.light #search::placeholder{color:#8a93a6}
+  body.light .btn{background:rgba(255,255,255,.75)}
+  body.light .btn:hover{background:#fff}
+  body.light .btn-primary{background:var(--grad);color:#fff}
+  body.light .btn-primary:hover{background:var(--grad)}
+  body.light .x-btn,body.light .mini-btn{background:rgba(15,23,42,.04)}
+  body.light .machine{background:rgba(15,23,42,.03)}
+  body.light .chip{background:rgba(15,23,42,.04)}
+  body.light .chip.on{background:var(--grad-soft)}
+  body.light .stat,body.light .onum,body.light .meta,body.light .tool,
+  body.light .ver-item,body.light .pdf-item{background:rgba(15,23,42,.035)}
+  body.light .card:hover{background:var(--card-hi)}
+  body.light .card-sub b,body.light .tool .tdesc,body.light .ver-date{color:#3a465c}
+  body.light .badge-o{color:#4338ca}
+  body.light .tag{color:#0e7490;background:rgba(14,116,144,.08);border-color:rgba(14,116,144,.3)}
+  body.light .dialog{background:linear-gradient(180deg,#ffffff,#f2f5fb 40%)}
+  body.light .modal{background:rgba(15,23,42,.38)}
+  body.light .field input,body.light .field textarea{background:rgba(15,23,42,.05)}
+  body.light .field textarea.code-in{background:#111726;color:#e9edf7}
+  body.light .thumb{background:rgba(15,23,42,.04)}
+  body.light .thumb.has{background:#fff}
+  body.light .toast{color:#1b2333;background:linear-gradient(135deg,rgba(var(--ac1-rgb),.20),rgba(var(--ac2-rgb),.16)),#fff}
+  body.light .pdf-have{color:#047857}
+  body.light ::-webkit-scrollbar-thumb{background:#c3cbdc}
+  body.light ::-webkit-scrollbar-thumb:hover{background:#aab4c9}
+
+  /* ── menu ustawień (motyw + kolory akcentu) ─────────────────── */
+  .settings-wrap{position:relative;display:inline-flex}
+  .settings-menu{
+    position:absolute;top:calc(100% + 10px);right:0;z-index:400;
+    width:250px;padding:14px;display:none;flex-direction:column;gap:16px;
+    background:rgba(14,19,38,.98);backdrop-filter:blur(20px);
+    border:1px solid var(--stroke-hi);border-radius:16px;
+    box-shadow:0 18px 50px rgba(0,0,0,.55),0 0 30px rgba(var(--ac2-rgb),.20);
+    animation:pop .18s cubic-bezier(.3,1.4,.5,1) both;
+  }
+  .settings-menu.open{display:flex}
+  body.light .settings-menu{background:rgba(255,255,255,.98)}
+  .set-sec{display:flex;flex-direction:column;gap:9px}
+  .set-label{
+    font-size:.66rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--mut);
+  }
+  .set-modes{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .set-mode{
+    display:flex;align-items:center;justify-content:center;gap:7px;
+    padding:9px 10px;border-radius:11px;cursor:pointer;font-family:inherit;
+    font-size:.82rem;font-weight:600;
+    background:rgba(255,255,255,.05);border:1px solid var(--stroke);color:var(--txt);
+    transition:all .15s;
+  }
+  body.light .set-mode{background:rgba(15,23,42,.05)}
+  .set-mode svg{width:16px;height:16px}
+  .set-mode:hover{border-color:var(--stroke-hi)}
+  .set-mode:active{transform:scale(.95)}
+  .set-mode.on{
+    border-color:rgba(var(--ac2-rgb),.65);background:var(--grad-soft);
+    box-shadow:0 0 14px rgba(var(--ac2-rgb),.22) inset;
+  }
+  .set-swatches{display:flex;gap:12px}
+  .swatch{
+    width:38px;height:38px;border-radius:50%;cursor:pointer;flex:none;
+    border:2px solid transparent;outline:2px solid var(--stroke);outline-offset:2px;
+    transition:transform .15s,outline-color .15s,box-shadow .15s;
+  }
+  .swatch:hover{transform:scale(1.12)}
+  .swatch:active{transform:scale(.92)}
+  .swatch.on{outline-color:#fff;box-shadow:0 0 16px rgba(255,255,255,.35)}
+  body.light .swatch.on{outline-color:#111}
+  .sw-default{background:linear-gradient(135deg,#22d3ee,#6366f1 55%,#a855f7)}
+  .sw-orange{background:linear-gradient(135deg,#fbbf24,#fb923c 42%,#f97316)}
+  .sw-green{background:linear-gradient(135deg,#4ade80,#22c55e 45%,#16a34a)}
+  .sw-red{background:linear-gradient(135deg,#fb7185,#ef4444 45%,#dc2626)}
+
+  /* ── menu wyboru folderu programów ──────────────────────────── */
+  .folder-wrap{position:relative;display:inline-flex}
+  #btnFolder .chev{opacity:.7;margin-left:2px}
+  .folder-menu{
+    position:absolute;top:calc(100% + 10px);left:0;z-index:400;
+    min-width:270px;max-width:360px;padding:8px;display:none;flex-direction:column;gap:3px;
+    background:rgba(14,19,38,.98);backdrop-filter:blur(20px);
+    border:1px solid var(--stroke-hi);border-radius:14px;
+    box-shadow:0 18px 50px rgba(0,0,0,.55),0 0 30px rgba(var(--ac2-rgb),.20);
+    animation:pop .18s cubic-bezier(.3,1.4,.5,1) both;
+  }
+  .folder-menu.open{display:flex}
+  body.light .folder-menu{background:rgba(255,255,255,.98)}
+  .fm-item{
+    display:flex;align-items:center;gap:10px;
+    padding:10px 11px;border-radius:10px;cursor:pointer;
+    border:1px solid transparent;color:var(--txt);font-size:.86rem;font-weight:600;
+    transition:background .14s,border-color .14s;
+  }
+  .fm-item:hover{background:rgba(255,255,255,.06);border-color:var(--stroke)}
+  body.light .fm-item:hover{background:rgba(15,23,42,.05)}
+  .fm-item.on{background:var(--grad-soft);border-color:rgba(var(--ac2-rgb),.55)}
+  .fm-item svg{width:17px;height:17px;flex:none;stroke:var(--mut)}
+  .fm-item.on svg{stroke:var(--txt)}
+  .fm-name{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .fm-count{font-size:.72rem;color:var(--mut);font-weight:700;
+    font-family:'Orbitron','Rajdhani',sans-serif}
+  .fm-del{
+    width:24px;height:24px;border-radius:7px;border:1px solid transparent;cursor:pointer;flex:none;
+    background:transparent;color:var(--mut);font-size:.9rem;line-height:1;
+    display:grid;place-items:center;transition:all .14s;
+  }
+  .fm-del:hover{background:rgba(248,113,113,.16);color:#fca5a5;border-color:rgba(248,113,113,.4)}
+  .fm-sep{height:1px;background:var(--stroke);margin:5px 4px}
+  .fm-add{color:var(--ac1)}
+  .fm-add svg{stroke:var(--ac1)}
+  .fm-add:hover{background:rgba(var(--ac1-rgb),.10);border-color:rgba(var(--ac1-rgb),.4)}
+</style>
+</head>
+<body>
+<div class="bg"><div class="glow g1"></div><div class="glow g2"></div><div class="glow g3"></div></div>
+<div class="win-ctrl" id="winCtrl">
+  <span class="wc-title">PLIKI CNC — MAREK KULCZYCKI</span>
+  <button class="win-btn" id="btnWinMin" title="Minimalizuj">&#8211;</button>
+  <button class="win-btn" id="btnWinMax" title="Maksymalizuj">&#9633;</button>
+  <button class="win-btn close" id="btnWinClose" title="Zamknij">&#10005;</button>
+</div>
+
+<header>
+  <div class="header-in">
+    <div class="logo">
+      <div class="logo-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round">
+          <circle cx="12" cy="12" r="8"></circle>
+          <circle cx="12" cy="12" r="2.6" fill="#fff" stroke="none"></circle>
+          <path d="M12 2v3M12 19v3M2 12h3M19 12h3"></path>
+        </svg>
+      </div>
+      <h1>PLIKI CNC</h1>
+    </div>
+    <span class="machine">Marek&nbsp;Kulczycki</span>
+    <div class="search-wrap">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round">
+        <circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3"></path>
+      </svg>
+      <input id="search" type="text" autocomplete="off"
+             placeholder="Szukaj: nazwa, numer O, klient, materiał, treść kodu…">
+      <button class="search-clear" id="searchClear" title="Wyczyść">✕</button>
+    </div>
+    <button class="btn" id="btnRefresh" title="Przeskanuj foldery ponownie">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"></path>
+      </svg>
+      Odśwież
+    </button>
+    <div class="folder-wrap">
+      <button class="btn" id="btnFolder" title="Foldery z programami — przełącz albo dodaj">
+        <span class="dot"></span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path>
+        </svg>
+        <span id="folderLabel">Połącz folder</span>
+        <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M6 9l6 6 6-6"></path></svg>
+      </button>
+      <div class="folder-menu" id="folderMenu"></div>
+    </div>
+    <div class="folder-wrap">
+      <button class="btn" id="btnPdf" title="Wskaż folder (albo kilka folderów), w których są rysunki PDF">
+        <span class="dot"></span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path>
+          <path d="M14 3v5h5M9 13h6M9 17h6"></path>
+        </svg>
+        <span id="pdfLabel">Foldery PDF</span>
+        <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M6 9l6 6 6-6"></path></svg>
+      </button>
+      <div class="folder-menu" id="pdfMenu"></div>
+    </div>
+    <button class="x-btn" id="btnPdfOff" title="Odłącz wszystkie foldery z rysunkami" style="display:none">✕</button>
+    <div class="settings-wrap">
+      <button class="btn" id="btnSettings" title="Ustawienia wyglądu — motyw i kolory" style="padding:11px 13px">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+      </button>
+      <div class="settings-menu" id="settingsMenu">
+        <div class="set-sec">
+          <span class="set-label">Motyw</span>
+          <div class="set-modes">
+            <button class="set-mode" data-mode="dark">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path></svg>
+              Ciemny
+            </button>
+            <button class="set-mode" data-mode="light">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>
+              Jasny
+            </button>
+          </div>
+        </div>
+        <div class="set-sec">
+          <span class="set-label">Kolor akcentu</span>
+          <div class="set-swatches">
+            <button class="swatch sw-default" data-accent="default" title="Domyślny (niebieski)"></button>
+            <button class="swatch sw-orange" data-accent="orange" title="Pomarańczowy"></button>
+            <button class="swatch sw-green" data-accent="green" title="Zielony"></button>
+            <button class="swatch sw-red" data-accent="red" title="Czerwony"></button>
+          </div>
+        </div>
+        <div class="set-sec">
+          <span class="set-label">Ruch tła (poświaty)</span>
+          <div class="set-modes">
+            <button class="set-mode" data-motion="on">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+              Włączony
+            </button>
+            <button class="set-mode" data-motion="off">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 8h8v8H8z"></path></svg>
+              Wyłączony
+            </button>
+          </div>
+        </div>
+        <div class="set-sec">
+          <span class="set-label">Widget wyszukiwania</span>
+          <div class="set-modes">
+            <button class="set-mode" data-widget="on">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3"></path></svg>
+              Włączony
+            </button>
+            <button class="set-mode" data-widget="off">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 8h8v8H8z"></path></svg>
+              Wyłączony
+            </button>
+          </div>
+          <div style="font-size:.68rem;color:var(--mut);line-height:1.5">
+            Mała pływająca wyszukiwarka zawsze na wierzchu. Skrót: Ctrl+Shift+Spacja.
+          </div>
+        </div>
+        <div class="set-sec">
+          <span class="set-label">Szukaj w nazwach folderów</span>
+          <div class="set-modes">
+            <button class="set-mode" data-foldersearch="on">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path></svg>
+              Włączone
+            </button>
+            <button class="set-mode" data-foldersearch="off">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 8h8v8H8z"></path></svg>
+              Wyłączone
+            </button>
+          </div>
+          <div style="font-size:.68rem;color:var(--mut);line-height:1.5">
+            Widok pokazuje foldery zamiast programów. Kliknięcie folderu otwiera go w Eksploratorze.
+          </div>
+        </div>
+        <div class="set-sec">
+          <span class="set-label">Pomijaj foldery (nie skanuj)</span>
+          <input id="ignoreInput" class="sketch-in" type="text" autocomplete="off"
+                 placeholder="np. testowe, druki, kopia, backup" style="margin-top:0">
+          <div style="font-size:.68rem;color:var(--mut);line-height:1.5">
+            Foldery, których nazwa zawiera któreś z tych słów (po przecinku), są pomijane w skanowaniu i nie pokazują się na listach.
+          </div>
+        </div>
+      </div>
+    </div>
+    <button class="btn btn-primary" id="btnNew">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+        <path d="M12 5v14M5 12h14"></path>
+      </svg>
+      Nowy program
+    </button>
+  </div>
+</header>
+
+<div class="layout">
+  <aside>
+    <div class="panel">
+      <h3>Sortowanie</h3>
+      <select id="sortSel" class="sortsel">
+        <option value="modNew">Najnowsze (zmiana)</option>
+        <option value="modOld">Najstarsze</option>
+        <option value="onumAsc">Numer O: od najmniejszego</option>
+        <option value="onumDesc">Numer O: od największego</option>
+        <option value="nameAsc">Nazwa: A → Z</option>
+      </select>
+      <select id="limitSel" class="sortsel" style="margin-top:9px">
+        <option value="20">Pokaż 20 (szybciej)</option>
+        <option value="50">Pokaż 50</option>
+        <option value="100">Pokaż 100</option>
+        <option value="0">Pokaż wszystkie</option>
+      </select>
+    </div>
+    <div class="panel">
+      <h3>Filtry</h3>
+      <div class="chips" id="filters"></div>
+    </div>
+    <div class="panel">
+      <h3>Statystyki</h3>
+      <div class="stats">
+        <button class="stat stat-btn" id="statProg" title="Pokaż programy (nc/txt)"><b id="stProg">0</b><span>programy nc/txt</span></button>
+        <button class="stat stat-btn" id="statFolders" title="Pokaż foldery"><b id="stFolders">0</b><span>foldery</span></button>
+        <button class="stat stat-btn stat-folder" id="statSwitch" title="Przełącz aktywny folder główny"><b id="stActiveFolder">—</b><span>folder ⇄</span></button>
+        <div class="stat"><b id="stFav">0</b><span>ulubione</span></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>Kontrola programów</h3>
+      <button class="btn" id="btnCheckAll" style="width:100%;justify-content:center"
+              title="Sprawdź wszystkie programy w bibliotece przed wysłaniem na maszynę">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3l9 16H3z"></path><path d="M12 9v4M12 16v.01"></path>
+        </svg>
+        Sprawdź bibliotekę
+      </button>
+      <div style="font-size:.72rem;color:var(--mut);margin-top:9px;line-height:1.55">
+        Brak kropki dziesiętnej, G96 bez G50, ruch roboczy bez wrzeciona lub posuwu,
+        brak G54 / M30, niezamknięty komentarz.
+      </div>
+    </div>
+    <div class="panel">
+      <h3>Rysunki PDF</h3>
+      <button class="btn" id="btnMatchAll" style="width:100%;justify-content:center"
+              title="Dla każdego programu bez rysunku szuka PDF-a po numerze SZ w folderze rysunków i kopiuje go do folderu programu">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5"></path>
+          <circle cx="11" cy="14" r="2.6"></circle><path d="M13 16l2.4 2.4"></path>
+        </svg>
+        Dopasuj rysunki
+      </button>
+      <div style="font-size:.72rem;color:var(--mut);margin:9px 0 12px;line-height:1.55">
+        Wyszukuje po numerze SZ i kopiuje rysunki do wszystkich programów, które ich jeszcze nie mają.
+      </div>
+      <button class="btn" id="btnMatchReport" style="width:100%;justify-content:center;display:none;margin-bottom:12px"
+              title="Pokaż programy, do których nie udało się dopasować rysunku">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="9"></circle><path d="M12 8v5M12 16.5v.01"></path>
+        </svg>
+        <span id="matchReportLabel">Bez rysunku: 0</span>
+      </button>
+      <button class="btn" id="btnOpenPdfDir" style="width:100%;justify-content:center">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path>
+        </svg>
+        Folder Szkice
+      </button>
+      <input id="sketchInput" class="sketch-in" type="text" autocomplete="off"
+             placeholder="Szkic do otwarcia, np. SZ2349"
+             title="Wpisz numer/nazwę szkicu i naciśnij „Folder Szkice” — otworzy się jego folder">
+    </div>
+    <div class="panel">
+      <h3>Zajęte numery O</h3>
+      <div class="onums" id="onums"></div>
+    </div>
+  </aside>
+
+  <section class="grid" id="grid"></section>
+</div>
+
+<!-- ── modal: nowy / edycja ─────────────────────────────────────── -->
+<div class="modal" id="mEdit">
+  <div class="dialog">
+    <div class="dialog-head">
+      <h2 id="mEditTitle">Nowy program</h2>
+      <button class="x-btn" data-close="mEdit">✕</button>
+    </div>
+    <div class="dialog-body">
+      <div class="fgrid">
+        <div class="field">
+          <label>Nazwa programu</label>
+          <input id="fName" type="text">
+          <span class="hint" id="hName">Podaj nazwę programu</span>
+        </div>
+        <div class="field">
+          <label>Numer O</label>
+          <div class="field-row">
+            <input id="fOnum" type="text" placeholder="O00125">
+            <button class="mini-btn" id="btnFreeOnum" title="Znajdź pierwszy wolny numer O w bibliotece">Wolny numer</button>
+          </div>
+          <span class="hint" id="hOnum">Ten numer O jest już zajęty przez inny program</span>
+        </div>
+        <div class="field">
+          <label>Detal</label>
+          <input id="fDetail" type="text">
+        </div>
+        <div class="field">
+          <label>Nr rysunku</label>
+          <input id="fDrawing" type="text">
+        </div>
+        <div class="field">
+          <label>Klient</label>
+          <input id="fClient" type="text">
+        </div>
+        <div class="field">
+          <label>Materiał</label>
+          <input id="fMaterial" type="text">
+        </div>
+        <div class="field wide">
+          <label>Tagi (po przecinku)</label>
+          <input id="fTags" type="text" placeholder="wałek, gwint, nierdzewka">
+        </div>
+        <div class="field wide">
+          <label>Notatka</label>
+          <textarea id="fNote" rows="2"></textarea>
+        </div>
+        <div class="field wide">
+          <label>Rysunek PDF</label>
+          <div class="pdf-box" id="pdfBox"></div>
+        </div>
+        <div class="field wide" id="fChangeWrap" style="display:none">
+          <label>Opis zmian — do historii wersji</label>
+          <input id="fChange" type="text" placeholder="np. zmieniony posuw wykańczaka z F0.15 na F0.2">
+        </div>
+        <div class="field wide">
+          <label>Kod programu — G-kod</label>
+          <textarea id="fCode" class="code-in" spellcheck="false"></textarea>
+        </div>
+      </div>
+    </div>
+    <div class="dialog-foot">
+      <button class="btn" data-close="mEdit">Anuluj</button>
+      <button class="btn btn-primary" id="btnSave">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+          <path d="M17 21v-8H7v8M7 3v5h8"></path>
+        </svg>
+        Zapisz program
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── modal: podgląd ───────────────────────────────────────────── -->
+<div class="modal" id="mView">
+  <div class="dialog" style="max-width:900px;margin-top:0;border-radius:0">
+    <div style="position:relative;display:flex;align-items:center;gap:12px;padding:12px 24px 0;border-bottom:1px solid var(--stroke);margin-bottom:8px">
+      <h2 id="vTitle" style="flex:1;margin:0;font-size:.95rem"></h2>
+      <span class="badge-o" id="vOnum" style="padding:6px 12px;font-size:.9rem"></span>
+      <div style="flex:none;display:flex;gap:1px;margin-left:12px">
+        <button class="win-btn" style="width:32px;height:32px" data-close="mView" title="Zamknij okno">✕</button>
+      </div>
+    </div>
+    <div class="dialog-body" id="vBody"></div>
+    <div class="dialog-foot">
+      <button class="btn btn-danger btn-sm" id="btnDelete">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+          <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"></path>
+        </svg>
+        Usuń
+      </button>
+      <span style="flex:1"></span>
+      <button class="btn btn-sm" data-close="mView">Zamknij</button>
+      <button class="btn btn-sm" id="btnCopy">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="9" y="9" width="12" height="12" rx="2"></rect>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+        </svg>
+        Kopiuj kod
+      </button>
+      <button class="btn btn-sm" id="btnDownload">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16"></path>
+        </svg>
+        Pobierz .nc
+      </button>
+      <button class="btn btn-primary btn-sm" id="btnEdit">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+        </svg>
+        Edytuj
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── modal: potwierdzenie usunięcia ───────────────────────────── -->
+<div class="modal" id="mConfirm">
+  <div class="dialog" style="max-width:480px">
+    <div class="dialog-head">
+      <h2>Potwierdź</h2>
+    </div>
+    <div class="dialog-body">
+      <div id="cfText" style="font-size:.93rem;line-height:1.65;white-space:pre-line"></div>
+    </div>
+    <div class="dialog-foot">
+      <button class="btn" id="cfNo">Anuluj</button>
+      <button class="btn btn-danger" id="cfYes">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+          <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"></path>
+        </svg>
+        Usuń
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── modal: potwierdzenie zamknięcia aplikacji ────────────────── -->
+<div class="modal" id="mQuit">
+  <div class="dialog" style="max-width:460px">
+    <div class="dialog-head">
+      <h2>Zamknąć CNC Manager?</h2>
+    </div>
+    <div class="dialog-body">
+      <div style="font-size:.93rem;line-height:1.65">Czy na pewno chcesz zamknąć aplikację?</div>
+    </div>
+    <div class="dialog-foot">
+      <button class="btn" id="qtNo">Anuluj</button>
+      <button class="btn btn-danger" id="qtYes">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 6 6 18M6 6l12 12"></path>
+        </svg>
+        Zamknij
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── modal: numer O już zajęty (przy wklejaniu / imporcie kodu) ── -->
+<div class="modal" id="mOnum">
+  <div class="dialog" style="max-width:480px">
+    <div class="dialog-head">
+      <h2>Numer O już zajęty</h2>
+    </div>
+    <div class="dialog-body">
+      <div id="onText" style="font-size:.93rem;line-height:1.65;white-space:pre-line"></div>
+    </div>
+    <div class="dialog-foot">
+      <button class="btn" id="onFree">Przydziel wolny</button>
+      <button class="btn btn-primary" id="onSwap">Zamień — zachowaj ten numer</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── modal: dodanie rysunku PDF do programu ───────────────────── -->
+<div class="modal" id="mAddPdf">
+  <div class="dialog" style="max-width:640px">
+    <div class="dialog-head">
+      <h2 id="apTitle">Dodaj rysunek PDF</h2>
+      <button class="x-btn" data-close="mAddPdf">✕</button>
+    </div>
+    <div class="dialog-body">
+      <div class="field" style="margin-bottom:14px">
+        <label>Szukaj rysunku</label>
+        <input id="apSearch" type="text" autocomplete="off">
+      </div>
+      <div class="pdf-box" id="apList"></div>
+    </div>
+    <div class="dialog-foot">
+      <button class="btn" data-close="mAddPdf">Anuluj</button>
+      <button class="btn btn-primary" id="apAccept">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 6L9 17l-5-5"></path>
+        </svg>
+        Dodaj wybrany rysunek
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── modal: kontrola programu ─────────────────────────────────── -->
+<div class="modal" id="mCheck">
+  <div class="dialog" style="max-width:840px">
+    <div class="dialog-head">
+      <h2 id="chkTitle">Kontrola programu</h2>
+      <button class="x-btn" data-close="mCheck">✕</button>
+    </div>
+    <div class="dialog-body">
+      <div class="chk-sum" id="chkSum"></div>
+      <div class="mr-list" id="chkList"></div>
+    </div>
+    <div class="dialog-foot">
+      <button class="btn" id="chkCopy" title="Skopiuj listę uwag do schowka">Kopiuj listę</button>
+      <button class="btn" data-close="mCheck">Zamknij</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── modal: raport z „Dopasuj rysunki" ────────────────────────── -->
+<div class="modal" id="mReport">
+  <div class="dialog" style="max-width:760px">
+    <div class="dialog-head">
+      <h2>Programy bez rysunku</h2>
+      <button class="x-btn" data-close="mReport">✕</button>
+    </div>
+    <div class="dialog-body">
+      <div class="mr-tabs" id="mrTabs">
+        <button class="mr-tab on" data-mr="noMatch">Nie znaleziono rysunku <span class="mr-count">0</span></button>
+        <button class="mr-tab" data-mr="noDrawing">Bez numeru rysunku <span class="mr-count">0</span></button>
+        <button class="mr-tab" data-mr="added">Dopasowane <span class="mr-count">0</span></button>
+      </div>
+      <div class="mr-list" id="mrList"></div>
+    </div>
+    <div class="dialog-foot">
+      <button class="btn" id="mrCopy" title="Skopiuj listę (numer O, numer rysunku, folder, plik, nazwa)">Kopiuj listę</button>
+      <button class="btn" data-close="mReport">Zamknij</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── modal: podgląd rysunku PDF ───────────────────────────────── -->
+<div class="modal" id="mPdf">
+  <div class="dialog" style="max-width:1020px">
+    <div class="dialog-head">
+      <h2 id="pdfTitle"></h2>
+      <button class="x-btn" data-close="mPdf">✕</button>
+    </div>
+    <div class="dialog-body" style="padding:12px">
+      <embed id="pdfEmbed" type="application/pdf"
+             style="width:100%;height:76vh;border:0;border-radius:12px;background:#fff">
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="vendor/pdf.min.js"></script>
+<script>
+"use strict";
+if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
+/* ════════════════════ dane ════════════════════ */
+const LS_KEY = "cncPrograms_v1";
+let programs = [];
+let query = "";
+let queryTokens = [];    // słowa wyszukiwania po normalizacji (bez polskich znaków)
+let filter = "all";      // all | fav | tag:xxx
+let folderSearch = false; // czy szukać także w nazwach folderów (p.dir)
+let openedDir = null;     // otwarty folder w widoku „Foldery": {root, dir} — pokazuje jego programy
+let sortMode = localStorage.getItem("cncSort") || "modNew";
+let viewLimit = parseInt(localStorage.getItem("cncLimit"), 10);
+if (isNaN(viewLimit)) viewLimit = 20;   // ile kart pokazywać naraz (0 = wszystkie)
+const hayCache = new Map();   // id -> { mod, hay } — bufor tekstu do wyszukiwania
+const thumbByCard = new Map();// id -> { name, url } — gotowe miniaturki bez odczytu z dysku
+let editId = null;       // id edytowanego programu (null = nowy)
+let viewId = null;       // id programu w podglądzie
+
+function dropDemo() {
+  // usunięcie przykładowych programów zapisanych przez wcześniejsze wersje aplikacji
+  const demo = { p1: "O00125", p2: "O00210", p3: "O00305" };
+  const before = programs.length;
+  programs = programs.filter(p => demo[p.id] !== p.onum);
+  return programs.length !== before;
+}
+function load() {
+  try { programs = JSON.parse(localStorage.getItem(LS_KEY) || "[]"); }
+  catch (e) { programs = []; }
+  if (dropDemo()) save();
+}
+
+/* Biblioteka bywa duża (G-kod + historia wersji), a localStorage ma ~5 MB — przy
+   większej liczbie programów zapis kończył się błędem „exceeded the quota”.
+   Główne miejsce zapisu to więc IndexedDB (limit setek MB), a localStorage trzyma
+   tylko lekką kopię do szybkiego startu. Kod programów dyskowych nie jest
+   zapisywany: i tak jest wczytywany z dysku przy każdym uruchomieniu i skanie. */
+function slimPrograms() {
+  return programs.map(p => (p.source === "disk" && p.code) ? Object.assign({}, p, { code: "" }) : p);
+}
+let libSaveTimer = null, lsQuotaHit = false;
+function save() {
+  const data = slimPrograms();
+  clearTimeout(libSaveTimer);
+  libSaveTimer = setTimeout(() => { idbSet(LS_KEY, data).catch(() => {}); }, 250);
+  if (lsQuotaHit) return;   // po przepełnieniu nie próbuj już zapisywać do localStorage
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify(data));
+  } catch (e) {
+    lsQuotaHit = true;      // dane zostają w IndexedDB — brak kopii w localStorage nie szkodzi
+    try { localStorage.removeItem(LS_KEY); } catch (e2) {}
+  }
+}
+
+/* wczytanie biblioteki z IndexedDB (jeśli jest tam nowsza/pełniejsza kopia) */
+async function loadLibrary() {
+  let fromIdb = null;
+  try { fromIdb = await idbGet(LS_KEY); } catch (e) {}
+  if (Array.isArray(fromIdb) && fromIdb.length >= programs.length) {
+    programs = fromIdb;
+    dropDemo();
+    render();
+  }
+}
+const byId = id => programs.find(p => p.id === id);
+const uid = () => "p" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+/* ════════════════════ analiza G-kodu ════════════════════ */
+/* numer O jako liczba — czyta pełny ciąg cyfr (także długie numery, np. O0123244),
+   zera wiodące bez znaczenia; bierze numer z początku, nie przypadkowe cyfry z tekstu */
+const onumInt = s => { const m = String(s || "").trim().match(/^[Oo]?\s*(\d+)/); return m ? parseInt(m[1], 10) : NaN; };
+const collapse = s => String(s || "").replace(/\s+/g, " ").trim();
+/* polska odmiana liczebnika: 1 plik, 2-4 pliki, 5+ plików (z wyjątkiem 12-14) */
+function plural(n, one, few, many) {
+  const a = Math.abs(n), d = a % 10, s = a % 100;
+  if (a === 1) return one;
+  if (d >= 2 && d <= 4 && (s < 12 || s > 14)) return few;
+  return many;
+}
+/* zamiana polskich znaków na łacińskie — „tłok” znajdzie „tlok” i odwrotnie */
+const PLCH = { "ą": "a", "ć": "c", "ę": "e", "ł": "l", "ń": "n", "ó": "o", "ś": "s", "ź": "z", "ż": "z" };
+const fold = s => String(s || "").toLowerCase().replace(/[ąćęłńóśźż]/g, ch => PLCH[ch]);
+function sanitizeName(s) {
+  let base = collapse(String(s || "").replace(/[\\/:*?"<>|]+/g, "_")).slice(0, 60).replace(/[. ]+$/, "");
+  if (!base || /^(CON|PRN|AUX|NUL|COM\d|LPT\d)$/i.test(base)) base = "program_" + base;
+  return base;
+}
+
+/* ════════════════ kontrola programu przed wysłaniem na maszynę ════════════════
+   Sprawdza rzeczy, które na tokarce Haas kosztują płytkę, detal albo wrzeciono.
+   Celowo TYLKO pewne przypadki — przy kilkuset programach lista pełna
+   wątpliwych ostrzeżeń jest bezużyteczna, bo nikt jej nie przegląda. */
+
+/* usuwa komentarze w nawiasach, żeby ich treść nie wpadała do analizy kodu */
+function stripGcodeComments(line) { return line.replace(/\([^)]*\)?/g, " "); }
+
+/* słowa, których wartość na Haasie MUSI mieć kropkę dziesiętną — bez niej
+   liczba jest czytana w najmniejszym inkremencie maszyny (X1 to nie 1 mm).
+   Zero jest bezpieczne w obu zapisach, więc go nie zgłaszamy. */
+const DECIMAL_WORDS = /(^|[^A-Z0-9.#])([XYZUVWABCIJKRFE])(-?\d+)(?![\d.])/g;
+
+function checkProgram(p) {
+  const raw = String((p && p.code) || "");
+  if (!raw.trim()) return [];
+  const out = [];
+  const add = (level, msg, line) => out.push({ level, msg, line });
+  const lines = raw.split(/\r?\n/);
+
+  let spindleOn = false, feedSet = false, coolantOn = false;
+  let tool = "", workOffset = false, g50 = false;
+  let hasEnd = false, hasUnits = false, lastSafe = -1, lastMotion = -1;
+
+  lines.forEach((rawLine, i) => {
+    const n = i + 1;
+
+    // komentarz musi się domykać w tej samej linii
+    const op = (rawLine.match(/\(/g) || []).length;
+    const cl = (rawLine.match(/\)/g) || []).length;
+    if (op !== cl) add("err", "Niezamknięty nawias komentarza", n);
+
+    const s = stripGcodeComments(rawLine).toUpperCase();
+    if (!s.trim()) return;
+
+    // brak kropki dziesiętnej przy wartości różnej od zera
+    let m;
+    DECIMAL_WORDS.lastIndex = 0;
+    while ((m = DECIMAL_WORDS.exec(s))) {
+      if (Number(m[3]) === 0) continue;              // X0 znaczy to samo co X0.
+      add("err", "Brak kropki dziesiętnej: " + m[2] + m[3] + " — maszyna czyta to w najmniejszym inkremencie", n);
+    }
+
+    // narzędzie i korektor (Haas: T202 = narzędzie 2, korektor 02)
+    const tm = s.match(/\bT(\d{1,4})\b/);
+    if (tm) {
+      const d = tm[1].padStart(3, "0");
+      const off = d.slice(-2);
+      tool = "T" + tm[1];
+      workOffset = false; g50 = false;
+      if (off === "00") add("warn", tool + " wywołane z korektorem 00 — narzędzie bez korekcji", n);
+    }
+
+    if (/\bG5[4-9]\b/.test(s) || /\bG1[12]\d\b/.test(s)) workOffset = true;
+    if (/\bG50\b/.test(s) && /\bS\d+/.test(s)) g50 = true;
+    if (/\bG96\b/.test(s)) {
+      if (!g50) add("warn", "G96 (stała prędkość skrawania) bez wcześniejszego G50 S… — brak ograniczenia obrotów", n);
+      if (!/\bS\d+/.test(s)) add("err", "G96 bez wartości S", n);
+    }
+    if (/\bM0?[34]\b/.test(s)) spindleOn = true;
+    if (/\bM0?5\b/.test(s)) spindleOn = false;
+    if (/\bM0?8\b/.test(s)) coolantOn = true;
+    if (/\bM0?9\b/.test(s)) coolantOn = false;
+    if (/\bF\d*\.?\d+/.test(s)) feedSet = true;
+    if (/\bG2[01]\b/.test(s)) hasUnits = true;
+    if (/\bM(30|99)\b/.test(s)) hasEnd = true;
+    if (/\bG(53|28)\b/.test(s)) lastSafe = n;
+
+    // ruch roboczy: wrzeciono musi się kręcić, posuw musi być zadany
+    if (/\bG0?[1239]\b|\bG7[0-6]\b/.test(s) && !/\bG0?0\b/.test(s)) {
+      lastMotion = n;
+      if (!spindleOn) add("err", "Ruch roboczy przed uruchomieniem wrzeciona (brak M03/M04)", n);
+      if (!feedSet) add("err", "Ruch roboczy bez zadanego posuwu F", n);
+      if (tool && !workOffset) add("warn", "Ruch roboczy po " + tool + " bez układu współrzędnych (G54…)", n);
+    }
+  });
+
+  if (!hasEnd) add("err", "Brak M30 (albo M99) — program się nie zakończy", 0);
+  if (!hasUnits) add("warn", "Brak G20/G21 — jednostki zależą od stanu maszyny", 0);
+  if (coolantOn) add("warn", "Chłodziwo M08 nie zostało wyłączone (brak M09)", 0);
+  if (lastMotion > 0 && lastSafe < lastMotion) {
+    add("warn", "Brak odjazdu w bezpieczne położenie (G53 / G28) po ostatnim ruchu roboczym", 0);
+  }
+  const t = raw.trim();
+  if (!t.startsWith("%") || !t.endsWith("%")) {
+    add("warn", "Brak znaku % na początku lub końcu — wymagany przy przesyłaniu do maszyny", 0);
+  }
+  return out;
+}
+
+/* wynik kontroli jest buforowany po treści kodu — przy kilkuset programach
+   przeliczanie przy każdym przerysowaniu siatki byłoby odczuwalne */
+const checkCache = new Map();
+function issueCount(p) {
+  if (!p) return { err: 0, warn: 0, list: [] };
+  const c = checkCache.get(p.id);
+  if (c && c.code === p.code) return c.res;
+  const list = checkProgram(p);
+  const res = {
+    err: list.filter(x => x.level === "err").length,
+    warn: list.filter(x => x.level === "warn").length,
+    list
+  };
+  checkCache.set(p.id, { code: p.code, res });
+  return res;
+}
+
+/* wyciąga z kodu: numer O, nazwę z nawiasów obok numeru, nazwę detalu, numer rysunku SZ#### */
+function parseGcodeMeta(code) {
+  const meta = { onum: "", name: "", detail: "", drawing: "" };
+  const m = String(code || "").match(/^[ \t]*[Oo](\d{1,8})[ \t]*(?:\(([^)]*)\))?/m);
+  if (m) { meta.onum = "O" + m[1]; meta.name = collapse(m[2]); }
+  const dm = String(code || "").slice(0, 800).match(/\bSZ[-\s]?(\d{2,6})\b/i);
+  if (dm) meta.drawing = "SZ" + dm[1];
+  for (const line of String(code || "").split("\n").slice(0, 15)) {
+    const c = line.match(/^\s*\(([^)]*)\)\s*$/);
+    if (!c) continue;
+    const t = collapse(c[1]);
+    if (!t || /^[*\-=_. ]+$/.test(t) || t.startsWith("---")) continue;
+    if (/\d{1,2}[.\/-]\d{1,2}[.\/-]\d{2,4}/.test(t)) continue;
+    if (meta.name && t.toLowerCase() === meta.name.toLowerCase()) continue;
+    meta.detail = t;
+    break;
+  }
+  return meta;
+}
+
+function replaceOnumInCode(code, onum) {
+  if (!onum) return code;
+  const num = String(onum).replace(/^[Oo]/, "");
+  if (/^[ \t]*[Oo]\d+/m.test(code)) return code.replace(/^([ \t]*)[Oo]\d+/m, "$1O" + num);
+  return code;
+}
+
+/* pierwszy wolny numer O — najmniejszy, którego nie ma w bibliotece */
+function nextFreeOnum() {
+  const used = new Set(programs.map(p => onumInt(p.onum)).filter(n => !isNaN(n) && n > 0));
+  let n = 1;
+  while (used.has(n)) n++;
+  return "O" + String(n).padStart(4, "0");
+}
+
+/* ════════════════ foldery CNC Programy na dysku (File System Access API) ════════════════ */
+let fsRoot = null;          // aktywny folder (natywnie: {native,path,name,key}; przeglądarka: uchwyt katalogu)
+let folders = [];           // lista folderów [{key,path,name}] (tryb natywny)
+let activeFolderKey = null; // klucz aktywnego folderu (cel nowych programów, skanu)
+let folderView = "all";     // co pokazywać w siatce: "all" albo klucz folderu
+let pdfFolders = [];        // foldery z rysunkami PDF: {key,path,name} albo {key,name,handle}
+let pdfRoot = null;         // pierwszy (główny) folder z rysunkami — zgodność z resztą kodu
+let pdfFiles = [];          // PDF-y ze WSZYSTKICH folderów: {name, path, abs|handle, folder}
+let pdfCandidates = [];     // wyniki wyszukiwania rysunku w formularzu
+let selectedPdf = null;     // rysunek wybrany do skopiowania przy zapisie
+let attachedPdfs = [];      // rysunki już leżące w folderze edytowanego programu
+const FILE_RE = /\.(txt|nc|cnc|tap|eia|prg|ngc)$/i;
+
+const folderKey = () => "f" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+const folderOf = k => folders.find(f => f.key === k) || null;
+function activeFolder() { return folderOf(activeFolderKey); }
+/* ścieżka na dysku folderu, do którego należy dany program (tryb natywny) */
+function rootPathOf(p) {
+  if (p && p.root) { const f = folderOf(p.root); if (f && f.path) return f.path; }
+  return (fsRoot && fsRoot.path) ? fsRoot.path : null;
+}
+function diskCountOf(key) { return programs.filter(p => p.source === "disk" && p.root === key).length; }
+/* czy program należy do aktualnie oglądanego folderu */
+function inView(p) { return folderView === "all" || p.source !== "disk" || p.root === folderView; }
+/* foldery pomijane (fragmenty nazw, po fold) — nie skanowane i nie pokazywane */
+let ignoredDirs = [];
+function isIgnoredDir(dir) {
+  if (!ignoredDirs.length || !dir) return false;
+  const d = fold(dir);
+  return ignoredDirs.some(t => t && d.includes(t));
+}
+function saveFolders() {
+  localStorage.setItem("cncFolders", JSON.stringify(folders.map(f => ({ key: f.key, path: f.path, name: f.name }))));
+  localStorage.setItem("cncActiveFolder", activeFolderKey || "");
+}
+/* wczytuje listę folderów + jednorazowa migracja starego pojedynczego folderu */
+function loadFolders() {
+  try { folders = JSON.parse(localStorage.getItem("cncFolders") || "[]") || []; } catch (e) { folders = []; }
+  activeFolderKey = localStorage.getItem("cncActiveFolder") || null;
+  const rootless = programs.filter(p => p.source === "disk" && !p.root);
+  let legacy = null;
+  try { legacy = JSON.parse(localStorage.getItem("cncRootPath") || "null"); } catch (e) {}
+  // migracja tylko gdy jest co migrować (stary folder na dysku albo osierocone programy)
+  if (!folders.length && ((legacy && legacy.path) || rootless.length)) {
+    const key = folderKey();
+    folders = [{ key, path: (legacy && legacy.path) || "", name: (legacy && legacy.name) || "Programy" }];
+    activeFolderKey = key;
+  }
+  if (rootless.length && folders.length) {
+    const key = activeFolderKey || folders[0].key;
+    rootless.forEach(p => {
+      p.root = key;
+      if (p.id.startsWith("d:") && p.id.indexOf(":", 2) === -1) p.id = "d:" + key + ":" + p.id.slice(2);
+    });
+    save();
+  }
+  if (folders.length) saveFolders();
+  if (!folderOf(activeFolderKey)) activeFolderKey = folders[0] ? folders[0].key : null;
+  folderView = activeFolderKey || "all";
+}
+
+function idb() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open("cncFS", 3);
+    r.onupgradeneeded = () => {
+      const db = r.result;
+      if (!db.objectStoreNames.contains("kv")) db.createObjectStore("kv");
+      if (!db.objectStoreNames.contains("thumbs")) db.createObjectStore("thumbs");
+      if (!db.objectStoreNames.contains("thumbs2")) db.createObjectStore("thumbs2");
+    };
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+async function idbSet(k, v, store = "kv") {
+  const db = await idb();
+  return new Promise((res, rej) => {
+    const t = db.transaction(store, "readwrite");
+    t.objectStore(store).put(v, k);
+    t.oncomplete = () => res();
+    t.onerror = () => rej(t.error);
+  });
+}
+async function idbGet(k, store = "kv") {
+  const db = await idb();
+  return new Promise((res, rej) => {
+    const g = db.transaction(store, "readonly").objectStore(store).get(k);
+    g.onsuccess = () => res(g.result);
+    g.onerror = () => rej(g.error);
+  });
+}
+
+function updateFolderUI(resume) {
+  const btn = document.getElementById("btnFolder");
+  const lbl = document.getElementById("folderLabel");
+  btn.classList.remove("connected", "resume");
+  if (!folders.length) {
+    lbl.textContent = "Połącz folder";
+    btn.title = "Dodaj folder z programami CNC";
+  } else {
+    btn.classList.add(resume ? "resume" : "connected");
+    if (folderView === "all") lbl.textContent = folders.length > 1 ? "Wszystkie foldery" : (folderOf(activeFolderKey) || {}).name || "Foldery";
+    else { const f = folderOf(folderView); lbl.textContent = f ? f.name : "Foldery"; }
+    btn.title = "Przełącz folder z programami albo dodaj kolejny";
+  }
+  renderFolderMenu();
+}
+
+/* buduje rozwijane menu z listą folderów */
+function renderFolderMenu() {
+  const box = document.getElementById("folderMenu");
+  if (!box) return;
+  let html = "";
+  if (folders.length > 1) {
+    html += `<div class="fm-item ${folderView === "all" ? "on" : ""}" data-view="all">
+      <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h16"></path></svg>
+      <span class="fm-name">Wszystkie foldery</span>
+      <span class="fm-count">${programs.filter(p => p.source === "disk").length}</span></div>`;
+  }
+  folders.forEach(f => {
+    html += `<div class="fm-item ${folderView === f.key ? "on" : ""}" data-view="${esc(f.key)}">
+      <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path></svg>
+      <span class="fm-name" title="${esc(f.path || f.name)}">${esc(f.name)}</span>
+      <span class="fm-count">${diskCountOf(f.key)}</span>
+      <button class="fm-del" data-delfolder="${esc(f.key)}" title="Odłącz ten folder">✕</button></div>`;
+  });
+  html += `<div class="fm-sep"></div>
+    <div class="fm-item fm-add" data-addfolder="1">
+      <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"></path></svg>
+      <span class="fm-name">Dodaj folder…</span></div>`;
+  box.innerHTML = html;
+}
+
+/* dodaje kolejny folder z programami i od razu go skanuje */
+async function addFolder() {
+  if (window.native) {
+    const r = await window.native.pickFolder("Wybierz folder z programami CNC");
+    if (!r) return;
+    let f = folders.find(x => x.path === r.path);
+    if (!f) { f = { key: folderKey(), path: r.path, name: r.name }; folders.push(f); }
+    activeFolderKey = f.key; folderView = f.key;
+    fsRoot = { native: true, path: f.path, name: f.name, key: f.key };
+    saveFolders();
+    updateFolderUI(false);
+    await rescanFolderKey(f.key);
+    return;
+  }
+  if (!window.showDirectoryPicker) {
+    toast("Ta przeglądarka nie obsługuje dostępu do folderów — użyj Chrome lub Edge");
+    return;
+  }
+  let h;
+  try { h = await window.showDirectoryPicker({ mode: "readwrite" }); }
+  catch (e) { return; }
+  const key = (folders[0] && folders[0].key) || folderKey();
+  folders = [{ key, path: "", name: h.name }];   // przeglądarka: pojedynczy folder
+  activeFolderKey = key; folderView = key;
+  fsRoot = h; try { fsRoot.key = key; } catch (e) {}
+  try { await idbSet("root", h); } catch (e) {}
+  saveFolders();
+  updateFolderUI(false);
+  await rescanFolderKey(key);
+}
+
+/* przełącza widok/aktywny folder (bez skanowania — natychmiast) */
+async function switchFolder(view) {
+  folderView = view;
+  openedDir = null;   // zmiana folderu głównego wychodzi z otwartego podfolderu
+  if (view !== "all") {
+    activeFolderKey = view;
+    const f = folderOf(view);
+    if (f && window.native) fsRoot = { native: true, path: f.path, name: f.name, key: f.key };
+  }
+  saveFolders();
+  updateFolderUI(false);
+  render();
+}
+
+/* odłącza folder — usuwa jego programy z biblioteki (pliki na dysku zostają) */
+async function removeFolder(key) {
+  const f = folderOf(key); if (!f) return;
+  const n = diskCountOf(key);
+  if (!await askConfirm('Odłączyć folder „' + f.name + '”?\n\nZ biblioteki zniknie ' + n + ' programów z tego folderu.\nPliki na dysku pozostaną nienaruszone.')) return;
+  programs = programs.filter(p => !(p.source === "disk" && p.root === key));
+  folders = folders.filter(x => x.key !== key);
+  if (activeFolderKey === key) activeFolderKey = folders[0] ? folders[0].key : null;
+  if (folderView === key) folderView = activeFolderKey || "all";
+  fsRoot = activeFolder() ? { native: !!window.native, path: activeFolder().path, name: activeFolder().name, key: activeFolderKey } : null;
+  if (!window.native) { try { await idbSet("root", null); } catch (e) {} }
+  save(); saveFolders(); updateFolderUI(false); render();
+  toast("Odłączono folder „" + f.name + "”");
+}
+
+/* przywraca foldery przy starcie + skanuje dysk */
+async function restoreFolders() {
+  if (window.native) {
+    const alive = [];
+    for (const f of folders) {
+      let ok = false; try { ok = await window.native.exists(f.path); } catch (e) {}
+      if (ok) alive.push(f);
+    }
+    if (alive.length) folders = alive;
+    if (!folderOf(activeFolderKey)) activeFolderKey = folders[0] ? folders[0].key : null;
+    if (folderView !== "all" && !folderOf(folderView)) folderView = activeFolderKey || "all";
+    if (activeFolder()) fsRoot = { native: true, path: activeFolder().path, name: activeFolder().name, key: activeFolderKey };
+    saveFolders();
+    updateFolderUI(false);
+    // skan przy starcie — bez komunikatu dla każdego folderu z osobna
+    for (const f of folders) await rescanFolderKey(f.key, true);
+    try {
+      let saved = [];
+      try { saved = JSON.parse(localStorage.getItem("cncPdfFolders") || "[]") || []; } catch (e) {}
+      if (!saved.length) {
+        // migracja z wersji z jednym folderem rysunków
+        const r2 = JSON.parse(localStorage.getItem("cncPdfPath") || "null");
+        if (r2 && r2.path) saved = [{ key: pdfKey(), path: r2.path, name: r2.name }];
+      }
+      const alive = [];
+      for (const f of saved) {
+        let ok = false; try { ok = await window.native.exists(f.path); } catch (e) {}
+        if (ok) alive.push({ key: f.key || pdfKey(), path: f.path, name: f.name });
+      }
+      pdfFolders = alive;
+      syncPdfRoot();
+      savePdfFolders();
+      if (pdfFolders.length) {
+        updatePdfUI(false);
+        await scanPdfFolder(true);
+      }
+    } catch (e) {}
+    render();
+    return;
+  }
+  updateFolderUI(false);
+  if (!window.showDirectoryPicker) { render(); return; }
+  let h = null;
+  try { h = await idbGet("root"); } catch (e) {}
+  if (h) {
+    const key = folders[0] ? folders[0].key : folderKey();
+    if (!folders.length) { folders = [{ key, path: "", name: h.name }]; activeFolderKey = key; folderView = key; saveFolders(); }
+    fsRoot = h; try { fsRoot.key = activeFolderKey; } catch (e) {}
+    let st = "prompt";
+    try { st = await h.queryPermission({ mode: "readwrite" }); } catch (e) {}
+    updateFolderUI(st !== "granted");
+    if (st === "granted") await rescanFolderKey(activeFolderKey);
+    else toast('Kliknij „' + h.name + '”, aby przywrócić dostęp do folderu');
+  }
+  let hps = null;
+  try { hps = await idbGet("pdfRoots"); } catch (e) {}
+  if (!hps || !hps.length) {                       // migracja z wersji z jednym folderem
+    let hp = null;
+    try { hp = await idbGet("pdfRoot"); } catch (e) {}
+    hps = hp ? [hp] : [];
+  }
+  if (hps.length) {
+    pdfFolders = hps.map(h => ({ key: pdfKey(), path: "", name: h.name, handle: h }));
+    syncPdfRoot();
+    let granted = true;
+    for (const f of pdfFolders) {
+      let st = "prompt";
+      try { st = await f.handle.queryPermission({ mode: "read" }); } catch (e) {}
+      if (st !== "granted") granted = false;
+    }
+    updatePdfUI(!granted);
+    if (granted) await scanPdfFolder();
+  }
+  render();
+}
+
+/* skanuje wskazany folder (podfoldery z programami + pliki luzem);
+   quiet = bez komunikatu o tym folderze (przy odświeżaniu wielu naraz) */
+async function rescanFolderKey(key, quiet) {
+  const f = folderOf(key);
+  if (!f) { if (!quiet) toast("Nie znaleziono folderu do odświeżenia — połącz go ponownie"); return; }
+  let found = [];
+  /* podfolder → nazwy plików PDF, które w nim leżą (rysunek obok programu) */
+  const pdfsByDir = new Map();
+  const notePdf = (dir, name) => {
+    const list = pdfsByDir.get(dir) || [];
+    if (!list.includes(name)) list.push(name);
+    pdfsByDir.set(dir, list);
+  };
+  if (window.native) {
+    try { found = await window.native.scanPrograms(f.path); }
+    catch (e) { toast("Nie udało się odczytać folderu „" + f.name + "”"); return; }
+    try {
+      for (const x of await window.native.scanPdfs(f.path)) {
+        const i = x.rel.lastIndexOf("/");
+        notePdf(i < 0 ? "" : x.rel.slice(0, i), x.name);
+      }
+    } catch (e) {}
+  } else {
+    const dir = fsRoot;   // przeglądarka: pojedynczy folder = aktywny uchwyt
+    if (!dir || !dir.entries) return;
+    try {
+      for await (const [name, h] of dir.entries()) {
+        if (h.kind === "directory") {
+          try {
+            for await (const [fn, fh] of h.entries()) {
+              if (fh.kind !== "file") continue;
+              if (FILE_RE.test(fn)) {
+                const file = await fh.getFile();
+                found.push({ dir: name, file: fn, code: await file.text(), mtime: file.lastModified });
+              } else if (/\.pdf$/i.test(fn)) notePdf(name, fn);
+            }
+          } catch (e) {}
+        } else if (h.kind === "file" && FILE_RE.test(name)) {
+          const file = await h.getFile();
+          found.push({ dir: "", file: name, code: await file.text(), mtime: file.lastModified });
+        } else if (h.kind === "file" && /\.pdf$/i.test(name)) notePdf("", name);
+      }
+    } catch (e) { toast("Nie udało się odczytać folderu"); return; }
+  }
+  return mergeScanFolder(f, found, quiet, pdfsByDir);
+}
+
+/* odświeżenie: skanuje WSZYSTKIE połączone foldery, niezależnie od tego, który jest
+   aktywny i co jest w widoku (wcześniej skanowany był tylko aktywny folder, więc
+   „Odśwież" pozornie nic nie robiło, gdy oglądany był inny folder) */
+async function rescanFolder(quiet) {
+  const sum = { folders: 0, files: 0, added: 0 };
+  const add = r => { if (r) { sum.folders++; sum.files += r.files; sum.added += r.added; } };
+  if (window.native && folders.length) {
+    for (const f of folders.slice()) add(await rescanFolderKey(f.key, quiet));
+    return sum;
+  }
+  const key = activeFolderKey || (fsRoot && fsRoot.key) || (folders[0] && folders[0].key);
+  if (key) add(await rescanFolderKey(key, quiet));
+  return sum;
+}
+
+const pdfNorm = s => fold(s || "").replace(/[\s\-_.]+/g, "");
+
+/* Oznaczenia rysunku w tekście: „SZ1124", „SZ-1124", „SZ 1124", „SZ1124B".
+   Litera na końcu jest CZĘŚCIĄ oznaczenia — SZ1124 i SZ1124B to dwa różne
+   rysunki (wkrętka vs gniazdo), więc nie wolno ich mylić. */
+function szTags(s) {
+  return (fold(s).match(/sz\s*-?\s*\d{2,6}[a-z]?/g) || []).map(x => x.replace(/[\s\-]+/g, ""));
+}
+
+/* Klucze nazwy: pojedyncze tokeny i sklejenia sąsiadów. Dzięki temu „SZ-1124"
+   równa się „SZ1124", ale „SZ1124B" już nie — porównujemy całe człony, a nie
+   fragmenty, więc numer nie pasuje do dłuższego numeru z tym samym początkiem. */
+function nameKeys(s) {
+  const t = fold(s).split(/[^a-z0-9]+/).filter(Boolean);
+  const keys = new Set(t);
+  for (let i = 0; i + 1 < t.length; i++) keys.add(t[i] + t[i + 1]);
+  for (let i = 0; i + 2 < t.length; i++) keys.add(t[i] + t[i + 1] + t[i + 2]);
+  return keys;
+}
+
+/* Czy ten plik PDF jest rysunkiem o tym numerze?
+   Gdy plik ma własne oznaczenie SZ, musi się ono zgadzać CO DO ZNAKU. */
+function pdfHasDrawing(pdfName, drawing) {
+  const want = szTags(drawing)[0] || pdfNorm(drawing);
+  if (!want || want.length < 3) return false;
+  const tags = szTags(pdfName);
+  if (tags.length) return tags.includes(want);
+  return nameKeys(String(pdfName).replace(/\.pdf$/i, "")).has(want);
+}
+
+/* jak mocno nazwa pliku PDF pasuje do programu (0 = wcale).
+   Liczy się najmocniejszy trop: numer rysunku > numer O > nazwa pliku .nc > nazwa
+   detalu. Dopasowanie działa w obie strony, bo raz plik nazywa się szerzej niż
+   program („DLAWNICA 0516 1.pdf" ↔ „DLAWNICA 0516"), a raz węziej. */
+function pdfMatchScore(p, pdfName) {
+  const bare = String(pdfName).replace(/\.pdf$/i, "");
+  const keys = nameKeys(bare);
+  if (!keys.size) return 0;
+  let best = 0;
+
+  // numer rysunku — porównanie dokładne, SZ1124 ≠ SZ1124B
+  if (pdfHasDrawing(pdfName, p.drawing)) best = 100 + pdfNorm(p.drawing).length;
+  // plik ma numer SZ, ale INNY niż program → to na pewno nie ten rysunek
+  else if (szTags(bare).length && szTags(p.drawing).length) return 0;
+
+  // pozostałe tropy — wspólny CAŁY człon nazwy, nie fragment
+  const hit = (val, weight) => {
+    const key = pdfNorm(val);
+    if (key.length >= 3 && keys.has(key)) best = Math.max(best, weight + key.length);
+  };
+  hit(p.onum, 80);
+  hit((p.file || "").replace(/\.[^.]+$/, ""), 60);
+  for (const src of [p.name, p.detail]) {
+    for (const k of nameKeys(src)) {
+      if (k.length >= 3 && keys.has(k)) best = Math.max(best, 40 + k.length);
+    }
+  }
+  return best;
+}
+
+/* rozdziela rysunki PDF z jednego folderu pomiędzy leżące w nim programy.
+   Zwraca Map: id programu → lista nazw plików PDF.
+
+   Gdy w folderze jest jeden program — wszystkie rysunki są jego (klasyczny układ
+   „folder na detal"). Gdy programów jest kilka (np. wspólny folder 0516 z jarzmem,
+   denkiem i tłokiem), każdy rysunek trafia TYLKO do programu, do którego pasuje
+   nazwą — a gdy nie pasuje do żadnego, nie trafia nigdzie. Zgadywanie dawałoby
+   wszystkim ten sam rysunek. */
+function splitPdfsInDir(dir, progs, pdfNames) {
+  const out = new Map(progs.map(p => [p.id, []]));
+  if (!pdfNames.length || !progs.length) return out;
+
+  // pojedynczy program w podfolderze — rysunki z tego folderu są jego
+  if (progs.length === 1 && dir !== "") {
+    out.set(progs[0].id, pdfNames.slice());
+    return out;
+  }
+
+  for (const name of pdfNames) {
+    let best = 0;
+    let winners = [];
+    for (const p of progs) {
+      const s = pdfMatchScore(p, name);
+      if (s === 0 || s < best) continue;
+      if (s > best) { best = s; winners = [p]; }
+      else winners.push(p);
+    }
+    // Remis to zwykle nazwa wspólna dla całej paczki (np. „0516.pdf" w folderze 0516,
+    // gdzie każdy program ma 0516 w nazwie) — takiego rysunku nie przypisujemy nikomu,
+    // bo inaczej wszystkie karty dostają ten sam, błędny rysunek. Wyjątkiem jest trafienie
+    // po numerze rysunku: tam remis oznacza po prostu wspólny rysunek kilku sztuk.
+    if (winners.length > 1 && best < 100) continue;
+    for (const p of winners) out.get(p.id).push(name);
+  }
+  return out;
+}
+
+/* dopina do programów rysunki PDF leżące w ich własnym folderze i odpina te,
+   których na dysku już nie ma. Przypisanie zrobione ręcznie (przycisk „Dopasuj PDF",
+   upuszczenie pliku na kartę) jest oznaczone `pdfsAuto === false` i skan folderu
+   go nie nadpisuje — tylko usuwa pozycje skasowane z dysku. */
+function syncFolderPdfs(key, pdfsByDir) {
+  if (!pdfsByDir) return 0;
+
+  // programy tego folderu pogrupowane po podfolderze
+  const progsByDir = new Map();
+  for (const p of programs) {
+    if (p.source !== "disk" || p.root !== key) continue;
+    const dir = p.dir || "";
+    if (!progsByDir.has(dir)) progsByDir.set(dir, []);
+    progsByDir.get(dir).push(p);
+  }
+
+  let touched = 0;
+  for (const [dir, progs] of progsByDir) {
+    const onDisk = pdfsByDir.get(dir) || [];
+    const wanted = splitPdfsInDir(dir, progs, onDisk);
+    for (const p of progs) {
+      const before = (p.pdfs || []).join("|");
+      const want = wanted.get(p.id) || [];
+      let list;
+      if (p.pdfsAuto === false) {
+        // ręczne przypisanie zostaje; dokładamy tylko to, co jednoznacznie pasuje
+        list = (p.pdfs || []).filter(n => onDisk.includes(n));
+        for (const n of want) if (!list.includes(n)) list.push(n);
+      } else {
+        list = want;
+      }
+      if (list.join("|") === before) continue;
+      p.pdfs = list;
+      thumbByCard.delete(p.id);
+      touched++;
+    }
+  }
+  return touched;
+}
+
+/* scala wynik skanowania folderu z biblioteką (programy dyskowe namespace'owane kluczem
+   folderu). Przypisania rysunków PDF idą wyłącznie za tym, co leży na dysku w folderze
+   programu — ręczne dopasowanie kopiuje plik do tego folderu, więc nie ginie. */
+function mergeScanFolder(folder, found, quiet, pdfsByDir) {
+  thumbByCard.clear();   // po przeskanowaniu dysku odśwież miniaturki od zera
+  const key = folder.key;
+  const diskIds = new Set();
+  let added = 0;
+  found.forEach(x => {
+    if (isIgnoredDir(x.dir)) return;   // pomiń foldery z listy „Pomijaj foldery"
+    const id = "d:" + key + ":" + (x.dir ? x.dir + "/" : "") + x.file;
+    diskIds.add(id);
+    const p = byId(id);
+    if (!p) {
+      const meta = parseGcodeMeta(x.code);
+      // gdy w pliku .nc nie ma nazwy detalu — użyj nazwy folderu programu (najgłębszego)
+      programs.push({
+        id, source: "disk", root: key, dir: x.dir, file: x.file,
+        name: meta.name || collapse((x.dir || "").split("/").pop()) || x.file.replace(/\.[^.]+$/, ""),
+        onum: meta.onum || "", detail: meta.detail || "",
+        drawing: meta.drawing || "", client: "", material: "", tags: [], note: "",
+        fav: false, versions: [], code: x.code, created: x.mtime, modified: x.mtime,
+        pdfs: []
+      });
+      added++;
+    } else {
+      if (p.code !== x.code) {
+        (p.versions = p.versions || []).push({ date: p.modified, note: "Wersja sprzed zmiany pliku na dysku", code: p.code });
+        p.code = x.code;
+        p.modified = x.mtime;
+        const meta = parseGcodeMeta(x.code);
+        if (meta.onum) p.onum = meta.onum;
+        if (meta.drawing && !p.drawing) p.drawing = meta.drawing;
+      }
+    }
+  });
+  // usuń tylko programy dyskowe TEGO folderu, których już nie ma na dysku
+  programs = programs.filter(p => !(p.source === "disk" && p.root === key) || diskIds.has(p.id));
+  syncFolderPdfs(key, pdfsByDir);
+  save();
+  render();
+  if (!quiet) toast("Folder „" + folder.name + "”: " + found.length + " plików" + (added ? ", nowych: " + added : ""));
+  return { files: found.length, added };
+}
+
+let fsLastError = "";
+async function writeDisk(p) {
+  if (!p.file) { fsLastError = "brak nazwy pliku"; return false; }
+  fsLastError = "";
+  if (window.native) {
+    const rp = rootPathOf(p);
+    if (!rp) { fsLastError = "folder nie jest połączony"; return false; }
+    const r = await window.native.writeProgram(rp, p.dir || "", p.file, p.code || "")
+      .catch(e => ({ ok: false, error: String(e) }));
+    if (r && r.ok) return true;
+    fsLastError = (r && r.error) || "błąd zapisu";
+    return false;
+  }
+  if (!fsRoot) { fsLastError = "folder nie jest połączony"; return false; }
+  try {
+    let st = "granted";
+    try {
+      st = await fsRoot.queryPermission({ mode: "readwrite" });
+      if (st !== "granted") st = await fsRoot.requestPermission({ mode: "readwrite" });
+    } catch (e) {}
+    if (st !== "granted") { fsLastError = "brak zgody na zapis w folderze"; return false; }
+    const dh = p.dir ? await fsRoot.getDirectoryHandle(p.dir, { create: true }) : fsRoot;
+    const fh = await dh.getFileHandle(p.file, { create: true });
+    const w = await fh.createWritable();
+    await w.write(p.code || "");
+    await w.close();
+    return true;
+  } catch (e) {
+    fsLastError = (e && e.name ? e.name + ": " : "") + ((e && e.message) || e);
+    return false;
+  }
+}
+
+/* ════════════════ folder z rysunkami PDF ════════════════ */
+/* pierwszy folder z rysunkami trzyma resztę kodu przy życiu bez zmian:
+   w trybie natywnym to {native,path,name}, w przeglądarce — uchwyt katalogu */
+function syncPdfRoot() {
+  const f = pdfFolders[0];
+  pdfRoot = !f ? null : (f.handle || { native: true, path: f.path, name: f.name });
+}
+
+function pdfFolderOf(key) { return pdfFolders.find(f => f.key === key) || null; }
+function pdfKey() { return "p" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+function savePdfFolders() {
+  localStorage.setItem("cncPdfFolders",
+    JSON.stringify(pdfFolders.filter(f => f.path).map(f => ({ key: f.key, path: f.path, name: f.name }))));
+}
+/* ile rysunków pochodzi z danego folderu */
+function pdfCountOf(key) { return pdfFiles.filter(f => f.folder === key).length; }
+
+function updatePdfUI(resume) {
+  const btn = document.getElementById("btnPdf");
+  const lbl = document.getElementById("pdfLabel");
+  const off = document.getElementById("btnPdfOff");
+  btn.classList.remove("connected", "resume");
+  renderPdfMenu();
+  if (!pdfFolders.length) {
+    lbl.textContent = "Foldery PDF";
+    btn.title = "Wskaż folder (albo kilka folderów), w których są rysunki PDF";
+    off.style.display = "none";
+    return;
+  }
+  off.style.display = "";
+  if (resume) {
+    btn.classList.add("resume");
+    lbl.textContent = "Wznów: " + pdfFolders[0].name;
+    btn.title = "Kliknij, aby przywrócić dostęp do folderu z rysunkami";
+  } else {
+    btn.classList.add("connected");
+    lbl.textContent = pdfFolders.length > 1
+      ? pdfFolders.length + " foldery PDF"
+      : pdfFolders[0].name;
+    btn.title = pdfFolders.map(f => f.path || f.name).join("\n") + "\n\nKliknij, aby zarządzać folderami rysunków";
+  }
+}
+
+/* rozwijana lista folderów z rysunkami — dodawanie i odłączanie pojedynczych */
+function renderPdfMenu() {
+  const box = document.getElementById("pdfMenu");
+  if (!box) return;
+  let html = "";
+  pdfFolders.forEach((f, i) => {
+    html += `<div class="fm-item" data-pdfscan="${esc(f.key)}">
+      <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path><path d="M14 3v5h5"></path></svg>
+      <span class="fm-name" title="${esc(f.path || f.name)}">${esc(f.name)}${i === 0 ? " · główny" : ""}</span>
+      <span class="fm-count">${pdfCountOf(f.key)}</span>
+      <button class="fm-del" data-delpdffolder="${esc(f.key)}" title="Odłącz ten folder z rysunkami">✕</button></div>`;
+  });
+  if (pdfFolders.length) html += `<div class="fm-sep"></div>`;
+  html += `<div class="fm-item fm-add" data-addpdffolder="1">
+      <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"></path></svg>
+      <span class="fm-name">Dodaj folder z rysunkami…</span></div>`;
+  box.innerHTML = html;
+}
+
+/* dodaje kolejny folder z rysunkami i od razu go skanuje */
+async function addPdfFolder() {
+  if (window.native) {
+    const r = await window.native.pickFolder("Wybierz folder z rysunkami PDF");
+    if (!r) return;
+    if (pdfFolders.some(f => f.path === r.path)) { toast("Ten folder jest już podłączony"); return; }
+    pdfFolders.push({ key: pdfKey(), path: r.path, name: r.name });
+    syncPdfRoot();
+    savePdfFolders();
+    updatePdfUI(false);
+    await scanPdfFolder();
+    return;
+  }
+  if (!window.showDirectoryPicker) {
+    toast("Ta przeglądarka nie obsługuje dostępu do folderów — użyj Chrome lub Edge");
+    return;
+  }
+  let h;
+  try { h = await window.showDirectoryPicker({ mode: "read" }); }
+  catch (e) { return; }
+  if (pdfFolders.some(f => f.name === h.name)) { toast("Ten folder jest już podłączony"); return; }
+  pdfFolders.push({ key: pdfKey(), path: "", name: h.name, handle: h });
+  syncPdfRoot();
+  try { await idbSet("pdfRoots", pdfFolders.map(f => f.handle).filter(Boolean)); } catch (e) {}
+  updatePdfUI(false);
+  await scanPdfFolder();
+}
+/* pierwsze podłączenie — reszta kodu woła to, gdy nie ma jeszcze żadnego folderu */
+const connectPdfFolder = addPdfFolder;
+
+async function removePdfFolder(key) {
+  const f = pdfFolderOf(key);
+  if (!f) return;
+  pdfFolders = pdfFolders.filter(x => x.key !== key);
+  pdfFiles = pdfFiles.filter(x => x.folder !== key);
+  syncPdfRoot();
+  savePdfFolders();
+  try { await idbSet("pdfRoots", pdfFolders.map(x => x.handle).filter(Boolean)); } catch (e) {}
+  updatePdfUI(false);
+  render();
+  toast("Odłączono folder z rysunkami „" + f.name + "”");
+}
+
+async function disconnectPdfFolder() {
+  pdfFolders = [];
+  pdfFiles = [];
+  syncPdfRoot();
+  localStorage.removeItem("cncPdfPath");
+  savePdfFolders();
+  try { await idbSet("pdfRoot", null); } catch (e) {}
+  try { await idbSet("pdfRoots", []); } catch (e) {}
+  updatePdfUI(false);
+  render();
+  toast("Odłączono foldery z rysunkami");
+}
+
+/* skanuje WSZYSTKIE foldery rysunków (z podfolderami) i zapamiętuje listę PDF-ów */
+async function scanPdfFolder(quiet) {
+  if (!pdfFolders.length) return;
+  const out = [];
+  for (const f of pdfFolders) {
+    if (f.handle) {
+      const walk = async (dir, path, depth) => {
+        if (depth > 4) return;
+        try {
+          for await (const [name, h] of dir.entries()) {
+            if (h.kind === "file" && /\.pdf$/i.test(name)) {
+              out.push({ name, path: (path ? path + "/" : "") + name, handle: h, folder: f.key });
+            } else if (h.kind === "directory") {
+              await walk(h, (path ? path + "/" : "") + name, depth + 1);
+            }
+          }
+        } catch (e) {}
+      };
+      await walk(f.handle, "", 0);
+    } else {
+      try {
+        for (const x of await window.native.scanPdfs(f.path)) {
+          out.push({ name: x.name, path: x.rel, abs: x.abs, folder: f.key });
+        }
+      } catch (e) {}
+    }
+  }
+  pdfFiles = out;
+  renderPdfMenu();
+  if (!quiet) {
+    toast(pdfFolders.length > 1
+      ? "Rysunki: " + pdfFiles.length + " plików PDF z " + pdfFolders.length + " folderów"
+      : "Folder rysunków „" + pdfFolders[0].name + "”: " + pdfFiles.length + " plików PDF");
+  }
+}
+
+/* szuka rysunku po numerze (SZ2456) i po nazwie z nawiasów obok numeru O */
+function findPdfMatches(drawing, name) {
+  const norm = s => fold(s).replace(/[\s\-_]+/g, "");
+  const dn = norm(drawing);
+  const targetSZ = szTags(drawing)[0] || "";        // np. "sz2439" albo "sz1124b"
+  const tokens = fold(name).split(/\s+/)
+    .filter(t => t.length >= 3 && !/^\d+$/.test(t) && norm(t) !== dn && !/^sz\d+[a-z]?$/.test(norm(t)));
+  const out = [];
+  for (const f of pdfFiles) {
+    const bare = f.name.replace(/\.pdf$/i, "");
+    const fn = norm(bare);
+    const fileSZ = szTags(f.name);                   // oznaczenia SZ w nazwie pliku
+    // plik należy do INNEGO numeru rysunku → to nie ten rysunek, pomiń.
+    // SZ1124B nie jest wersją SZ1124 — to osobne oznaczenie (inny detal).
+    if (targetSZ && fileSZ.length && !fileSZ.includes(targetSZ)) continue;
+    let score = 0;
+    if (targetSZ && fileSZ.includes(targetSZ)) score += 100;   // trafiony numer rysunku
+    else if (dn && nameKeys(bare).has(dn)) score += 100;        // pełny numer jako człon nazwy
+    for (const t of tokens) if (fn.includes(norm(t))) score += 1;
+    if (score > 0) out.push({ f, score });
+  }
+  return out.sort((a, b) => b.score - a.score).slice(0, 8).map(x => x.f);
+}
+
+function doPdfSearch(autoSelect) {
+  pdfCandidates = findPdfMatches(
+    document.getElementById("fDrawing").value,
+    document.getElementById("fName").value
+  );
+  if (autoSelect) selectedPdf = pdfCandidates[0] || null;
+  else if (selectedPdf && !pdfCandidates.includes(selectedPdf)) selectedPdf = null;
+  renderPdfBox();
+}
+
+function renderPdfBox() {
+  const box = document.getElementById("pdfBox");
+  if (!box) return;
+  let html = "";
+  if (attachedPdfs.length) {
+    html += '<div class="pdf-have">W folderze programu: ' + attachedPdfs.map(esc).join(", ") + "</div>";
+  }
+  if (!pdfRoot) {
+    html += '<div class="pdf-row">'
+      + '<button type="button" class="mini-btn" id="pdfConnect">Wskaż folder z rysunkami PDF</button>'
+      + '<span class="pdf-note">aplikacja sama znajdzie rysunek po numerze i nazwie detalu</span></div>';
+  } else {
+    html += '<div class="pdf-row">'
+      + '<button type="button" class="mini-btn" id="pdfSearch">Szukaj rysunku</button>'
+      + '<span class="pdf-note">' + (pdfCandidates.length
+          ? "znaleziono: " + pdfCandidates.length
+          : (pdfFolders.length > 1 ? pdfFolders.length + " foldery" : esc(pdfFolders[0].name))
+            + " · " + pdfFiles.length + " PDF") + "</span></div>";
+    html += pdfCandidates.map((f, i) =>
+      '<div class="pdf-item' + (selectedPdf === f ? " on" : "") + '" data-pdf="' + i + '">📄 ' + esc(f.path)
+      + (selectedPdf === f ? " <b>— zostanie skopiowany do folderu programu</b>" : "")
+      + "</div>").join("");
+  }
+  box.innerHTML = html;
+}
+
+/* ════════════════ dodawanie rysunku PDF z poziomu karty ════════════════ */
+let apProgramId = null;
+let apCandidates = [];
+let apSelected = null;
+
+function filterPdfs(q) {
+  const norm = s => fold(s).replace(/[\s\-_]+/g, "");
+  const toks = fold(q).split(/\s+/).map(norm).filter(Boolean);
+  if (!toks.length) return pdfFiles.slice(0, 20);
+  return pdfFiles.filter(f => { const fp = norm(f.path); return toks.every(t => fp.includes(t)); }).slice(0, 20);
+}
+
+function renderApList() {
+  const box = document.getElementById("apList");
+  if (!apCandidates.length) {
+    box.innerHTML = '<div class="pdf-note">Nie znaleziono pasujących rysunków — wpisz fragment nazwy pliku PDF.</div>';
+    return;
+  }
+  box.innerHTML = apCandidates.map((f, i) =>
+    '<div class="pdf-item' + (apSelected === f ? " on" : "") + '" data-ap="' + i + '">📄 ' + esc(f.path)
+    + (apSelected === f ? " <b>— zostanie skopiowany do folderu programu</b>" : "")
+    + "</div>").join("");
+}
+
+async function openAddPdf(id) {
+  const p = byId(id); if (!p) return;
+  if (!pdfRoot) {
+    toast("Najpierw wskaż folder z rysunkami PDF");
+    await connectPdfFolder();
+    if (!pdfRoot) return;
+  }
+  apProgramId = id;
+  document.getElementById("apTitle").textContent = "Dopasuj rysunek — " + p.name;
+  const q = p.drawing || p.name || "";
+  document.getElementById("apSearch").value = q;
+  apCandidates = findPdfMatches(p.drawing, p.name);
+  if (!apCandidates.length) apCandidates = filterPdfs(q);
+  apSelected = null;   // nic nie jest wybrane z góry — rysunek wskazujesz sam
+  renderApList();
+  openModal("mAddPdf");
+}
+/* katalog programu (przeglądarka): pusty p.dir = program leży w głównym folderze */
+async function progDirHandle(p, create) {
+  if (!fsRoot) return null;
+  return p.dir ? await fsRoot.getDirectoryHandle(p.dir, { create: !!create }) : fsRoot;
+}
+/* ścieżka pliku w folderze programu — bez podwójnych ukośników, gdy p.dir jest pusty */
+function progFilePath(p, name) {
+  const root = rootPathOf(p);
+  return root ? [root, p.dir, name].filter(Boolean).join("/") : null;
+}
+
+/* zapisuje upuszczony plik PDF do folderu programu */
+async function savePdfFileToProgram(p, file) {
+  if (!fsRoot || !p) return false;
+  try {
+    const buf = await file.arrayBuffer();
+    if (window.native) {
+      const r = await window.native.writeBinary(rootPathOf(p), p.dir, file.name, new Uint8Array(buf));
+      if (!(r && r.ok)) { fsLastError = (r && r.error) || "zapis pliku nie powiódł się"; return false; }
+    } else {
+      const dh = await progDirHandle(p, true);
+      const fh = await dh.getFileHandle(file.name, { create: true });
+      const w = await fh.createWritable();
+      await w.write(buf);
+      await w.close();
+    }
+    p.pdfs = [file.name, ...(p.pdfs || []).filter(x => x !== file.name)];
+    p.pdfsAuto = false;   // ręczne przypisanie — skan folderu go nie nadpisze
+    thumbByCard.delete(p.id);
+    return true;
+  } catch (e) { return false; }
+}
+
+/* usuwa rysunek PDF z podfolderu programu */
+async function removePdfFromProgram(p, name) {
+  if (!fsRoot || !p || !name) return false;
+  try {
+    if (window.native) {
+      const r = await window.native.deleteFile(rootPathOf(p), p.dir, name);
+      if (!(r && r.ok)) return false;
+    } else {
+      const dh = await progDirHandle(p);
+      await dh.removeEntry(name);
+    }
+    p.pdfs = (p.pdfs || []).filter(x => x !== name);
+    thumbByCard.delete(p.id);
+    return true;
+  } catch (e) { return false; }
+}
+
+const thumbCache = new Map();
+let thumbRun = 0;
+let pdfObjUrl = null;
+
+/* renderuje pierwszą stronę PDF do małego obrazka */
+async function makeThumb(file) {
+  const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+  const page = await pdf.getPage(1);
+  const v0 = page.getViewport({ scale: 1 });
+  const scale = Math.max(240 / v0.width, 170 / v0.height);
+  const vp = page.getViewport({ scale });
+  const c = document.createElement("canvas");
+  c.width = Math.ceil(vp.width);
+  c.height = Math.ceil(vp.height);
+  const ctx = c.getContext("2d");
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, c.width, c.height);
+  await page.render({ canvasContext: ctx, viewport: vp }).promise;
+  const url = c.toDataURL("image/jpeg", 0.82);
+  pdf.destroy();
+  return url;
+}
+
+async function pdfFileOf(p) {
+  if (!fsRoot || !p || !(p.pdfs && p.pdfs.length)) return null;
+  if (window.native) {
+    try {
+      const r = await window.native.readFile(progFilePath(p, p.pdfs[0]));
+      if (!(r && r.ok)) return null;
+      return new File([r.data], p.pdfs[0], { type: "application/pdf", lastModified: Math.round(r.mtime) });
+    } catch (e) { return null; }
+  }
+  try {
+    const dh = await progDirHandle(p);
+    const fh = await dh.getFileHandle(p.pdfs[0]);
+    return await fh.getFile();
+  } catch (e) { return null; }
+}
+
+/* uzupełnia miniaturki na widocznych kartach (z pamięcią podręczną w IndexedDB) */
+async function loadThumbs() {
+  if (!window.pdfjsLib || !fsRoot) return;
+  const run = ++thumbRun;
+  for (const el of [...document.querySelectorAll("[data-pdfthumb]")]) {
+    if (run !== thumbRun) return;
+    const p = byId(el.dataset.pdfthumb);
+    if (!p || !(p.pdfs && p.pdfs.length)) continue;
+    const name = p.pdfs[0];
+    // gotowa miniaturka z pamięci — bez odczytu pliku z dysku (główne przyspieszenie)
+    const cached = thumbByCard.get(p.id);
+    if (cached && cached.name === name) {
+      el.innerHTML = '<img src="' + cached.url + '" alt="">';
+      el.classList.add("has");
+      continue;
+    }
+    const f = await pdfFileOf(p);
+    if (!f) continue;
+    // klucz oparty na rozmiarze i dacie pliku — dwa różne rysunki nigdy nie
+    // dzielą miniaturki, nawet gdy pliki nazywają się tak samo
+    const key = "sz" + f.size + ":" + f.lastModified + ":" + name;
+    let url = thumbCache.get(key);
+    if (!url) { try { url = await idbGet(key, "thumbs2"); } catch (e) {} }
+    if (!url) {
+      try { url = await makeThumb(f); } catch (e) { continue; }
+      idbSet(key, url, "thumbs2").catch(() => {});
+    }
+    thumbCache.set(key, url);
+    thumbByCard.set(p.id, { name, url });
+    if (run !== thumbRun) return;
+    el.innerHTML = '<img src="' + url + '" alt="">';
+    el.classList.add("has");
+  }
+}
+
+/* powiększenie rysunku po kliknięciu miniaturki */
+async function openPdfModal(id) {
+  const p = byId(id);
+  const f = p ? await pdfFileOf(p) : null;
+  if (!f) { toast("Nie udało się otworzyć rysunku"); return; }
+  if (pdfObjUrl) URL.revokeObjectURL(pdfObjUrl);
+  pdfObjUrl = URL.createObjectURL(f);
+  document.getElementById("pdfTitle").textContent = p.pdfs[0];
+  document.getElementById("pdfEmbed").src = pdfObjUrl;
+  openModal("mPdf");
+}
+
+/* znajduje oryginalny rysunek w folderze szkiców — pewny po numerze SZ */
+function findOriginal(p) {
+  if (p.drawing) {
+    const byNum = pdfFiles.find(f => pdfHasDrawing(f.name, p.drawing));
+    if (byNum) return byNum;
+  }
+  return findPdfMatches(p.drawing, p.name)[0] || null;
+}
+
+/* otwiera oryginał: w aplikacji exe pokazuje go w folderze szkiców,
+   w przeglądarce otwiera podgląd */
+async function openOriginal(id) {
+  const p = byId(id); if (!p) return;
+  if (!pdfRoot) { toast("Najpierw wskaż folder z rysunkami PDF"); return; }
+  const entry = findOriginal(p);
+  if (!entry) { toast("Nie znaleziono oryginału w folderze rysunków"); return; }
+  if (pdfRoot.native && entry.abs && window.native) {
+    const r = await window.native.showInFolder(entry.abs);
+    if (!(r && r.ok)) toast("Nie udało się otworzyć oryginału");
+    return;
+  }
+  try {
+    const f = entry.handle ? await entry.handle.getFile() : null;
+    if (!f) { toast("Nie udało się otworzyć oryginału"); return; }
+    if (pdfObjUrl) URL.revokeObjectURL(pdfObjUrl);
+    pdfObjUrl = URL.createObjectURL(f);
+    document.getElementById("pdfTitle").textContent = entry.name + "  (oryginał)";
+    document.getElementById("pdfEmbed").src = pdfObjUrl;
+    openModal("mPdf");
+  } catch (e) { toast("Nie udało się otworzyć oryginału"); }
+}
+
+/* kopiuje wybrany rysunek PDF do podfolderu programu */
+async function copyPdfToProgram(p, entry) {
+  if (!fsRoot || !p || !entry) { fsLastError = "brak połączonego folderu albo rysunku"; return false; }
+  if (window.native) {
+    const r = await window.native.copyFile(entry.abs, rootPathOf(p), p.dir, entry.name)
+      .catch(e => ({ ok: false, error: String((e && e.message) || e) }));
+    if (!(r && r.ok)) { fsLastError = (r && r.error) || "kopiowanie nie powiodło się"; return false; }
+    p.pdfs = [entry.name, ...(p.pdfs || []).filter(x => x !== entry.name)];
+    p.pdfsAuto = false;   // ręczne przypisanie — skan folderu go nie nadpisze
+    thumbByCard.delete(p.id);
+    return true;
+  }
+  try {
+    const src = await entry.handle.getFile();
+    const dh = await progDirHandle(p, true);
+    const fh = await dh.getFileHandle(entry.name, { create: true });
+    const w = await fh.createWritable();
+    await w.write(await src.arrayBuffer());
+    await w.close();
+    p.pdfs = [entry.name, ...(p.pdfs || []).filter(x => x !== entry.name)];
+    p.pdfsAuto = false;   // ręczne przypisanie — skan folderu go nie nadpisze
+    thumbByCard.delete(p.id);
+    return true;
+  } catch (e) { fsLastError = (e && e.message) || String(e); return false; }
+}
+
+/* ════════════════ wczytywanie plików przez przeciągnięcie ════════════════ */
+async function applyDroppedFile(file) {
+  let text = "";
+  try { text = await file.text(); } catch (e) { toast("Nie udało się odczytać pliku"); return; }
+  const meta = parseGcodeMeta(text);
+  let onum = meta.onum, code = text;
+  const n = onumInt(onum);
+  const taken = !isNaN(n) && programs.some(p => p.id !== editId && onumInt(p.onum) === n);
+  if (!onum || taken) {
+    const free = nextFreeOnum();
+    toast(taken ? "Numer " + onum + " jest już zajęty — przydzielono wolny " + free
+                : "Przydzielono wolny numer " + free);
+    onum = free;
+    code = replaceOnumInCode(code, onum);
+  } else {
+    toast("Wczytano " + file.name);
+  }
+  document.getElementById("fCode").value = code;
+  document.getElementById("fOnum").value = onum;
+  const nameEl = document.getElementById("fName");
+  if (!nameEl.value.trim()) nameEl.value = meta.name || file.name.replace(/\.[^.]+$/, "");
+  nameEl.classList.remove("bad");
+  document.getElementById("hName").classList.remove("show");
+  const det = document.getElementById("fDetail");
+  if (!det.value.trim() && meta.detail) det.value = meta.detail;
+  const dr = document.getElementById("fDrawing");
+  if (!dr.value.trim() && meta.drawing) dr.value = meta.drawing;
+  checkOnumDup();
+  if (pdfRoot) doPdfSearch(false);
+}
+
+/* import wielu plików naraz — od razu do biblioteki (i na dysk, gdy folder połączony) */
+async function importFile(file) {
+  let text = "";
+  try { text = await file.text(); } catch (e) { return; }
+  const meta = parseGcodeMeta(text);
+  let onum = meta.onum;
+  const n = onumInt(onum);
+  if (!onum || programs.some(p => onumInt(p.onum) === n)) onum = nextFreeOnum();
+  const code = replaceOnumInCode(text, onum);
+  const name = meta.name || file.name.replace(/\.[^.]+$/, "");
+  const p = {
+    id: uid(), source: "local", fav: false, versions: [],
+    created: Date.now(), modified: Date.now(),
+    name, onum, detail: meta.detail || "",
+    drawing: meta.drawing || "", client: "", material: "", tags: [], note: "", code
+  };
+  if (fsRoot && activeFolderKey) {
+    const key = activeFolderKey;
+    let base = sanitizeName(name);
+    if (byId("d:" + key + ":" + base + "/" + base + ".txt")) base = base + "_" + onum;
+    p.dir = base; p.file = base + ".txt"; p.root = key; p.id = "d:" + key + ":" + p.dir + "/" + p.file; p.source = "disk";
+    await writeDisk(p);
+    // rysunek PDF dodajesz ręcznie przyciskiem „Dopasuj PDF" na karcie
+  }
+  programs.push(p);
+}
+
+/* ════════════════════ narzędzia ════════════════════ */
+const esc = s => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const fmtDate = t => new Date(t).toLocaleDateString("pl-PL", { day: "2-digit", month: "2-digit", year: "numeric" }) +
+  " " + new Date(t).toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" });
+
+function hlCode(code) {
+  return esc(code).replace(/\([^)\n]*\)?|[A-Za-z][+-]?\d+\.?\d*|%/g, tok => {
+    if (tok[0] === "(") return '<span class="tk-com">' + tok + "</span>";
+    if (tok === "%") return '<span class="tk-pct">%</span>';
+    const L = tok[0].toUpperCase();
+    if (L === "G") return '<span class="tk-g">' + tok + "</span>";
+    if (L === "M") return '<span class="tk-m">' + tok + "</span>";
+    if (L === "O" || L === "N") return '<span class="tk-n">' + tok + "</span>";
+    if (L === "T") return '<span class="tk-t">' + tok + "</span>";
+    if (L === "S" || L === "F") return '<span class="tk-f">' + tok + "</span>";
+    return '<span class="tk-x">' + tok + "</span>";
+  });
+}
+
+function extractTools(code) {
+  const map = new Map();
+  (code || "").split("\n").forEach(line => {
+    const m = line.match(/(?:^|[^A-Za-z(])T(\d{2,4})/);
+    if (m) {
+      const key = "T" + m[1];
+      const com = (line.match(/\(([^)]*)\)/) || [])[1] || "";
+      if (!map.has(key) || com) map.set(key, com.trim());
+    }
+  });
+  return [...map.entries()];
+}
+
+function extractOffsets(code) {
+  return [...new Set((code || "").match(/G5[4-9]|G154\s*P\d+/g) || [])];
+}
+
+function toast(msg) {
+  const box = document.getElementById("toast");
+  const el = document.createElement("div");
+  el.className = "toast";
+  el.textContent = msg;
+  box.appendChild(el);
+  setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 320); }, 2400);
+}
+
+/* ════════════════════ renderowanie ════════════════════ */
+/* buforowany tekst do wyszukiwania — liczony raz na program, aż do jego zmiany.
+   Zawsze zawiera nazwę podfolderu (p.dir), by program był wyszukiwalny po folderze. */
+const lastSeg = s => String(s || "").split("/").pop();
+function hayOf(p) {
+  const c = hayCache.get(p.id);
+  if (c && c.mod === p.modified) return c.hay;
+  const hay = fold([p.name, p.onum, p.detail, p.drawing, p.client, p.material,
+                    (p.tags || []).join(" "), p.note, p.code, p.dir || ""].join(" "));
+  hayCache.set(p.id, { mod: p.modified, hay });
+  return hay;
+}
+
+/* unikalne foldery (dir) programów — do widoku folderów i statystyk.
+   Zawsze w obrębie aktywnego folderu; przy wyszukiwaniu dodatkowo filtruje po nazwie folderu. */
+function currentFolders() {
+  const map = new Map();
+  const searching = queryTokens.length > 0;
+  for (const p of programs) {
+    if (p.source !== "disk" || !p.dir) continue;
+    if (isIgnoredDir(p.dir)) continue;
+    if (!inView(p)) continue;
+    if (searching) { const hay = fold(p.dir); if (!queryTokens.every(w => hay.includes(w))) continue; }
+    const k = (p.root || "") + " " + p.dir;
+    let e = map.get(k);
+    if (!e) { e = { dir: p.dir, root: p.root, count: 0 }; map.set(k, e); }
+    e.count++;
+  }
+  return [...map.values()];
+}
+
+function matches(p) {
+  if (isIgnoredDir(p.dir)) return false;   // pomijane foldery
+  // otwarty folder (widok „Foldery" → wejście w folder) — pokazuj tylko jego programy
+  if (openedDir && !(p.source === "disk" && p.root === openedDir.root && p.dir === openedDir.dir)) return false;
+  // filtr folderu obowiązuje ZAWSZE — również przy wyszukiwaniu.
+  // Programy z innych folderów pojawią się dopiero po przełączeniu folderu w statystykach.
+  if (!inView(p)) return false;
+  if (filter === "fav" && !p.fav) return false;
+  if (filter.startsWith("tag:") && !(p.tags || []).includes(filter.slice(4))) return false;
+  if (!queryTokens.length) return true;
+  const hay = hayOf(p);
+  return queryTokens.every(w => hay.includes(w));
+}
+
+function sortPrograms(list) {
+  const oi = p => { const n = onumInt(p.onum); return isNaN(n) ? Infinity : n; };
+  const cmp = {
+    modNew: (a, b) => b.modified - a.modified,
+    modOld: (a, b) => a.modified - b.modified,
+    onumAsc: (a, b) => oi(a) - oi(b) || b.modified - a.modified,
+    onumDesc: (a, b) => oi(b) - oi(a) || b.modified - a.modified,
+    nameAsc: (a, b) => (a.name || "").localeCompare(b.name || "", "pl")
+  }[sortMode] || ((a, b) => b.modified - a.modified);
+  return list.sort(cmp);
+}
+
+function render() { renderGrid(); renderSidebar(); }
+
+/* widok folderów (gdy włączone „Szukaj w nazwach folderów") */
+let folderCards = [];
+function renderFolderGrid() {
+  const grid = document.getElementById("grid");
+  folderCards = currentFolders().sort((a, b) => lastSeg(a.dir).localeCompare(lastSeg(b.dir), "pl"));
+  const list = viewLimit > 0 ? folderCards.slice(0, viewLimit) : folderCards;
+  const moreCount = folderCards.length - list.length;
+  if (!folderCards.length) {
+    grid.innerHTML = `<div class="empty">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path>
+      </svg>
+      <p>${queryTokens.length ? "Brak folderów pasujących do wyszukiwania." : "Brak folderów w bibliotece — połącz folder z programami."}</p>
+    </div>`;
+    return;
+  }
+  grid.innerHTML = list.map((f, i) => `
+    <article class="card folder-card" data-folder="${i}" title="${esc(f.dir)} — kliknij, aby otworzyć folder">
+      <div class="card-top">
+        <span class="folder-ico">📁</span>
+        <h2>${esc(lastSeg(f.dir))}</h2>
+        <span class="badge-o">${f.count}</span>
+      </div>
+      ${f.dir.includes("/") ? `<div class="card-sub">${esc(f.dir)}</div>` : ""}
+      <div class="card-foot"><span>${f.count} ${f.count === 1 ? "program" : "programów"} · kliknij, aby otworzyć folder</span></div>
+    </article>`).join("");
+  if (moreCount > 0) {
+    grid.innerHTML += `<div class="more-bar">Pokazano ${list.length} z ${folderCards.length} folderów
+      <button class="btn btn-sm" id="btnShowAll">Pokaż wszystkie</button></div>`;
+  }
+}
+
+/* otwiera folder z widoku folderów w Eksploratorze */
+/* wejście do folderu — pokazuje programy z tego folderu jako karty (z rysunkami),
+   tak samo jak w widoku programów; powrót przyciskiem „Foldery" */
+function openFolderCard(i) {
+  const f = folderCards[i]; if (!f) return;
+  openedDir = { root: f.root, dir: f.dir };
+  viewLimit = parseInt(localStorage.getItem("cncLimit"), 10);
+  if (!(viewLimit >= 0)) viewLimit = 20;
+  document.querySelector(".body,#grid").scrollTop = 0;
+  window.scrollTo(0, 0);
+  render();
+}
+/* powrót z otwartego folderu do listy folderów */
+function closeOpenedDir() {
+  openedDir = null;
+  render();
+}
+/* otwiera otwarty folder w Eksploratorze Windows */
+function openDirInExplorer(d) {
+  if (!d) return;
+  const fo = folderOf(d.root);
+  const rootPath = (fo && fo.path) || (fsRoot && fsRoot.path);
+  if (window.native && rootPath) {
+    window.native.showInFolder(rootPath + "/" + d.dir).then(r => { if (r && !r.ok) toast("Nie udało się otworzyć folderu"); });
+  } else toast("Otwieranie folderu działa w aplikacji na Windows");
+}
+
+function renderGrid() {
+  if (folderSearch && !openedDir) { renderFolderGrid(); return; }
+  const grid = document.getElementById("grid");
+  const full = sortPrograms(programs.filter(matches));
+  const list = viewLimit > 0 ? full.slice(0, viewLimit) : full;
+  const moreCount = full.length - list.length;
+
+  // pasek nawigacji, gdy wszedłeś do folderu z widoku „Foldery"
+  const dirBar = openedDir ? `<div class="dir-bar">
+      <button class="btn btn-sm" id="btnBackFolders" title="Wróć do listy folderów">← Foldery</button>
+      <span class="dir-name" title="${esc(openedDir.dir)}">📁 ${esc(openedDir.dir)}</span>
+      <span class="dir-count">${full.length} ${plural(full.length, "program", "programy", "programów")}</span>
+      <span style="flex:1"></span>
+      <button class="btn btn-sm" id="btnDirExplorer" title="Otwórz ten folder w Eksploratorze Windows">Otwórz w Eksploratorze</button>
+    </div>` : "";
+
+  if (!list.length) {
+    grid.innerHTML = dirBar + `<div class="empty">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3M8 11h6"></path>
+      </svg>
+      <p>${programs.length ? "Brak programów pasujących do wyszukiwania." : "Biblioteka jest pusta — połącz folder z programami albo przeciągnij tu pliki .txt / .nc."}</p>
+    </div>`;
+  } else {
+    grid.innerHTML = dirBar + list.map((p, i) => `
+      <article class="card" data-id="${p.id}" style="animation-delay:${Math.min(i * 40, 320)}ms">
+        <div class="card-top">
+          <h2>${esc(p.name)}</h2>
+          ${p.onum ? `<span class="badge-o">${esc(p.onum)}</span>` : ""}
+          ${pdfRoot ? `<button class="dir-btn orig-btn" data-original="${p.id}" title="Otwórz oryginalny rysunek w folderze szkiców">
+            <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+              <circle cx="8.5" cy="8.5" r="1.5"></circle><path d="M21 15l-5-5L5 21"></path>
+            </svg>
+          </button>` : ""}
+          ${(window.native && p.dir) ? `<button class="dir-btn" data-openfolder="${p.id}" title="Otwórz folder programu w Eksploratorze">
+            <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path>
+            </svg>
+          </button>` : ""}
+          <button class="fav-btn ${p.fav ? "on" : ""}" data-fav="${p.id}" title="Ulubione">
+            <svg viewBox="0 0 24 24"><path d="M12 2.6l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 17.4 6.2 20.5l1.1-6.5L2.6 9.4l6.5-.9z"/></svg>
+          </button>
+        </div>
+        <div class="card-mid">
+          <div class="card-sub">
+            ${p.client ? `<b>${esc(p.client)}</b>` : ""}${p.client && p.material ? " · " : ""}${esc(p.material || "")}
+            ${p.drawing ? `<br>rys. ${esc(p.drawing)}` : ""}
+            ${p.detail ? `<br>${esc(p.detail)}` : ""}
+          </div>
+          ${(p.pdfs && p.pdfs.length) ? `<div class="thumb-wrap">
+            <div class="thumb" data-pdfthumb="${p.id}" title="${esc(p.pdfs[0])} — kliknij, aby powiększyć">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5"></path>
+              </svg>
+            </div>
+            <div class="thumb-ctrl">
+              <button class="thumb-swap" data-addpdf="${p.id}" title="Dopasuj / zmień rysunek — wybierz plik ręcznie">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 8h13l-3.2-3.2M20 16H7l3.2 3.2"></path>
+                </svg>
+              </button>
+              <button class="thumb-del" data-delpdf="${p.id}" title="Usuń rysunek ${esc(p.pdfs[0])} z folderu programu">✕</button>
+            </div>
+          </div>` : (p.dir ? `<button class="thumb thumb-add" data-addpdf="${p.id}" title="Wybierz rysunek PDF ręcznie i skopiuj do folderu programu">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round">
+              <path d="M12 5v14M5 12h14"></path>
+            </svg>
+            Dopasuj PDF
+          </button>` : "")}
+        </div>
+        ${(p.tags || []).length ? `<div class="tags">${p.tags.map(t => `<span class="tag">${esc(t)}</span>`).join("")}</div>` : ""}
+        <div class="card-foot">
+          <span>${p.dir ? "📁 " + esc(p.dir) + " · " : ""}${fmtDate(p.modified)}${(p.pdfs && p.pdfs.length) ? " · 📄" : ""}</span>
+          ${(() => {
+            const q = issueCount(p);
+            if (!q.err && !q.warn) return "";
+            const cls = q.err ? "chk-err" : "chk-warn";
+            const txt = q.err ? q.err + (q.warn ? " + " + q.warn : "") : String(q.warn);
+            return `<button class="chk-badge ${cls}" data-check="${p.id}"
+              title="Kontrola programu: ${q.err} błędów, ${q.warn} ostrzeżeń — kliknij, aby zobaczyć">⚠ ${txt}</button>`;
+          })()}
+          <span class="ver">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round">
+              <path d="M12 8v4l2.5 2.5"></path><circle cx="12" cy="12" r="9"></circle>
+            </svg>
+            ${(p.versions || []).length + 1} wer.
+          </span>
+        </div>
+      </article>`).join("");
+    if (moreCount > 0) {
+      grid.innerHTML += `<div class="more-bar">
+        Pokazano ${list.length} z ${full.length} programów
+        <button class="btn btn-sm" id="btnShowAll">Pokaż wszystkie</button>
+      </div>`;
+    }
+  }
+
+  setTimeout(loadThumbs, 30);
+}
+
+function renderSidebar() {
+  const vis = programs.filter(p => inView(p) && !isIgnoredDir(p.dir));   // statystyki — bez pomijanych folderów
+  // filtry
+  const allTags = [...new Set(vis.flatMap(p => p.tags || []))].sort((a, b) => a.localeCompare(b, "pl"));
+  const chips = [
+    { key: "all", label: "Wszystkie" },
+    { key: "fav", label: "★ Ulubione" },
+    ...allTags.map(t => ({ key: "tag:" + t, label: t }))
+  ];
+  document.getElementById("filters").innerHTML = chips.map(c =>
+    `<button class="chip ${filter === c.key ? "on" : ""}" data-filter="${esc(c.key)}">${esc(c.label)}</button>`).join("");
+
+  // statystyki: programy (nc/txt), foldery, przełącznik folderu głównego, ulubione
+  document.getElementById("stProg").textContent = vis.length;
+  document.getElementById("stFolders").textContent =
+    new Set(vis.filter(p => p.source === "disk" && p.dir).map(p => (p.root || "") + " " + p.dir)).size;
+  document.getElementById("stFav").textContent = vis.filter(p => p.fav).length;
+  // klikalne kafelki widoku — podświetl aktywny
+  document.getElementById("statProg").classList.toggle("active", !folderSearch);
+  document.getElementById("statFolders").classList.toggle("active", folderSearch);
+  // kafelek przełącznika folderu głównego
+  const af = folderView === "all" ? "Wszystkie" : ((folderOf(folderView) || {}).name || "—");
+  document.getElementById("stActiveFolder").textContent = folders.length ? af : "—";
+  document.getElementById("statSwitch").style.opacity = folders.length > 1 ? "1" : ".55";
+
+  // numery O
+  const counts = {};
+  vis.forEach(p => { if (p.onum) counts[p.onum] = (counts[p.onum] || 0) + 1; });
+  const nums = Object.keys(counts).sort();
+  document.getElementById("onums").innerHTML = nums.length
+    ? nums.map(n => {
+        const dup = counts[n] > 1;
+        return `<span class="onum ${dup ? "dup" : ""}" data-onum="${esc(n)}" title="${dup ? "Numer zdublowany (" + counts[n] + "×) — kliknij, aby zobaczyć programy" : "Kliknij, aby pokazać program"}">${esc(n)}${dup ? " ×" + counts[n] : ""}</span>`;
+      }).join("")
+    : '<span style="font-size:.78rem;color:#5d6780">Brak przypisanych numerów</span>';
+}
+
+/* ════════════════════ podgląd programu ════════════════════ */
+function openView(id) {
+  const p = byId(id); if (!p) return;
+  // w aplikacji desktopowej podgląd otwiera się w osobnym oknie
+  if (window.native && window.native.openDetail) {
+    const theme = document.body.classList.contains("light") ? "light" : "dark";
+    window.native.openDetail({
+      program: p, theme, accent: currentAccent(), motion: motionOn(),
+      pdfDir: (pdfRoot && pdfRoot.native) ? pdfRoot.path : null,
+      pdfDirs: pdfFolders.filter(f => f.path).map(f => f.path),   // wszystkie foldery rysunków
+      progRoot: rootPathOf(p)   // rysunek PDF leżący w folderze programu
+    });
+    return;
+  }
+  openViewModal(id);
+}
+
+/* podgląd w oknie przeglądarki (gdy brak warstwy natywnej Electrona) */
+function openViewModal(id) {
+  const p = byId(id); if (!p) return;
+  viewId = id;
+  document.getElementById("vTitle").textContent = p.name;
+  const ob = document.getElementById("vOnum");
+  ob.textContent = p.onum || "";
+  ob.style.display = p.onum ? "" : "none";
+
+  const tools = extractTools(p.code);
+  const offsets = extractOffsets(p.code);
+  const meta = [
+    ["Detal", p.detail], ["Nr rysunku", p.drawing], ["Klient", p.client],
+    ["Materiał", p.material], ["Utworzono", fmtDate(p.created)], ["Zmieniono", fmtDate(p.modified)],
+    ["Plik na dysku", p.file ? (p.dir ? p.dir + "/" : "") + p.file : ""]
+  ].filter(m => m[1]);
+
+  document.getElementById("vBody").innerHTML = `
+    <div class="meta-grid">
+      ${meta.map(m => `<div class="meta"><span>${m[0]}</span><b>${esc(m[1])}</b></div>`).join("")}
+      ${offsets.length ? `<div class="meta"><span>Bazy</span><b>${offsets.map(esc).join(", ")}</b></div>` : ""}
+    </div>
+    ${(p.tags || []).length ? `<div class="tags">${p.tags.map(t => `<span class="tag">${esc(t)}</span>`).join("")}</div>` : ""}
+    ${p.note ? `<div class="sect"><h3>Notatka</h3><div style="font-size:.88rem;color:#b9c2d8;line-height:1.55">${esc(p.note)}</div></div>` : ""}
+    <div class="sect"><h3>Kod programu</h3><pre class="code">${hlCode(p.code || "")}</pre></div>
+    ${tools.length ? `<div class="sect"><h3>Narzędzia w programie</h3>
+      <div class="tools">${tools.map(([t, d]) =>
+        `<div class="tool"><span class="tno">${esc(t)}</span><span class="tdesc">${esc(d) || "—"}</span></div>`).join("")}</div></div>` : ""}
+    <div class="sect"><h3>Historia wersji</h3>
+      ${(p.versions || []).length ? `<div class="vers">${p.versions.slice().reverse().map((v, ri) => {
+        const idx = p.versions.length - 1 - ri;
+        return `<details class="ver-item">
+          <summary>
+            <span class="ver-date">${fmtDate(v.date)}</span>
+            <span class="ver-note">${esc(v.note || "bez opisu")}</span>
+            <button class="btn btn-sm" data-restore="${idx}">Przywróć</button>
+          </summary>
+          <div class="ver-body"><pre class="code">${hlCode(v.code || "")}</pre></div>
+        </details>`;
+      }).join("")}</div>`
+      : '<div style="font-size:.83rem;color:#5d6780">Ten program ma tylko wersję bieżącą.</div>'}
+    </div>`;
+
+  openModal("mView");
+}
+
+/* ════════════════════ formularz ════════════════════ */
+function openEdit(id) {
+  editId = id || null;
+  const p = id ? byId(id) : null;
+  document.getElementById("mEditTitle").textContent = p ? "Edycja: " + p.name : "Nowy program";
+  document.getElementById("fName").value = p ? p.name : "";
+  document.getElementById("fOnum").value = p ? p.onum || "" : "";
+  document.getElementById("fDetail").value = p ? p.detail || "" : "";
+  document.getElementById("fDrawing").value = p ? p.drawing || "" : "";
+  document.getElementById("fClient").value = p ? p.client || "" : "";
+  document.getElementById("fMaterial").value = p ? p.material || "" : "";
+  document.getElementById("fTags").value = p ? (p.tags || []).join(", ") : "";
+  document.getElementById("fNote").value = p ? p.note || "" : "";
+  document.getElementById("fCode").value = p ? p.code || "" : "";
+  document.getElementById("fChange").value = "";
+  document.getElementById("fChangeWrap").style.display = p ? "" : "none";
+  document.getElementById("fName").classList.remove("bad");
+  document.getElementById("fOnum").classList.remove("bad");
+  document.getElementById("hName").classList.remove("show");
+  document.getElementById("hOnum").classList.remove("show");
+  selectedPdf = null;
+  pdfCandidates = [];
+  attachedPdfs = (p && p.pdfs) ? p.pdfs.slice() : [];
+  renderPdfBox();   // bez automatycznego szukania — rysunek wybierasz sam przyciskiem „Szukaj rysunku"
+  openModal("mEdit");
+  setTimeout(() => document.getElementById("fName").focus(), 60);
+}
+
+function checkOnumDup() {
+  const n = onumInt(document.getElementById("fOnum").value);
+  const dup = !isNaN(n) && programs.some(p => p.id !== editId && onumInt(p.onum) === n);
+  document.getElementById("fOnum").classList.toggle("bad", dup);
+  document.getElementById("hOnum").classList.toggle("show", dup);
+  return dup;
+}
+
+async function saveProgram() {
+  const name = document.getElementById("fName").value.trim();
+  if (!name) {
+    document.getElementById("fName").classList.add("bad");
+    document.getElementById("hName").classList.add("show");
+    document.getElementById("fName").focus();
+    return;
+  }
+  let onum = document.getElementById("fOnum").value.trim().toUpperCase();
+  let code = document.getElementById("fCode").value;
+  if (!onum) {
+    const m = parseGcodeMeta(code);
+    if (m.onum) onum = m.onum;
+  }
+  if (onum) code = replaceOnumInCode(code, onum);
+  const data = {
+    name,
+    onum,
+    detail: document.getElementById("fDetail").value.trim(),
+    drawing: document.getElementById("fDrawing").value.trim(),
+    client: document.getElementById("fClient").value.trim(),
+    material: document.getElementById("fMaterial").value.trim(),
+    tags: document.getElementById("fTags").value.split(",").map(t => t.trim()).filter(Boolean),
+    note: document.getElementById("fNote").value.trim(),
+    code
+  };
+
+  if (editId) {
+    const p = byId(editId);
+    if (p.code !== code) {
+      p.versions = p.versions || [];
+      p.versions.push({
+        date: p.modified,
+        note: document.getElementById("fChange").value.trim() || "Poprzednia wersja",
+        code: p.code
+      });
+    }
+    Object.assign(p, data, { modified: Date.now() });
+    if (p.source === "disk") {
+      const ok = await writeDisk(p);
+      toast(ok ? "Zapisano na dysku — " + (p.dir ? p.dir + "/" : "") + p.file
+               : "Zapisano w aplikacji — nie udało się zapisać na dysku (" + fsLastError + ")");
+      if (ok && selectedPdf && p.dir) {
+        const okPdf = await copyPdfToProgram(p, selectedPdf);
+        if (okPdf) toast("Skopiowano rysunek " + selectedPdf.name + " do folderu „" + p.dir + "”");
+      }
+    } else {
+      toast("Zapisano zmiany — " + p.name);
+    }
+  } else {
+    const p = Object.assign({ id: uid(), source: "local", fav: false, versions: [], created: Date.now(), modified: Date.now() }, data);
+    if (fsRoot && activeFolderKey) {
+      const key = activeFolderKey;
+      let base = sanitizeName(p.name);
+      if (byId("d:" + key + ":" + base + "/" + base + ".txt")) base = base + "_" + (p.onum || Date.now());
+      p.dir = base; p.file = base + ".txt"; p.root = key; p.id = "d:" + key + ":" + p.dir + "/" + p.file; p.source = "disk";
+      const ok = await writeDisk(p);
+      toast(ok ? "Utworzono folder „" + p.dir + "” i zapisano " + p.file
+               : "Nie udało się zapisać na dysku (" + fsLastError + ") — program zapisany w aplikacji");
+      if (ok && selectedPdf) {
+        const okPdf = await copyPdfToProgram(p, selectedPdf);
+        if (okPdf) toast("Skopiowano rysunek " + selectedPdf.name + " do folderu „" + p.dir + "”");
+      }
+    } else {
+      toast("Dodano program — " + name);
+    }
+    programs.push(p);
+  }
+  save();
+  closeModal("mEdit");
+  if (viewId && document.getElementById("mView").classList.contains("open")) openViewModal(viewId);
+  render();
+}
+
+/* ════════════════════ akcje ════════════════════ */
+function download(p) {
+  let code = p.code || "";
+  if (!/^\s*%/.test(code)) code = "%\n" + code;
+  if (!/%\s*$/.test(code)) code = code.replace(/\s*$/, "\n%");
+  const fname = (p.onum || p.name.replace(/[^\w-]+/g, "_")) + ".nc";
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([code], { type: "text/plain" }));
+  a.download = fname;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast("Pobrano " + fname);
+}
+
+async function removeProgram(id) {
+  const p = byId(id); if (!p) return;
+  const extra = (p.source === "disk" && p.file)
+    ? "\n\nPlik zostanie usunięty także z folderu: " + (p.dir ? p.dir + "/" : "") + p.file
+    : "";
+  if (!await askConfirm('Usunąć program "' + p.name + '" wraz z historią wersji?' + extra)) return;
+  if (p.source === "disk" && fsRoot && p.file) {
+    if (window.native) {
+      try { await window.native.deleteFile(rootPathOf(p), p.dir || "", p.file); } catch (e) {}
+    } else {
+      try {
+        const dh = p.dir ? await fsRoot.getDirectoryHandle(p.dir) : fsRoot;
+        await dh.removeEntry(p.file);
+      } catch (e) {}
+    }
+  }
+  programs = programs.filter(x => x.id !== id);
+  save();
+  closeModal("mView");
+  render();
+  toast("Usunięto program — " + p.name);
+}
+
+function restoreVersion(idx) {
+  const p = byId(viewId); if (!p || !p.versions || !p.versions[idx]) return;
+  const v = p.versions[idx];
+  p.versions.push({ date: p.modified, note: "Stan przed przywróceniem wersji", code: p.code });
+  p.code = v.code;
+  p.modified = Date.now();
+  if (p.source === "disk") writeDisk(p);
+  save();
+  render();
+  openView(p.id);
+  toast("Przywrócono wersję z " + fmtDate(v.date));
+}
+
+/* ════════════════════ modale ════════════════════ */
+function openModal(id) { document.getElementById(id).classList.add("open"); }
+function closeModal(id) {
+  document.getElementById(id).classList.remove("open");
+  if (id === "mConfirm" && cfResolve) { const r = cfResolve; cfResolve = null; r(false); }
+  if (id === "mOnum" && onumResolve) { const r = onumResolve; onumResolve = null; r("free"); }
+}
+
+/* własne okno potwierdzenia — systemowe confirm() psuje fokus okna w Electronie */
+let cfResolve = null;
+function askConfirm(text) {
+  return new Promise(res => {
+    cfResolve = res;
+    document.getElementById("cfText").textContent = text;
+    openModal("mConfirm");
+  });
+}
+document.getElementById("cfYes").addEventListener("click", () => {
+  const r = cfResolve; cfResolve = null;
+  closeModal("mConfirm");
+  if (r) r(true);
+});
+document.getElementById("cfNo").addEventListener("click", () => closeModal("mConfirm"));
+
+/* wybór przy zajętym numerze O: "replace" = zachowaj numer, "free" = przydziel wolny */
+let onumResolve = null;
+function askOnumTaken(onum) {
+  return new Promise(res => {
+    onumResolve = res;
+    document.getElementById("onText").textContent =
+      "Numer " + onum + " jest już zajęty przez inny program.\n\n" +
+      "„Zamień” — zachowa ten numer.\n„Przydziel wolny” — nada pierwszy wolny numer.";
+    openModal("mOnum");
+  });
+}
+document.getElementById("onSwap").addEventListener("click", () => {
+  const r = onumResolve; onumResolve = null;
+  closeModal("mOnum");
+  if (r) r("replace");
+});
+document.getElementById("onFree").addEventListener("click", () => {
+  const r = onumResolve; onumResolve = null;
+  closeModal("mOnum");
+  if (r) r("free");
+});
+
+/* ════════════════════ zdarzenia ════════════════════ */
+document.getElementById("btnNew").addEventListener("click", () => openEdit(null));
+document.getElementById("btnSave").addEventListener("click", saveProgram);
+document.getElementById("fOnum").addEventListener("input", checkOnumDup);
+
+const folderMenu = document.getElementById("folderMenu");
+document.getElementById("btnFolder").addEventListener("click", e => {
+  e.stopPropagation();
+  if (!folders.length) { addFolder(); return; }   // brak folderów → od razu dodaj pierwszy
+  folderMenu.classList.toggle("open");
+});
+folderMenu.addEventListener("click", async e => {
+  const del = e.target.closest("[data-delfolder]");
+  if (del) { e.stopPropagation(); folderMenu.classList.remove("open"); await removeFolder(del.dataset.delfolder); return; }
+  const add = e.target.closest("[data-addfolder]");
+  if (add) { folderMenu.classList.remove("open"); await addFolder(); return; }
+  const it = e.target.closest("[data-view]");
+  if (it) { folderMenu.classList.remove("open"); await switchFolder(it.dataset.view); return; }
+});
+document.addEventListener("click", e => {
+  if (folderMenu.classList.contains("open") && !e.target.closest(".folder-wrap")) folderMenu.classList.remove("open");
+});
+
+/* klikalne kafelki statystyk: widok programy/foldery + przełącznik folderu głównego */
+document.getElementById("statProg").addEventListener("click", () => { if (folderSearch) applyFolderSearch(false); });
+document.getElementById("statFolders").addEventListener("click", () => { if (!folderSearch) applyFolderSearch(true); });
+function cycleFolder() {
+  if (folders.length < 2) return;   // nie ma czego przełączać
+  const order = folders.map(f => f.key);
+  order.push("all");                // ...i widok wszystkich folderów
+  const idx = order.indexOf(folderView);
+  switchFolder(order[(idx + 1) % order.length]);
+}
+document.getElementById("statSwitch").addEventListener("click", cycleFolder);
+
+/* przycisk „Foldery PDF": bez folderów od razu pyta o pierwszy, dalej rozwija listę */
+const pdfMenu = document.getElementById("pdfMenu");
+document.getElementById("btnPdf").addEventListener("click", async e => {
+  e.stopPropagation();
+  if (!pdfFolders.length) { await addPdfFolder(); return; }
+  folderMenu.classList.remove("open");
+  renderPdfMenu();
+  pdfMenu.classList.toggle("open");
+});
+pdfMenu.addEventListener("click", async e => {
+  const del = e.target.closest("[data-delpdffolder]");
+  if (del) { e.stopPropagation(); pdfMenu.classList.remove("open"); await removePdfFolder(del.dataset.delpdffolder); return; }
+  const add = e.target.closest("[data-addpdffolder]");
+  if (add) { pdfMenu.classList.remove("open"); await addPdfFolder(); return; }
+  const scan = e.target.closest("[data-pdfscan]");
+  if (scan) { pdfMenu.classList.remove("open"); await rescanPdfFolders(); return; }
+});
+document.addEventListener("click", e => {
+  if (pdfMenu.classList.contains("open") && !e.target.closest(".folder-wrap")) pdfMenu.classList.remove("open");
+});
+
+/* ponowny skan wszystkich folderów rysunków (w przeglądarce najpierw prosi o zgodę) */
+async function rescanPdfFolders() {
+  for (const f of pdfFolders) {
+    if (!f.handle) continue;
+    let st = "prompt";
+    try { st = await f.handle.queryPermission({ mode: "read" }); } catch (e) {}
+    if (st !== "granted") {
+      try { st = await f.handle.requestPermission({ mode: "read" }); } catch (e) {}
+      if (st !== "granted") { toast("Brak zgody na dostęp do folderu „" + f.name + "”"); return; }
+    }
+  }
+  updatePdfUI(false);
+  await scanPdfFolder();
+}
+document.getElementById("btnPdfOff").addEventListener("click", disconnectPdfFolder);
+
+/* pole „Rysunek PDF” w formularzu — łączenie, szukanie, wybór rysunku */
+document.getElementById("pdfBox").addEventListener("click", async e => {
+  if (e.target.closest("#pdfConnect")) {
+    await connectPdfFolder();
+    if (pdfRoot) doPdfSearch(false); else renderPdfBox();
+    return;
+  }
+  if (e.target.closest("#pdfSearch")) { doPdfSearch(false); return; }
+  const it = e.target.closest("[data-pdf]");
+  if (it) {
+    const f = pdfCandidates[+it.dataset.pdf];
+    selectedPdf = (selectedPdf === f) ? null : f;
+    renderPdfBox();
+  }
+});
+document.getElementById("fDrawing").addEventListener("change", () => {
+  if (pdfRoot) doPdfSearch(false);
+});
+
+/* wybór sposobu sortowania */
+const sortSelEl = document.getElementById("sortSel");
+sortSelEl.value = sortMode;
+sortSelEl.addEventListener("change", () => {
+  sortMode = sortSelEl.value;
+  localStorage.setItem("cncSort", sortMode);
+  renderGrid();
+});
+document.getElementById("limitSel").value = String(viewLimit);
+
+/* ── ustawienia wyglądu: motyw jasny/ciemny + kolor akcentu ── */
+const ACCENTS = ["default", "orange", "green", "red"];
+function currentAccent() {
+  return ACCENTS.find(a => a !== "default" && document.body.classList.contains("theme-" + a)) || "default";
+}
+let widgetEnabled = false;
+function widgetPayload() { return { theme: document.body.classList.contains("light") ? "light" : "dark", accent: currentAccent(), motion: motionOn() }; }
+function refreshWidgetTheme() { if (widgetEnabled && window.native && window.native.updateWidget) window.native.updateWidget(widgetPayload()); }
+function applyMode(light) {
+  document.body.classList.toggle("light", light);
+  localStorage.setItem("cncTheme", light ? "light" : "dark");
+  refreshWidgetTheme();
+  syncSettingsUI();
+}
+function applyAccent(name) {
+  ACCENTS.forEach(a => document.body.classList.remove("theme-" + a));
+  if (name && name !== "default") document.body.classList.add("theme-" + name);
+  localStorage.setItem("cncAccent", name || "default");
+  refreshWidgetTheme();
+  syncSettingsUI();
+}
+function motionOn() { return !document.body.classList.contains("no-motion"); }
+function applyMotion(on) {
+  document.body.classList.toggle("no-motion", !on);
+  localStorage.setItem("cncMotion", on ? "on" : "off");
+  syncSettingsUI();
+}
+function applyWidget(on) {
+  widgetEnabled = on;
+  localStorage.setItem("cncWidget", on ? "on" : "off");
+  if (window.native && window.native.toggleWidget) window.native.toggleWidget(on, widgetPayload());
+  syncSettingsUI();
+}
+function applyFolderSearch(on) {
+  folderSearch = on;   // on = widok folderów; off = widok programów
+  openedDir = null;    // przełączenie widoku zawsze wychodzi z otwartego folderu
+  localStorage.setItem("cncFolderMode", on ? "on" : "off");
+  const s = document.getElementById("search");
+  if (s) s.placeholder = on
+    ? "Szukaj folderu po nazwie…"
+    : "Szukaj: nazwa, numer O, klient, materiał, treść kodu…";
+  render();   // przełącz widok programy ↔ foldery
+  syncSettingsUI();
+}
+/* ustawia listę pomijanych folderów, usuwa je z biblioteki i odświeża */
+function applyIgnoredDirs(str) {
+  localStorage.setItem("cncIgnoreDirs", str || "");
+  ignoredDirs = String(str || "").split(",").map(s => fold(s.trim())).filter(Boolean);
+  const before = programs.length;
+  programs = programs.filter(p => !isIgnoredDir(p.dir));
+  if (programs.length !== before) save();
+  render();
+}
+function syncSettingsUI() {
+  const light = document.body.classList.contains("light");
+  document.querySelectorAll(".set-mode[data-mode]").forEach(b =>
+    b.classList.toggle("on", (b.dataset.mode === "light") === light));
+  const acc = currentAccent();
+  document.querySelectorAll(".swatch").forEach(b =>
+    b.classList.toggle("on", b.dataset.accent === acc));
+  const mon = motionOn();
+  document.querySelectorAll(".set-mode[data-motion]").forEach(b =>
+    b.classList.toggle("on", (b.dataset.motion === "on") === mon));
+  document.querySelectorAll(".set-mode[data-widget]").forEach(b =>
+    b.classList.toggle("on", (b.dataset.widget === "on") === widgetEnabled));
+  document.querySelectorAll(".set-mode[data-foldersearch]").forEach(b =>
+    b.classList.toggle("on", (b.dataset.foldersearch === "on") === folderSearch));
+}
+const settingsMenu = document.getElementById("settingsMenu");
+document.getElementById("btnSettings").addEventListener("click", e => {
+  e.stopPropagation();
+  settingsMenu.classList.toggle("open");
+  syncSettingsUI();
+});
+settingsMenu.addEventListener("click", e => {
+  const m = e.target.closest("[data-mode]");
+  if (m) { applyMode(m.dataset.mode === "light"); return; }
+  const a = e.target.closest("[data-accent]");
+  if (a) { applyAccent(a.dataset.accent); return; }
+  const mo = e.target.closest("[data-motion]");
+  if (mo) { applyMotion(mo.dataset.motion === "on"); return; }
+  const w = e.target.closest("[data-widget]");
+  if (w) { applyWidget(w.dataset.widget === "on"); return; }
+  const fs = e.target.closest("[data-foldersearch]");
+  if (fs) { applyFolderSearch(fs.dataset.foldersearch === "on"); return; }
+});
+/* zamknij menu ustawień kliknięciem poza nim */
+document.addEventListener("click", e => {
+  if (settingsMenu.classList.contains("open") && !e.target.closest(".settings-wrap"))
+    settingsMenu.classList.remove("open");
+});
+/* przywróć zapisany motyw, kolor akcentu i ruch tła */
+if (localStorage.getItem("cncTheme") === "light") document.body.classList.add("light");
+applyAccent(localStorage.getItem("cncAccent") || "default");
+applyMotion(localStorage.getItem("cncMotion") !== "off");
+applyFolderSearch(localStorage.getItem("cncFolderMode") === "on");   // domyślnie wyłączone (widok programów)
+/* pomijane foldery — wczytaj listę i podłącz pole w ustawieniach */
+ignoredDirs = (localStorage.getItem("cncIgnoreDirs") || "").split(",").map(s => fold(s.trim())).filter(Boolean);
+{
+  const ii = document.getElementById("ignoreInput");
+  if (ii) {
+    ii.value = localStorage.getItem("cncIgnoreDirs") || "";
+    let ignTimer = null;
+    ii.addEventListener("input", () => { clearTimeout(ignTimer); ignTimer = setTimeout(() => applyIgnoredDirs(ii.value), 350); });
+    ii.addEventListener("click", e => e.stopPropagation());
+  }
+}
+/* widget wyszukiwania — przywróć stan (pokaż, jeśli był włączony) */
+widgetEnabled = localStorage.getItem("cncWidget") === "on";
+if (widgetEnabled && window.native && window.native.toggleWidget) window.native.toggleWidget(true, widgetPayload());
+syncSettingsUI();
+/* proces główny zgłasza zmianę widoczności widgetu (schowany po wyszukaniu / Esc / skrót) */
+if (window.native && window.native.onWidgetState) window.native.onWidgetState(on => {
+  widgetEnabled = !!on;
+  localStorage.setItem("cncWidget", on ? "on" : "off");
+  syncSettingsUI();
+});
+/* liczy pasujące elementy (programy albo foldery — zależnie od trybu) — bez zmiany UI */
+function widgetCount(qv) {
+  const q2 = (qv || "").trim();
+  const toks = q2 ? fold(q2).split(/\s+/).filter(Boolean) : [];
+  if (!toks.length) return 0;
+  if (folderSearch) {
+    const set = new Set();
+    for (const p of programs) {
+      if (p.source !== "disk" || !p.dir) continue;
+      const hay = fold(p.dir);
+      if (toks.every(w => hay.includes(w))) set.add((p.root || "") + " " + p.dir);
+    }
+    return set.size;
+  }
+  let n = 0;
+  for (const p of programs) {   // widget szuka we wszystkich folderach
+    const hay = hayOf(p);
+    if (toks.every(w => hay.includes(w))) n++;
+  }
+  return n;
+}
+/* wpisywanie na żywo w widgecie — odeślij tylko licznik */
+if (window.native && window.native.onWidgetLive) window.native.onWidgetLive(qv => {
+  if (window.native.widgetResult) window.native.widgetResult(widgetCount(qv));
+});
+/* zatwierdzenie z widgetu — pokaż wyniki w głównej wyszukiwarce + odeślij licznik */
+if (window.native && window.native.onWidgetGo) window.native.onWidgetGo(qv => {
+  filter = "all";
+  searchEl.value = qv;
+  clearEl.style.display = qv ? "block" : "none";
+  query = (qv || "").trim();
+  queryTokens = query ? fold(query).split(/\s+/).filter(Boolean) : [];
+  const prev = viewLimit; viewLimit = 0; renderGrid(); viewLimit = prev;
+  if (window.native.widgetResult) window.native.widgetResult(folderSearch ? currentFolders().length : programs.filter(matches).length);
+  document.getElementById("grid").scrollIntoView({ behavior: "smooth", block: "start" });
+});
+
+/* masowe dopasowanie rysunków: dla każdego programu bez rysunku szuka PDF-a po
+   numerze SZ we WSZYSTKICH folderach z rysunkami i kopiuje go do folderu programu */
+async function matchAllPdfs() {
+  if (!fsRoot) { toast("Najpierw połącz folder z programami"); return; }
+  if (!pdfFolders.length) {
+    toast("Wskaż folder z rysunkami PDF");
+    await addPdfFolder();
+    if (!pdfFolders.length) return;
+  }
+  if (!pdfFiles.length) await scanPdfFolder(true);
+  if (!pdfFiles.length) { toast("W folderach z rysunkami nie ma plików PDF"); return; }
+
+  const btn = document.getElementById("btnMatchAll");
+  const label = btn.lastChild;
+  const oldLabel = label.textContent;
+  btn.disabled = true;
+  label.textContent = " Dopasowuję… ";
+
+  let added = 0;
+  matchReport = { added: [], noMatch: [], noDrawing: [] };
+  try {
+    for (const p of programs) {
+      if (p.source !== "disk") continue;          // tylko programy z dysku mają swój folder
+      if (!p.dir) continue;                        // luzem w korzeniu — rysunek dopnij ręcznie
+      if (p.pdfs && p.pdfs.length) continue;       // ten już ma rysunek
+      if (!p.drawing) { matchReport.noDrawing.push(p.id); continue; }
+      const match = findPdfMatches(p.drawing, p.name).find(f => pdfHasDrawing(f.name, p.drawing));
+      if (!match) { matchReport.noMatch.push(p.id); continue; }
+      if (await copyPdfToProgram(p, match)) { added++; matchReport.added.push(p.id); }
+      else matchReport.noMatch.push(p.id);
+    }
+  } finally {
+    btn.disabled = false;
+    label.textContent = oldLabel;
+  }
+  save();
+  render();
+  updateMatchReportBtn();
+  let msg = "Skopiowano rysunki do " + added + " programów";
+  if (matchReport.noMatch.length) msg += " · nie znaleziono: " + matchReport.noMatch.length;
+  if (matchReport.noDrawing.length) msg += " · bez numeru rysunku: " + matchReport.noDrawing.length;
+  toast(msg);
+}
+document.getElementById("btnMatchAll").addEventListener("click", matchAllPdfs);
+
+/* ── kontrola programów ───────────────────────────────────────────────────
+   Dwa widoki w jednym oknie: uwagi do JEDNEGO programu (kliknięta plakietka
+   na karcie) i lista wszystkich programów z uwagami („Sprawdź bibliotekę"). */
+let chkMode = "one";   // "one" albo "all"
+let chkText = "";      // treść do skopiowania do schowka
+
+function showProgramCheck(id) {
+  const p = byId(id);
+  if (!p) return;
+  const q = issueCount(p);
+  chkMode = "one";
+  document.getElementById("chkTitle").textContent = "Kontrola: " + (p.name || p.file || "program");
+  document.getElementById("chkSum").innerHTML = q.list.length
+    ? `<b style="color:#f87171">${q.err}</b> ${plural(q.err, "błąd", "błędy", "błędów")} ·
+       <b style="color:#fbbf24">${q.warn}</b> ${plural(q.warn, "ostrzeżenie", "ostrzeżenia", "ostrzeżeń")}
+       ${p.onum ? " · " + esc(p.onum) : ""}${p.dir ? " · 📁 " + esc(p.dir) : ""}`
+    : "Nic nie znaleziono — program przechodzi kontrolę.";
+  document.getElementById("chkList").innerHTML = q.list.length
+    ? q.list.map(x => `<div class="chk-row ${x.level === "err" ? "err" : ""}">
+        <span class="chk-ln">${x.line ? "linia " + x.line : "ogólne"}</span>
+        <span class="chk-msg">${esc(x.msg)}</span></div>`).join("")
+    : '<div class="mr-empty">Brak uwag.</div>';
+  chkText = q.list.map(x => (x.line ? "linia " + x.line : "ogólne") + "\t" + x.msg).join("\n");
+  openModal("mCheck");
+}
+
+function showLibraryCheck() {
+  const rows = [];
+  for (const p of programs) {
+    const q = issueCount(p);
+    if (q.err || q.warn) rows.push({ p, q });
+  }
+  rows.sort((a, b) => (b.q.err - a.q.err) || (b.q.warn - a.q.warn));
+  chkMode = "all";
+  document.getElementById("chkTitle").textContent = "Kontrola biblioteki";
+  document.getElementById("chkSum").innerHTML = rows.length
+    ? `Uwagi w <b>${rows.length}</b> z ${programs.length} programów ·
+       łącznie <b style="color:#f87171">${rows.reduce((s, r) => s + r.q.err, 0)}</b> błędów,
+       <b style="color:#fbbf24">${rows.reduce((s, r) => s + r.q.warn, 0)}</b> ostrzeżeń.
+       Kliknij program, aby zobaczyć szczegóły.`
+    : "Wszystkie programy przechodzą kontrolę.";
+  document.getElementById("chkList").innerHTML = rows.length
+    ? rows.map(({ p, q }) => `<div class="chk-prog" data-check="${esc(p.id)}">
+        <div class="mr-main">
+          <div class="mr-name">${esc(p.name || p.file || "—")}</div>
+          <div class="mr-meta">${p.onum ? esc(p.onum) + " · " : ""}${p.dir ? "📁 " + esc(p.dir) : "korzeń"}</div>
+        </div>
+        ${q.err ? `<span class="chk-badge chk-err">⚠ ${q.err}</span>` : ""}
+        ${q.warn ? `<span class="chk-badge">${q.warn}</span>` : ""}
+      </div>`).join("")
+    : '<div class="mr-empty">Brak uwag w całej bibliotece.</div>';
+  chkText = rows.map(({ p, q }) =>
+    [p.onum || "", p.dir || "", p.file || "", q.err, q.warn,
+     q.list.map(x => (x.line ? "L" + x.line + ": " : "") + x.msg).join(" | ")].join("\t")).join("\n");
+  openModal("mCheck");
+}
+
+document.getElementById("btnCheckAll").addEventListener("click", showLibraryCheck);
+document.getElementById("chkList").addEventListener("click", e => {
+  const it = e.target.closest("[data-check]");
+  if (it) showProgramCheck(it.dataset.check);
+});
+document.getElementById("chkCopy").addEventListener("click", async () => {
+  if (!chkText) { toast("Nic do skopiowania"); return; }
+  try { await navigator.clipboard.writeText(chkText); toast("Skopiowano listę uwag do schowka"); }
+  catch (e) { toast("Nie udało się skopiować do schowka"); }
+});
+
+/* ── raport z ostatniego „Dopasuj rysunki" ────────────────────────────────
+   Same liczby w komunikacie nic nie dają — trzeba wiedzieć, KTÓRE programy
+   zostały bez rysunku, żeby dopiąć je ręcznie albo poprawić numer. */
+let matchReport = null;
+let reportView = "noMatch";
+
+function updateMatchReportBtn() {
+  const btn = document.getElementById("btnMatchReport");
+  if (!btn) return;
+  const n = matchReport ? matchReport.noMatch.length + matchReport.noDrawing.length : 0;
+  btn.style.display = n ? "" : "none";
+  const lbl = document.getElementById("matchReportLabel");
+  if (lbl) lbl.textContent = "Bez rysunku: " + n;
+}
+
+function renderMatchReport() {
+  const list = document.getElementById("mrList");
+  const ids = (matchReport && matchReport[reportView]) || [];
+  document.querySelectorAll("#mrTabs [data-mr]").forEach(b => {
+    b.classList.toggle("on", b.dataset.mr === reportView);
+    const key = b.dataset.mr;
+    const n = (matchReport && matchReport[key]) ? matchReport[key].length : 0;
+    b.querySelector(".mr-count").textContent = n;
+  });
+  if (!ids.length) {
+    list.innerHTML = '<div class="mr-empty">Nic w tej grupie.</div>';
+    return;
+  }
+  list.innerHTML = ids.map(id => {
+    const p = byId(id);
+    if (!p) return "";
+    return `<div class="mr-row" data-open="${esc(p.id)}">
+      <div class="mr-main">
+        <div class="mr-name">${esc(p.name || p.file || "—")}</div>
+        <div class="mr-meta">${p.onum ? esc(p.onum) + " · " : ""}${p.dir ? "📁 " + esc(p.dir) : "korzeń"}</div>
+      </div>
+      <div class="mr-draw">${p.drawing ? esc(p.drawing) : "<i>brak numeru</i>"}</div>
+      <button class="btn btn-sm" data-mrpdf="${esc(p.id)}" title="Wskaż rysunek ręcznie">Dopasuj PDF</button>
+    </div>`;
+  }).join("");
+}
+
+function openMatchReport() {
+  if (!matchReport) { toast("Najpierw uruchom „Dopasuj rysunki”"); return; }
+  reportView = matchReport.noMatch.length ? "noMatch" : "noDrawing";
+  renderMatchReport();
+  openModal("mReport");
+}
+
+document.getElementById("btnMatchReport").addEventListener("click", openMatchReport);
+document.getElementById("mrTabs").addEventListener("click", e => {
+  const b = e.target.closest("[data-mr]");
+  if (!b) return;
+  reportView = b.dataset.mr;
+  renderMatchReport();
+});
+document.getElementById("mrList").addEventListener("click", e => {
+  const pdf = e.target.closest("[data-mrpdf]");
+  if (pdf) {                       // ręczny wybór rysunku dla tego programu
+    closeModal("mReport");
+    openAddPdf(pdf.dataset.mrpdf);
+    return;
+  }
+  const row = e.target.closest("[data-open]");
+  if (row) { closeModal("mReport"); openView(row.dataset.open); }
+});
+document.getElementById("mrCopy").addEventListener("click", async () => {
+  const ids = (matchReport && matchReport[reportView]) || [];
+  const txt = ids.map(id => {
+    const p = byId(id); if (!p) return "";
+    return [p.onum || "", p.drawing || "", p.dir || "", p.file || "", p.name || ""].join("\t");
+  }).filter(Boolean).join("\n");
+  if (!txt) { toast("Nic do skopiowania"); return; }
+  try { await navigator.clipboard.writeText(txt); toast("Skopiowano " + ids.length + " pozycji do schowka"); }
+  catch (e) { toast("Nie udało się skopiować do schowka"); }
+});
+
+/* otwiera folder rysunków PDF (albo konkretny szkic wpisany w polu) w Eksploratorze.
+   Szkic szukany jest po kolei we WSZYSTKICH folderach z rysunkami; dopiero gdy nie ma
+   go nigdzie, otwiera się folder główny. */
+document.getElementById("btnOpenPdfDir").addEventListener("click", async () => {
+  if (!pdfFolders.length) {
+    toast("Najpierw wskaż folder z rysunkami PDF");
+    await addPdfFolder();
+    if (!pdfFolders.length) return;
+  }
+  const native = pdfFolders.filter(f => f.path);
+  if (!native.length || !window.native || !window.native.openSketch) {
+    toast("Otwieranie folderu działa w aplikacji na Windows");
+    return;
+  }
+  const sketch = (document.getElementById("sketchInput").value || "").trim();
+
+  // najpierw ustal, w którym folderze szkic w ogóle jest — inaczej przy kilku
+  // folderach Eksplorator otworzyłby je wszystkie po kolei
+  let target = native[0];
+  if (sketch && native.length > 1 && window.native.findSketch) {
+    for (const f of native) {
+      const r = await window.native.findSketch(f.path, sketch).catch(() => null);
+      if (r && r.found) { target = f; break; }
+    }
+  }
+  const r = await window.native.openSketch(target.path, sketch);
+  if (r && r.notFound) {
+    toast('Nie znaleziono szkicu „' + sketch + '”' +
+      (native.length > 1 ? " w żadnym z " + native.length + " folderów" : "") + " — otwarto folder rysunków");
+  } else if (!(r && r.ok)) {
+    toast("Nie udało się otworzyć folderu rysunków");
+  }
+});
+/* Enter w polu szkicu = kliknięcie przycisku */
+document.getElementById("sketchInput").addEventListener("keydown", e => {
+  if (e.key === "Enter") { e.preventDefault(); document.getElementById("btnOpenPdfDir").click(); }
+});
+
+/* przycisk Odśwież — ponowny skan wszystkich folderów z programami i folderu PDF.
+   Na koniec ZAWSZE czyści cache miniaturek i przerysowuje widok, żeby zmiany na
+   dysku (nowe pliki .nc/.txt, nowe podfoldery) były widoczne od razu — bez
+   przełączania widoku Programy/Foldery. */
+document.getElementById("btnRefresh").addEventListener("click", async () => {
+  if (!folders.length && !fsRoot && !pdfRoot) { toast("Najpierw połącz folder z programami"); return; }
+  const btn = document.getElementById("btnRefresh");
+  if (btn.dataset.busy === "1") return;   // nie uruchamiaj drugiego skanu w trakcie
+  btn.dataset.busy = "1"; btn.classList.add("busy");
+  let sum = null, pdfs = null;
+  try {
+    // quiet = pojedyncze foldery nie meldują osobno; na końcu jeden komunikat zbiorczy
+    if (folders.length || fsRoot) sum = await rescanFolder(true);
+    if (pdfRoot) { await scanPdfFolder(true); pdfs = pdfFiles.length; }
+  } catch (e) {
+    toast("Odświeżanie nie powiodło się: " + ((e && e.message) || e));
+    sum = null;
+  } finally {
+    btn.dataset.busy = ""; btn.classList.remove("busy");
+    thumbByCard.clear();
+    updateFolderUI(false);
+    render();
+  }
+  if (sum) {
+    toast("Odświeżono " + sum.folders + " " + plural(sum.folders, "folder", "foldery", "folderów")
+      + ": " + sum.files + " " + plural(sum.files, "plik", "pliki", "plików")
+      + (sum.added ? ", nowych: " + sum.added : "")
+      + (pdfs !== null ? " · rysunki PDF: " + pdfs : ""));
+  }
+});
+
+/* okno „Dodaj rysunek PDF” z poziomu karty */
+document.getElementById("apSearch").addEventListener("input", e => {
+  apCandidates = filterPdfs(e.target.value);
+  if (!apCandidates.includes(apSelected)) apSelected = apCandidates[0] || null;
+  renderApList();
+});
+document.getElementById("apList").addEventListener("click", e => {
+  const it = e.target.closest("[data-ap]");
+  if (!it) return;
+  const f = apCandidates[+it.dataset.ap];
+  apSelected = (apSelected === f) ? null : f;
+  renderApList();
+});
+document.getElementById("apAccept").addEventListener("click", async () => {
+  const p = byId(apProgramId);
+  if (!p) return;
+  if (!apSelected) { toast("Najpierw kliknij rysunek na liście"); return; }
+  const btn = document.getElementById("apAccept");
+  if (btn.dataset.busy === "1") return;
+  btn.dataset.busy = "1"; btn.classList.add("busy");
+  fsLastError = "";
+  const name = apSelected.name;
+  let ok = false;
+  try { ok = await copyPdfToProgram(p, apSelected); }
+  catch (e) { fsLastError = (e && e.message) || String(e); }
+  btn.dataset.busy = ""; btn.classList.remove("busy");
+  if (ok) {
+    save();
+    closeModal("mAddPdf");   // zamknij okno zaraz po udanym skopiowaniu
+    thumbByCard.delete(p.id);
+    render();                // karta pokazuje rysunek od razu, bez odświeżania
+    loadThumbs();            // dociągnij miniaturkę nowo dodanego rysunku
+    toast("Dodano rysunek " + name + " do „" + (p.dir || "folderu głównego") + "”");
+  } else {
+    toast("Nie udało się skopiować rysunku" + (fsLastError ? ": " + fsLastError : ""));
+  }
+});
+
+document.getElementById("btnFreeOnum").addEventListener("click", () => {
+  const free = nextFreeOnum();
+  document.getElementById("fOnum").value = free;
+  const ta = document.getElementById("fCode");
+  if (ta.value.trim()) ta.value = replaceOnumInCode(ta.value, free);
+  checkOnumDup();
+  toast("Przydzielono wolny numer " + free);
+});
+
+/* przeciąganie pliku na pole kodu — wczytanie i wypełnienie rubryk */
+const codeTa = document.getElementById("fCode");
+["dragenter", "dragover"].forEach(ev => codeTa.addEventListener(ev, e => {
+  e.preventDefault(); e.stopPropagation();
+  codeTa.classList.add("hot");
+}));
+codeTa.addEventListener("dragleave", () => codeTa.classList.remove("hot"));
+codeTa.addEventListener("drop", async e => {
+  e.preventDefault(); e.stopPropagation();
+  codeTa.classList.remove("hot");
+  const f = e.dataTransfer && e.dataTransfer.files[0];
+  if (f) await applyDroppedFile(f);
+});
+
+/* wklejenie SAMEGO G-kodu w pole kodu — odczyt danych jak przy wrzucaniu pliku.
+   Działa tylko dla NOWEGO programu (przy edycji nie ruszamy pól). */
+let pasteBusy = false;
+codeTa.addEventListener("paste", () => {
+  if (editId) return;                 // edycja istniejącego — zwykłe wklejanie tekstu
+  setTimeout(applyPastedCode, 0);     // najpierw pozwól przeglądarce wstawić tekst
+});
+async function applyPastedCode() {
+  if (pasteBusy || editId) return;
+  const ta = document.getElementById("fCode");
+  let code = ta.value;
+  const meta = parseGcodeMeta(code);
+  if (!meta.onum && !meta.name && !meta.detail && !meta.drawing) return;   // to nie wygląda na program
+
+  // uzupełnij puste rubryki — nie nadpisujemy tego, co użytkownik już wpisał
+  const nameEl = document.getElementById("fName");
+  if (!nameEl.value.trim() && meta.name) {
+    nameEl.value = meta.name;
+    nameEl.classList.remove("bad");
+    document.getElementById("hName").classList.remove("show");
+  }
+  const det = document.getElementById("fDetail");
+  if (!det.value.trim() && meta.detail) det.value = meta.detail;
+  const dr = document.getElementById("fDrawing");
+  if (!dr.value.trim() && meta.drawing) dr.value = meta.drawing;
+
+  // numer O odczytany z kodu
+  const onumEl = document.getElementById("fOnum");
+  if (meta.onum) {
+    const n = onumInt(meta.onum);
+    const taken = !isNaN(n) && programs.some(p => p.id !== editId && onumInt(p.onum) === n);
+    if (taken) {
+      pasteBusy = true;
+      const choice = await askOnumTaken(meta.onum);
+      pasteBusy = false;
+      if (choice === "replace") {
+        onumEl.value = meta.onum;
+        toast("Zachowano numer " + meta.onum);
+      } else {
+        const free = nextFreeOnum();
+        code = replaceOnumInCode(code, free);
+        ta.value = code;
+        onumEl.value = free;
+        toast("Numer " + meta.onum + " zajęty — przydzielono wolny " + free);
+      }
+    } else {
+      onumEl.value = meta.onum;
+      toast("Odczytano dane z kodu — " + meta.onum);
+    }
+    checkOnumDup();
+  }
+  if (pdfRoot) doPdfSearch(false);
+}
+
+/* przeciągnięcie plików gdziekolwiek na stronę; karta podświetla się,
+   gdy nad nią wisisz z plikiem */
+let dragCard = null;
+window.addEventListener("dragover", e => {
+  e.preventDefault();
+  const c = e.target && e.target.closest ? e.target.closest(".card") : null;
+  if (c !== dragCard) {
+    if (dragCard) dragCard.classList.remove("drop-hot");
+    dragCard = c;
+    if (dragCard) dragCard.classList.add("drop-hot");
+  }
+});
+window.addEventListener("dragleave", e => {
+  if (!e.relatedTarget && dragCard) { dragCard.classList.remove("drop-hot"); dragCard = null; }
+});
+window.addEventListener("drop", async e => {
+  e.preventDefault();
+  if (dragCard) { dragCard.classList.remove("drop-hot"); dragCard = null; }
+  if (e.target === codeTa) return;
+  const all = [...((e.dataTransfer && e.dataTransfer.files) || [])];
+  const pdfs = all.filter(f => /\.pdf$/i.test(f.name));
+  const progs = all.filter(f => FILE_RE.test(f.name) || (f.type && f.type.startsWith("text")));
+
+  /* rysunek PDF upuszczony na kartę programu — dołącz do tego programu */
+  const card = e.target && e.target.closest ? e.target.closest(".card") : null;
+  if (pdfs.length && card) {
+    const p = byId(card.dataset.id);
+    if (!p || !p.dir) { toast("Ten program nie ma folderu na dysku"); return; }
+    let n = 0;
+    for (const f of pdfs) if (await savePdfFileToProgram(p, f)) n++;
+    if (n) { save(); render(); toast("Dodano rysunek do „" + p.dir + "”"); }
+    else toast("Nie udało się zapisać rysunku");
+    return;
+  }
+  if (pdfs.length && !progs.length) {
+    toast("Upuść rysunek PDF bezpośrednio na kartę programu, aby go dołączyć");
+    return;
+  }
+
+  if (!progs.length) return;
+  if (document.getElementById("mEdit").classList.contains("open")) {
+    await applyDroppedFile(progs[0]);
+    return;
+  }
+  closeModal("mView");
+  if (progs.length === 1) {
+    openEdit(null);
+    await applyDroppedFile(progs[0]);
+  } else {
+    for (const f of progs) await importFile(f);
+    save(); render();
+    toast("Zaimportowano " + progs.length + " programów");
+  }
+});
+document.getElementById("fName").addEventListener("input", e => {
+  e.target.classList.remove("bad");
+  document.getElementById("hName").classList.remove("show");
+});
+
+document.getElementById("btnCopy").addEventListener("click", async () => {
+  const p = byId(viewId); if (!p) return;
+  try {
+    await navigator.clipboard.writeText(p.code || "");
+    toast("Skopiowano kod programu do schowka");
+  } catch (e) {
+    // zapasowy sposób, gdy schowek niedostępny
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = p.code || "";
+      ta.style.position = "fixed"; ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      toast("Skopiowano kod programu do schowka");
+    } catch (e2) { toast("Nie udało się skopiować kodu"); }
+  }
+});
+
+/* kliknięcie numeru O w panelu — pokaż wszystkie programy z tym numerem */
+document.getElementById("onums").addEventListener("click", e => {
+  const el = e.target.closest("[data-onum]"); if (!el) return;
+  const onum = el.dataset.onum;
+  filter = "all";
+  searchEl.value = onum;
+  clearEl.style.display = "block";
+  query = onum;
+  queryTokens = fold(onum).split(/\s+/).filter(Boolean);
+  const prevLimit = viewLimit;
+  viewLimit = 0;   // pokaż wszystkie pasujące (duplikaty), nie tylko część
+  renderGrid();
+  viewLimit = prevLimit;
+  document.getElementById("grid").scrollIntoView({ behavior: "smooth", block: "start" });
+});
+
+document.getElementById("btnEdit").addEventListener("click", () => { closeModal("mView"); openEdit(viewId); });
+document.getElementById("btnDelete").addEventListener("click", () => removeProgram(viewId));
+document.getElementById("btnDownload").addEventListener("click", () => { const p = byId(viewId); if (p) download(p); });
+
+const searchEl = document.getElementById("search");
+const clearEl = document.getElementById("searchClear");
+let searchTimer = null;
+function applySearch() {
+  query = searchEl.value.trim();
+  queryTokens = query ? fold(query).split(/\s+/).filter(Boolean) : [];
+  renderGrid();
+}
+searchEl.addEventListener("input", () => {
+  clearEl.style.display = searchEl.value ? "block" : "none";
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(applySearch, 130);   // debounce — nie renderuj przy każdym znaku
+});
+clearEl.addEventListener("click", () => {
+  searchEl.value = ""; query = ""; queryTokens = [];
+  clearEl.style.display = "none"; renderGrid(); searchEl.focus();
+});
+
+document.getElementById("limitSel").addEventListener("change", e => {
+  viewLimit = parseInt(e.target.value, 10) || 0;
+  localStorage.setItem("cncLimit", String(viewLimit));
+  renderGrid();
+});
+
+document.getElementById("filters").addEventListener("click", e => {
+  const c = e.target.closest("[data-filter]"); if (!c) return;
+  filter = c.dataset.filter;
+  render();
+});
+
+document.getElementById("grid").addEventListener("click", e => {
+  if (e.target.closest("#btnBackFolders")) { closeOpenedDir(); return; }
+  if (e.target.closest("#btnDirExplorer")) { openDirInExplorer(openedDir); return; }
+  const sa = e.target.closest("#btnShowAll");
+  if (sa) {
+    viewLimit = 0;
+    localStorage.setItem("cncLimit", "0");
+    const ls = document.getElementById("limitSel"); if (ls) ls.value = "0";
+    renderGrid();
+    return;
+  }
+  const ck = e.target.closest("[data-check]");
+  if (ck) { showProgramCheck(ck.dataset.check); return; }
+  const th = e.target.closest("[data-pdfthumb]");
+  if (th) { openPdfModal(th.dataset.pdfthumb); return; }
+  const ap = e.target.closest("[data-addpdf]");
+  if (ap) { openAddPdf(ap.dataset.addpdf); return; }
+  const dp = e.target.closest("[data-delpdf]");
+  if (dp) {
+    const p = byId(dp.dataset.delpdf);
+    if (p && p.pdfs && p.pdfs.length) {
+      askConfirm('Usunąć rysunek „' + p.pdfs[0] + '” z folderu programu „' + p.dir + '”?').then(async yes => {
+        if (!yes) return;
+        const ok = await removePdfFromProgram(p, p.pdfs[0]);
+        if (ok) { save(); render(); toast("Usunięto rysunek z folderu programu"); }
+        else toast("Nie udało się usunąć rysunku");
+      });
+    }
+    return;
+  }
+  const og = e.target.closest("[data-original]");
+  if (og) { openOriginal(og.dataset.original); return; }
+  const of = e.target.closest("[data-openfolder]");
+  if (of) {
+    const p = byId(of.dataset.openfolder);
+    if (p && window.native && p.dir) {
+      const target = rootPathOf(p) + "/" + p.dir + (p.file ? "/" + p.file : "");
+      window.native.showInFolder(target).then(r => {
+        if (r && !r.ok) toast("Nie udało się otworzyć folderu");
+      });
+    }
+    return;
+  }
+  const fav = e.target.closest("[data-fav]");
+  if (fav) {
+    e.stopPropagation();
+    const p = byId(fav.dataset.fav);
+    if (!p) return;
+    p.fav = !p.fav;
+    save();
+    // aktualizacja w miejscu — bez przerysowywania całej siatki
+    fav.classList.toggle("on", p.fav);
+    const st = document.getElementById("stFav");
+    if (st) st.textContent = programs.filter(x => inView(x) && x.fav).length;
+    // gdy oglądamy tylko ulubione, a program przestał nim być — usuń jego kartę
+    if (filter === "fav" && !p.fav) { const c = fav.closest(".card"); if (c) c.remove(); }
+    return;
+  }
+  const fcard = e.target.closest(".folder-card");
+  if (fcard) { openFolderCard(+fcard.dataset.folder); return; }
+  const card = e.target.closest(".card");
+  if (card) openView(card.dataset.id);
+});
+
+document.getElementById("vBody").addEventListener("click", e => {
+  const r = e.target.closest("[data-restore]");
+  if (r) { e.preventDefault(); restoreVersion(+r.dataset.restore); }
+});
+
+document.querySelectorAll("[data-close]").forEach(b =>
+  b.addEventListener("click", () => closeModal(b.dataset.close)));
+/* okna zamykają się tylko przyciskami (✕ / Zamknij / Anuluj) albo klawiszem Esc —
+   kliknięcie w tło obok okna niczego nie zamyka */
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") {
+    document.querySelectorAll(".modal.open").forEach(m => closeModal(m.id));
+    settingsMenu.classList.remove("open");
+    folderMenu.classList.remove("open");
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === "s" && document.getElementById("mEdit").classList.contains("open")) {
+    e.preventDefault(); saveProgram();
+  }
+});
+
+/* efekt fali (ripple) po naciśnięciu */
+document.addEventListener("pointerdown", e => {
+  const t = e.target.closest(".btn, .card, .chip, .x-btn");
+  if (!t) return;
+  const rect = t.getBoundingClientRect();
+  const d = Math.max(rect.width, rect.height) * 2;
+  const r = document.createElement("span");
+  r.className = "ripple";
+  r.style.width = r.style.height = d + "px";
+  r.style.left = (e.clientX - rect.left - d / 2) + "px";
+  r.style.top = (e.clientY - rect.top - d / 2) + "px";
+  t.appendChild(r);
+  setTimeout(() => r.remove(), 650);
+});
+
+/* ════════════════════ window control ════════════════════ */
+if (window.native && window.native.minimize) {
+  document.getElementById("btnWinMin").addEventListener("click", () => window.native.minimize());
+  document.getElementById("btnWinMax").addEventListener("click", () => window.native.toggleMaximize());
+  document.getElementById("btnWinClose").addEventListener("click", () => window.native.close());
+}
+
+/* potwierdzenie zamknięcia aplikacji — stylizowane okno zamiast systemowego */
+if (window.native && window.native.onAskClose) {
+  window.native.onAskClose(() => openModal("mQuit"));
+  document.getElementById("qtNo").addEventListener("click", () => closeModal("mQuit"));
+  document.getElementById("qtYes").addEventListener("click", () => window.native.confirmClose());
+}
+
+/* zapis zmian dokonanych w osobnym oknie podglądu (edycja w miejscu) —
+   nie dotyka rysunków PDF, tylko dane i kod programu */
+async function applyDetailSave(id, data, change) {
+  const p = byId(id);
+  if (!p || !data) return;
+  if (typeof data.code === "string" && p.code !== data.code) {
+    p.versions = p.versions || [];
+    p.versions.push({ date: p.modified, note: (change || "").trim() || "Poprzednia wersja", code: p.code });
+  }
+  Object.assign(p, data, { modified: Date.now() });
+  if (p.source === "disk") {
+    const ok = await writeDisk(p);
+    if (!ok) toast("Uwaga: nie udało się zapisać na dysku (" + fsLastError + ")");
+  }
+  save();
+  render();
+}
+
+/* akcje przekazane z osobnego okna podglądu (Zapisz / Usuń / Pobierz) */
+if (window.native && window.native.onDetailAction) {
+  window.native.onDetailAction(msg => {
+    if (!msg || !msg.id) return;
+    const p = byId(msg.id);
+    if (!p) return;
+    if (msg.type === "save") applyDetailSave(msg.id, msg.data, msg.change);
+    else if (msg.type === "edit") openEdit(msg.id);
+    else if (msg.type === "delete") removeProgram(msg.id);
+    else if (msg.type === "download") download(p);
+  });
+}
+
+/* ════════════════════ start ════════════════════ */
+load();            // szybka kopia z localStorage — natychmiastowy widok
+loadFolders();     // migracja + ustawienie aktywnego folderu (synchronicznie)
+render();
+(async () => {
+  await loadLibrary();   // pełna biblioteka z IndexedDB
+  await restoreFolders();// weryfikacja folderów na dysku + skan (uzupełnia kod z dysku)
+})();
+</script>
+</body>
+</html>

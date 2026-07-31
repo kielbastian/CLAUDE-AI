@@ -1,0 +1,73 @@
+name: CNC Suite z poprawkami — budowa aplikacji Windows (exe)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master, 'claude/**' ]
+    paths:
+      - cnc-suite-z-poprawkami/**
+      - .github/workflows/build-cnc-suite-poprawki.yml
+
+permissions:
+  contents: write
+
+# Osobna kopia aplikacji i osobny release (`cnc-suite-poprawki-exe`) — nie dotyka
+# wydań `cnc-suite-exe`, `windows-exe` ani `cam-generator-exe`.
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: cnc-suite-z-poprawkami
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Instalacja zależności
+        run: npm install
+
+      - name: Budowa przenośnego exe
+        run: npx electron-builder --win portable --publish never
+
+      - name: Spakuj przenośny exe do ZIP
+        run: Compress-Archive -Path dist\CNC-Suite-z-poprawkami.exe -DestinationPath dist\CNC-Suite-z-poprawkami-windows.zip -Force
+        shell: pwsh
+
+      - name: Zawartość katalogu dist
+        run: dir dist
+        shell: cmd
+
+      - name: Artefakt kompilacji
+        uses: actions/upload-artifact@v4
+        with:
+          name: CNC-Suite-z-poprawkami-windows
+          path: |
+            cnc-suite-z-poprawkami/dist/CNC-Suite-z-poprawkami.exe
+            cnc-suite-z-poprawkami/dist/*.zip
+
+      - name: Publikacja w Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: cnc-suite-poprawki-exe
+          name: CNC Suite z poprawkami — Windows (exe)
+          body: |
+            Kopia CNC Suite rozbudowana o narzędzia dla programisty i operatora
+            tokarki Haas:
+
+            - **Kontroler programu** — sprawdzenie G-kodu przed wysłaniem na maszynę
+            - **Masowa edycja metadanych** — seryjne uzupełnianie numerów rysunku
+            - **Dane skrawania** w kalkulatorze — Vc ↔ obroty, Ra, czas, moc
+            - **Karta ustawień** — jedna strona A4 na maszynę
+
+            Przenośna aplikacja Windows — jeden samodzielny plik, bez instalacji.
+
+            - **CNC-Suite-z-poprawkami-windows.zip** — zalecane. Rozpakuj i uruchom exe.
+            - **CNC-Suite-z-poprawkami.exe** — ten sam plik bez pakowania.
+
+            Podstawowa wersja bez tych dodatków zostaje w release `cnc-suite-exe`.
+          files: |
+            cnc-suite-z-poprawkami/dist/CNC-Suite-z-poprawkami.exe
+            cnc-suite-z-poprawkami/dist/*.zip
