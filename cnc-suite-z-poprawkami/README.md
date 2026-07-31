@@ -1,3 +1,68 @@
+# CNC Suite z poprawkami
+
+Kopia **CNC Suite** rozbudowana o narzędzia dla programisty i operatora tokarki
+Haas. Wersja podstawowa bez tych dodatków żyje dalej w katalogu `cnc-suite/`
+i w release `cnc-suite-exe` — ta kopia buduje się do osobnego pliku
+`CNC-Suite-z-poprawkami.exe` i release `cnc-suite-poprawki-exe`.
+
+## Co doszło ponad wersję podstawową
+
+### Kontrola programu przed wysłaniem na maszynę
+
+Plakietka z liczbą uwag na karcie programu otwiera listę dla tego programu,
+przycisk **„Sprawdź bibliotekę"** — zestawienie dla wszystkich, posortowane po
+liczbie błędów. Obie listy można skopiować do schowka. Sprawdzane jest:
+
+- **brak kropki dziesiętnej** przy wartości różnej od zera (`X50` zamiast
+  `X50.`) — na Haasie taka liczba jest czytana w najmniejszym inkremencie
+- **G96 bez wcześniejszego `G50 S…`** — brak ograniczenia obrotów; oraz G96 bez S
+- **ruch roboczy** przed startem wrzeciona, bez zadanego posuwu F albo bez
+  układu współrzędnych po zmianie narzędzia
+- narzędzie wywołane z **korektorem 00**
+- niezamknięty nawias komentarza, brak `M30`/`M99`, brak `G20`/`G21`,
+  niewyłączone chłodziwo, brak odjazdu `G53`/`G28`, brak znaków `%`
+
+Celowo tylko pewne przypadki — przy kilkuset programach lista pełna wątpliwych
+ostrzeżeń jest bezużyteczna. Prawdziwy program z warsztatu (gwintowanie
+wkrętki, O01037) przechodzi bez ani jednej uwagi.
+
+### Masowa edycja danych
+
+Okno **„Masowa edycja danych"**: tabela z filtrem (bez numeru rysunku, bez
+materiału, wszystkie), wyszukiwaniem i polami do wpisania numeru rysunku oraz
+materiału. W wierszu widać pierwszy komentarz z kodu, więc detal da się
+rozpoznać bez otwierania programu. **Enter** przechodzi do tego samego pola
+w następnym wierszu — wpisywanie serią.
+
+**„Zaproponuj numery"** wypełnia puste pola oznaczeniem SZ znalezionym w nazwie
+folderu, pliku, nazwie detalu albo w nazwie przypisanego rysunku PDF.
+Podpowiedzi są wyróżnione, więc widać, co zostało zgadnięte. Zmiany trafiają do
+biblioteki — pliki `.nc` nie są modyfikowane.
+
+### Karta ustawień do druku
+
+Przycisk na karcie programu otwiera **kartę ustawień** — jedną stronę A4 na
+maszynę: nazwa i numer O, numer rysunku, materiał, klient, plik, układ
+współrzędnych, obroty i posuwy użyte w programie, wynik kontroli, tabela
+narzędzi z korektorami i opisem z komentarzy, miniatura rysunku oraz miejsce na
+uwagi o mocowaniu. Wydruk wychodzi na białym tle, bez ciemnego tła aplikacji.
+
+### Dane skrawania w kalkulatorze
+
+Ósma sekcja kalkulatora — **DANE SKRAWANIA**:
+
+- **Vc ↔ obroty** sprzężone przez średnicę (zmiana jednego przelicza drugie)
+  plus podpowiedź ogranicznika `G50 S…` do `G96`
+- **chropowatość teoretyczna** `Ra = f² / (31,2 · r)`
+- **posuw minutowy** `vf` i **czas przejścia** dla zadanej długości
+- **moc skrawania** `Pc = ap · f · Vc · kc / 60000` z porównaniem do mocy
+  wrzeciona — ostrzeżenie powyżej 70% i 90%
+- **objętość wióra** `Q = ap · f · Vc`
+- opór właściwy `kc` wybierany materiałem
+- ostrzeżenia: posuw większy od promienia naroża, `ap` poniżej ⅓ promienia
+
+---
+
 # CNC Suite — trzy aplikacje w jednym oknie
 
 Jedna aplikacja desktopowa (Windows) z **kartami**, która łączy trzy istniejące

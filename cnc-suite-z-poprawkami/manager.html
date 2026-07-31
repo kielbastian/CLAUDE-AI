@@ -560,6 +560,54 @@
     background:rgba(var(--ac1-rgb),.07);
     box-shadow:0 0 0 3px rgba(var(--ac1-rgb),.28),0 0 34px rgba(var(--ac1-rgb),.22);
   }
+  /* ── karta ustawień (setup sheet) ──
+     Zawsze na białym tle i czarnym drukiem — kartka ma być czytelna przy
+     maszynie i wyjść z drukarki bez ciemnego tła aplikacji. */
+  .ss-page{
+    background:#fff;color:#111;padding:24px 26px;border-radius:0 0 14px 14px;
+    font-family:'Rajdhani','Segoe UI',sans-serif;
+  }
+  .ss-head{display:flex;align-items:flex-start;gap:16px;border-bottom:2px solid #111;padding-bottom:10px}
+  .ss-title{font-size:1.45rem;font-weight:800;line-height:1.15;letter-spacing:.01em}
+  .ss-sub{font-size:.9rem;color:#555;margin-top:2px}
+  .ss-onum{
+    margin-left:auto;flex:none;font-family:'Orbitron',sans-serif;font-weight:800;
+    font-size:1.3rem;padding:6px 14px;border:2px solid #111;border-radius:8px;
+  }
+  .ss-cols{display:grid;grid-template-columns:1fr 250px;gap:18px;margin-top:14px}
+  .ss-tab{width:100%;border-collapse:collapse;font-size:.86rem}
+  .ss-tab th{
+    text-align:left;width:150px;padding:5px 8px 5px 0;color:#444;font-weight:700;
+    border-bottom:1px solid #ddd;vertical-align:top;
+  }
+  .ss-tab td{padding:5px 0;border-bottom:1px solid #ddd;font-weight:600}
+  .ss-draw{
+    border:1px solid #bbb;border-radius:6px;padding:6px;background:#fafafa;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:170px;
+  }
+  .ss-draw img{max-width:100%;max-height:210px;display:block}
+  .ss-drawname{font-size:.7rem;color:#666;margin-top:5px;text-align:center;word-break:break-all}
+  .ss-wait{font-size:.8rem;color:#888}
+  .ss-sec{
+    margin:16px 0 7px;font-size:.78rem;font-weight:800;letter-spacing:.12em;
+    text-transform:uppercase;color:#111;border-bottom:2px solid #111;padding-bottom:3px;
+  }
+  .ss-tools{width:100%;border-collapse:collapse;font-size:.85rem}
+  .ss-tools th{background:#eee;text-align:left;padding:6px 8px;border:1px solid #bbb;font-weight:700}
+  .ss-tools td{padding:6px 8px;border:1px solid #bbb;height:26px}
+  .ss-notes{border:1px solid #bbb;border-radius:6px;min-height:74px;padding:8px;font-size:.86rem;white-space:pre-wrap}
+  .ss-foot{display:flex;justify-content:space-between;margin-top:14px;font-size:.72rem;color:#666}
+  @media print{
+    body{background:#fff !important}
+    body>*{display:none !important}
+    .modal#mSheet{display:block !important;position:static;background:none;padding:0;inset:auto}
+    .modal#mSheet .dialog{max-width:none;box-shadow:none;border:0;background:#fff;margin:0}
+    .modal#mSheet .dialog-body{padding:0 !important;max-height:none;overflow:visible}
+    .no-print{display:none !important}
+    .ss-page{padding:0;border-radius:0}
+    @page{size:A4 portrait;margin:12mm}
+  }
+
   /* ── masowa edycja danych ── */
   .bl-bar{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
   .bl-bar input{
@@ -1329,6 +1377,24 @@
         </svg>
         Dodaj wybrany rysunek
       </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── modal: karta ustawień do druku ───────────────────────────── -->
+<div class="modal" id="mSheet">
+  <div class="dialog" style="max-width:900px">
+    <div class="dialog-head no-print">
+      <h2>Karta ustawień</h2>
+      <button class="x-btn" data-close="mSheet">✕</button>
+    </div>
+    <div class="dialog-body" style="padding:0">
+      <div class="ss-page" id="ssBody"></div>
+    </div>
+    <div class="dialog-foot no-print">
+      <span class="pdf-note" style="flex:1">Wydruk wychodzi na jedną stronę A4 — bez tła aplikacji.</span>
+      <button class="btn" data-close="mSheet">Zamknij</button>
+      <button class="btn btn-primary" id="ssPrint">Drukuj</button>
     </div>
   </div>
 </div>
@@ -2905,6 +2971,12 @@ function renderGrid() {
               <circle cx="8.5" cy="8.5" r="1.5"></circle><path d="M21 15l-5-5L5 21"></path>
             </svg>
           </button>` : ""}
+          <button class="dir-btn" data-sheet="${p.id}" title="Karta ustawień do druku — narzędzia, dane detalu, rysunek">
+            <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M6 9V3h12v6M6 18v3h12v-3"></path>
+              <rect x="3" y="9" width="18" height="9" rx="2"></rect>
+            </svg>
+          </button>
           ${(window.native && p.dir) ? `<button class="dir-btn" data-openfolder="${p.id}" title="Otwórz folder programu w Eksploratorze">
             <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
               <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path>
@@ -3577,6 +3649,94 @@ async function matchAllPdfs() {
 }
 document.getElementById("btnMatchAll").addEventListener("click", matchAllPdfs);
 
+/* ── karta ustawień (setup sheet) ─────────────────────────────────────────
+   Jedna strona A4 na maszynę: narzędzia z korektorami, dane detalu, rysunek
+   i miejsce na uwagi. Operator dostaje kartkę zamiast klikania po ekranie. */
+async function openSetupSheet(id) {
+  const p = byId(id);
+  if (!p) return;
+
+  const tools = extractTools(p.code);
+  const offsets = extractOffsets(p.code);
+  const q = issueCount(p);
+  const codeLines = String(p.code || "").split("\n").filter(l => l.trim()).length;
+
+  // prędkości i posuwy wyłuskane z kodu — operator widzi, czego program używa
+  const speeds = [...new Set((String(p.code || "").match(/\bG9[67]\s*S\d+|\bG50\s*S\d+/gi) || [])
+    .map(x => x.replace(/\s+/g, " ").toUpperCase()))];
+  const feeds = [...new Set((String(p.code || "").match(/\bF\d*\.?\d+/gi) || [])
+    .map(x => x.toUpperCase()))].slice(0, 12);
+
+  const esc2 = s => esc(s || "");
+  const row = (k, v) => `<tr><th>${esc2(k)}</th><td>${v || "—"}</td></tr>`;
+
+  document.getElementById("ssBody").innerHTML = `
+    <div class="ss-head">
+      <div>
+        <div class="ss-title">${esc2(p.name || p.file)}</div>
+        <div class="ss-sub">${esc2(p.detail)}</div>
+      </div>
+      <div class="ss-onum">${esc2(p.onum)}</div>
+    </div>
+
+    <div class="ss-cols">
+      <table class="ss-tab">
+        ${row("Numer rysunku", esc2(p.drawing))}
+        ${row("Materiał", esc2(p.material))}
+        ${row("Klient", esc2(p.client))}
+        ${row("Plik", esc2((p.dir ? p.dir + "/" : "") + (p.file || "")))}
+        ${row("Zmieniono", fmtDate(p.modified))}
+        ${row("Układ współrzędnych", offsets.join(", "))}
+        ${row("Obroty w programie", speeds.join(" · "))}
+        ${row("Posuwy w programie", feeds.join(" · "))}
+        ${row("Linii kodu", String(codeLines))}
+        ${row("Kontrola", q.err || q.warn
+            ? [q.err ? `<b style="color:#b91c1c">${q.err} ${plural(q.err, "błąd", "błędy", "błędów")}</b>` : "",
+               q.warn ? `${q.warn} ${plural(q.warn, "ostrzeżenie", "ostrzeżenia", "ostrzeżeń")}` : ""]
+              .filter(Boolean).join(", ")
+            : "bez uwag")}
+      </table>
+      <div class="ss-draw" id="ssDraw">${(p.pdfs && p.pdfs.length)
+        ? '<div class="ss-wait">Wczytywanie rysunku…</div>'
+        : '<div class="ss-wait">Brak rysunku</div>'}</div>
+    </div>
+
+    <div class="ss-sec">Narzędzia</div>
+    <table class="ss-tools">
+      <tr><th>Narz.</th><th>Korektor</th><th>Opis z programu</th><th>Wylet / uwagi</th></tr>
+      ${tools.length ? tools.map(([t, com]) => {
+        const d = t.slice(1).padStart(3, "0");
+        return `<tr><td><b>${esc2(t)}</b></td><td>${esc2(d.slice(-2))}</td><td>${esc2(com)}</td><td></td></tr>`;
+      }).join("") : '<tr><td colspan="4">Nie znaleziono wywołań narzędzi w kodzie.</td></tr>'}
+    </table>
+
+    <div class="ss-sec">Mocowanie i uwagi</div>
+    <div class="ss-notes">${esc2(p.note)}</div>
+
+    <div class="ss-foot">
+      <span>${esc2(p.onum)} · ${esc2(p.name || p.file)}</span>
+      <span>Wydrukowano: ${fmtDate(Date.now())}</span>
+    </div>`;
+
+  openModal("mSheet");
+
+  // miniatura rysunku — pierwsza strona PDF-a przypisanego do programu
+  if (p.pdfs && p.pdfs.length) {
+    try {
+      const file = await pdfFileOf(p);
+      const url = file ? await makeThumb(file) : null;
+      const box = document.getElementById("ssDraw");
+      if (box) box.innerHTML = url
+        ? `<img src="${url}" alt=""><div class="ss-drawname">${esc2(p.pdfs[0])}</div>`
+        : '<div class="ss-wait">Nie udało się wczytać rysunku</div>';
+    } catch (e) {
+      const box = document.getElementById("ssDraw");
+      if (box) box.innerHTML = '<div class="ss-wait">Nie udało się wczytać rysunku</div>';
+    }
+  }
+}
+document.getElementById("ssPrint").addEventListener("click", () => window.print());
+
 /* ── masowa edycja danych programów ───────────────────────────────────────
    Numer rysunku jest wyciągany z komentarza w kodzie, ale w setkach starych
    programów go tam nie ma. Bez numeru nic się nie dopasuje, a wpisywanie
@@ -4175,6 +4335,8 @@ document.getElementById("grid").addEventListener("click", e => {
   }
   const ck = e.target.closest("[data-check]");
   if (ck) { showProgramCheck(ck.dataset.check); return; }
+  const sh = e.target.closest("[data-sheet]");
+  if (sh) { openSetupSheet(sh.dataset.sheet); return; }
   const th = e.target.closest("[data-pdfthumb]");
   if (th) { openPdfModal(th.dataset.pdfthumb); return; }
   const ap = e.target.closest("[data-addpdf]");
