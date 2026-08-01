@@ -138,6 +138,7 @@
   .op .nm{font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .op .nm i{color:var(--muted);font-style:normal;font-size:11px}
   .op .top input{accent-color:var(--brass);width:14px;height:14px;flex:none}
+  .op .wgr{font-size:10px;letter-spacing:.03em;margin:5px 0 0 20px;color:var(--cyan)}
   .op .sel{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:7px}
   .op select{width:100%;background:#11171d;border:1px solid var(--line);color:var(--muted);
     font-family:inherit;font-size:10.5px;padding:4px 5px;border-radius:4px;outline:none}
@@ -265,6 +266,36 @@
       </div>
 
       <div class="panel">
+        <h2>Płytki rowkowe</h2>
+        <div class="body">
+          <p style="font-size:11px;color:var(--muted);line-height:1.6;margin-bottom:12px">
+            Program prowadzi jeden narożnik płytki, więc rowek jest szerszy od toru
+            o jej szerokość. Szerokość czytana jest z komentarza narzędzia
+            (np. <b style="color:var(--brass-soft)">ROWKOWANIE WEW. 4</b>); poniższe pola
+            są używane, gdy w komentarzu jej nie ma.
+          </p>
+          <div class="two">
+            <div class="field">
+              <label>rowki zewn. <b>mm</b></label>
+              <input type="number" id="grvOut" step="0.1" min="0" value="0">
+            </div>
+            <div class="field">
+              <label>rowki wewn. <b>mm</b></label>
+              <input type="number" id="grvIn" step="0.1" min="0" value="0">
+            </div>
+          </div>
+          <div class="field" style="margin-bottom:0">
+            <label>płytka względem toru</label>
+            <select id="grvSide">
+              <option value="minus">szerzej w stronę −Z (typowe)</option>
+              <option value="plus">szerzej w stronę +Z</option>
+              <option value="sym">symetrycznie</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
         <h2>Program</h2>
         <div class="body">
           <div class="stats" id="stats"></div>
@@ -303,6 +334,8 @@
 const PALETTE = ['#e0a548','#46c7d8','#67c99a','#c98fe0','#e2685f','#8fb2e0','#e0c848','#5fd3c0','#e08f5f','#a0a8e0'];
 const RE_ID   = /WEW|WYTACZ|WIERT|ROZWIER|GWINTOWNIK|BOR(E|ING)|INTERN|\bID\b|DRILL|REAM/i;
 const RE_OD   = /ZEW|EXTERN|\bOD\b|PRZECINAK|ODCIN|FACE|CZOŁ|CZOL/i;
+/* narzędzia rowkowe — dla nich liczy się szerokość płytki, nie sam punkt toru */
+const RE_GROOVE = /ROWKOW|KANALEK|KANAŁEK|PRZECIN|ODCINA|GROOV|PARTING|\bSLOT\b/i;
 /* znacznik obrócenia detalu = początek kolejnego mocowania */
 const RE_SIDE2= /DRUG\w*\s+STRON|TRZEC\w*\s+STRON|CZWART\w*\s+STRON|STRONA\s*[2-4]|SIDE\s*[2-4]|2\s*GA\s*STRONA|REVERS/i;
 
@@ -353,8 +386,17 @@ function interpret(blocks, opt){
     op = { idx:ops.length, tool, label, comment:label, setup, side:setup % 2, kind:'auto',
            color:PALETTE[ops.length % PALETTE.length], on:true, act:true, flip:false,
            s0:segs.length, s1:segs.length,
-           toolDia:diaFromText(label) };
+           toolDia:diaFromText(label),
+           isGroove:RE_GROOVE.test(label||''), grooveW:grooveWFromText(label) };
     ops.push(op);
+  }
+  /* szerokość płytki rowkowej z komentarza, np. „(---ROWKOWANIE WEW. 4 FI32)” */
+  function grooveWFromText(t){
+    if(!t || !RE_GROOVE.test(t)) return null;
+    const m = t.match(/(?:ROWKOW\w*|KANALEK|KANAŁEK|PRZECINAK|ODCIN\w*|GROOV\w*|PARTING)[^0-9]*([0-9]+(?:[.,][0-9]+)?)/i);
+    if(!m) return null;
+    const w = parseFloat(m[1].replace(',','.'));
+    return (w > 0.2 && w < 30) ? w : null;         // odsiewamy np. „FI32” albo numer narzędzia
   }
   function diaFromText(t){
     if(!t) return null;
@@ -659,28 +701,60 @@ function simulate(model, opt){
   const inner = new Float64Array(nz).fill(0);
   const idx = z => (z + L)/dz;
   const kinds = {};                                   // op.idx -> 'od'|'id'
+  const widths = {};                                  // op.idx -> użyta szerokość płytki
 
   const setOD = (i,v) => { if(i>=0 && i<nz && v < outer[i]) outer[i] = Math.max(0,v); };
   const setID = (i,v) => { if(i>=0 && i<nz && v > inner[i]) inner[i] = Math.max(0,v); };
 
-  function applyLine(z0,r0,z1,r1,mode){
+  function applyLine(z0,r0,z1,r1,mode,put){
     if(z1 < z0){ const t=z0; z0=z1; z1=t; const q=r0; r0=r1; r1=q; }
     if(z1 < -L-dz || z0 > dz) return;
     const i0 = Math.ceil(idx(z0) - 1e-9), i1 = Math.floor(idx(z1) + 1e-9);
     if(i1 < i0){                                     // ruch krótszy niż plaster (np. promieniowy)
       const i = Math.round(idx((z0+z1)/2));
-      if(mode === 'od') setOD(i, Math.min(r0,r1)); else setID(i, Math.max(r0,r1));
+      put(i, mode === 'od' ? Math.min(r0,r1) : Math.max(r0,r1));
       return;
     }
     for(let i=clamp(i0,0,nz-1); i<=clamp(i1,0,nz-1); i++){
       const t = (z1-z0) < 1e-9 ? 0 : (zAtI(i)-z0)/(z1-z0);
-      const rr = r0 + (r1-r0)*clamp(t,0,1);
-      if(mode === 'od') setOD(i, rr); else setID(i, rr);
+      put(i, r0 + (r1-r0)*clamp(t,0,1));
     }
     // domknięcie na krańcach (ruch promieniowy na granicy plastra)
     if(Math.abs(z1-z0) < dz){
       const i = Math.round(idx((z0+z1)/2));
-      if(mode === 'od') setOD(i, Math.min(r0,r1)); else setID(i, Math.max(r0,r1));
+      put(i, mode === 'od' ? Math.min(r0,r1) : Math.max(r0,r1));
+    }
+  }
+  /* Przejście narzędzia rowkowego: program prowadzi jeden narożnik płytki,
+     a materiał schodzi na całej jej szerokości. Liczymy więc profil samego
+     przejścia i rozsuwamy go o szerokość płytki wzdłuż osi Z.              */
+  function applyPass(pass, mode){
+    const set = (mode === 'od') ? setOD : setID;
+    const w = pass.grooveW;
+    if(!(w > 0)){
+      for(const g of pass.lines) applyLine(g[0],g[1],g[2],g[3],mode,set);
+      return;
+    }
+    const tmp = new Float64Array(nz).fill(NaN);
+    const put = (mode === 'od')
+      ? (i,v) => { if(i>=0 && i<nz && !(tmp[i] <= v)) tmp[i] = Math.max(0,v); }
+      : (i,v) => { if(i>=0 && i<nz && !(tmp[i] >= v)) tmp[i] = Math.max(0,v); };
+    for(const g of pass.lines) applyLine(g[0],g[1],g[2],g[3],mode,put);
+    const k = clamp(Math.round(w/dz), 0, nz-1);
+    const side = opt.grvSide || 'minus';            // w którą stronę leży płytka
+    const from = side === 'plus' ? -k : (side === 'sym' ? -(k>>1) : 0);
+    const to   = side === 'plus' ?  0 : (side === 'sym' ?  k - (k>>1) : k);
+    for(let i=0;i<nz;i++){
+      let best = NaN;
+      for(let j=i+from; j<=i+to; j++){
+        if(j < 0 || j >= nz) continue;
+        const v = tmp[j];
+        if(v !== v) continue;                       // NaN = płytka tu nie dotarła
+        if(best !== best) best = v;
+        else if(mode === 'od') { if(v < best) best = v; }
+        else if(v > best) best = v;
+      }
+      if(best === best) set(i, best);
     }
   }
   function zAtI(i){ return -L + i*dz; }
@@ -717,7 +791,11 @@ function simulate(model, opt){
       pass.holeFrac = holeFraction(pass.zMin, pass.zMax);
       const mode = classifyPass(pass, op);
       kinds[op.idx] = kinds[op.idx] || mode;
-      for(const L2 of pass.lines) applyLine(L2[0],L2[1],L2[2],L2[3],mode);
+      // szerokość płytki: z komentarza narzędzia, a jak go nie ma — z ustawień
+      pass.grooveW = op.isGroove
+        ? (op.grooveW || (mode === 'id' ? opt.grvIn : opt.grvOut) || 0) : 0;
+      widths[op.idx] = pass.grooveW;
+      applyPass(pass, mode);
       pass = null;
     };
     for(let si=op.s0; si<op.s1; si++){
@@ -788,7 +866,7 @@ function simulate(model, opt){
   }
 
   for(let i=0;i<nz;i++){ if(inner[i] > outer[i]) inner[i] = outer[i]; }
-  return { nz, dz, L, R0, outer, inner, zAt:i => -L + i*dz, kinds, threads };
+  return { nz, dz, L, R0, outer, inner, zAt:i => -L + i*dz, kinds, widths, threads };
 }
 
 /* --------------------------------------------- profil (do 2D i do siatki) */
@@ -834,7 +912,8 @@ function rdp(pts, tol){
 const S = {
   text:'', fname:'', blocks:[], model:null, sim:null, polys:null,
   opt:{ dia:true, arcFlip:false, showRapid:true, mirror:true, showProfile:true,
-        trim:false, auto:true, stockD:100, stockL:100, onlyThis:false },
+        trim:false, auto:true, stockD:100, stockL:100, onlyThis:false,
+        grvOut:0, grvIn:0, grvSide:'minus' },
   view:'2d',
   setup:'all',            // 'all' = złożenie, albo numer mocowania
   stocks:{},              // zapamiętany materiał dla każdej karty
@@ -901,7 +980,8 @@ function rebuild(autoFit){
   $('#lblAutoD').textContent = 'auto ' + autoD;
   $('#lblAutoL').textContent = 'auto ' + autoL;
 
-  S.sim = simulate(S.model, { stockD:o.stockD, stockL:o.stockL });
+  S.sim = simulate(S.model, { stockD:o.stockD, stockL:o.stockL,
+                              grvOut:o.grvOut, grvIn:o.grvIn, grvSide:o.grvSide });
   S.polys = profilePolys(S.sim);
 
   // lista odcinków do odtwarzania
@@ -1563,6 +1643,7 @@ function buildOps(){
         <span class="nm">${esc(o.name)} <i>${o.tool!=null?('T'+o.tool):''}${
           (all && multi) ? ' · moc. '+(o.setup+1) : ''}</i></span>
       </div>
+      ${o.isGroove ? '<div class="wgr"></div>' : ''}
       <div class="sel">
         ${(all && multi) ? `<select data-k="side" title="Z której strony detal był trzymany w tym mocowaniu">
           <option value="0"${o.side===0?' selected':''}>ustawienie A</option>
@@ -1600,13 +1681,21 @@ function updateOpsBadges(){
     const k = S.sim.kinds[o.idx];
     const sel = el.querySelector('[data-k=kind]');
     if(sel && sel.options[0]) sel.options[0].textContent = k ? ('auto → ' + (k==='id'?'wewn.':'zewn.')) : 'auto';
+    const w = el.querySelector('.wgr');
+    if(w){
+      const val = S.sim.widths[o.idx];
+      w.textContent = val ? ('płytka ' + fmt(val,val%1?1:0) + ' mm' + (o.grooveW ? '' : ' (z ustawień)'))
+                          : 'brak szer. płytki';
+      w.style.color = val ? 'var(--cyan)' : 'var(--red)';
+    }
   });
 }
 /* przelicz bez ponownego parsowania (zachowuje ustawienia operacji) */
 function recompute(){
   const o = S.opt;
   applySetupFilter();
-  S.sim = simulate(S.model, { stockD:o.stockD, stockL:o.stockL });
+  S.sim = simulate(S.model, { stockD:o.stockD, stockL:o.stockL,
+                              grvOut:o.grvOut, grvIn:o.grvIn, grvSide:o.grvSide });
   S.polys = profilePolys(S.sim);
   S.mesh = null;
   buildStats(); buildWarns(); updateOpsBadges();
@@ -1648,6 +1737,13 @@ function buildWarns(){
     w.push('Gwint ' + (t.internal ? 'wewnętrzny' : 'zewnętrzny') + ': Ø' + fmt(t.rMajor*2,2) +
            ' × skok ' + fmt(t.pitch,2) + ' mm, Z ' +
            t.spans.map(s => fmt(s[0],1)+'…'+fmt(s[1],1)).join(', ') + ' — narysowany w 3D.');
+  }
+  const noW = S.model.ops.filter(o => o.act && o.isGroove && !(S.sim.widths[o.idx] > 0));
+  if(noW.length){
+    w.push('Nie udało się odczytać szerokości płytki dla: ' +
+           noW.map(o => o.name.slice(0,26)).join(', ') +
+           '. Rowek jest rysowany po samym torze narzędzia, czyli za wąsko — wpisz szerokość ' +
+           'płytki w panelu „Płytki rowkowe”.');
   }
   if(S.model.nSetups > 1){
     w.push(S.setup === 'all'
@@ -1772,6 +1868,16 @@ function boot(){
       else { S.mesh = null; draw2D(); if(S.view === '3d') draw3D(); }
     });
   }
+  ['grvOut','grvIn'].forEach(id => $('#'+id).addEventListener('input', e => {
+    const v = parseFloat(e.target.value);
+    S.opt[id] = (v >= 0 && v < 30) ? v : 0;
+    if(S.model){ recompute(); updateOpsBadges(); }
+  }));
+  $('#grvSide').addEventListener('change', e => {
+    S.opt.grvSide = e.target.value;
+    if(S.model){ recompute(); updateOpsBadges(); }
+  });
+
   ['stockD','stockL'].forEach(id => $('#'+id).addEventListener('input', e => {
     const v = parseFloat(e.target.value);
     if(!(v > 0)) return;

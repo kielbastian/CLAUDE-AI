@@ -70,6 +70,39 @@ Jest jeszcze przełącznik **„tylko obróbka z tego mocowania”**: pokazuje, 
 robi samo to mocowanie, na surowym materiale — przydatne, gdy chcesz zobaczyć
 wyłącznie jedną operację, bez tego, co było wcześniej.
 
+## Rowki i szerokość płytki
+
+Program prowadzi **jeden narożnik płytki rowkowej**, a materiał schodzi na całej
+jej szerokości — rowek jest więc szerszy od toru narzędzia o szerokość płytki.
+Aplikacja to uwzględnia.
+
+Szerokość jest czytana z komentarza narzędzia — z liczby zaraz za słowem
+`ROWKOWANIE` / `KANAŁEK` / `PRZECINAK` / `GROOVING`:
+
+```
+N4 T505 (---ROWKOWANIE WEW. 4 FI32)   ->  płytka 4 mm
+T1212 (--- ROWKOWANIE ZEW 3)          ->  płytka 3 mm
+```
+
+Przy każdej operacji rowkowania w liście po prawej widać, jaka szerokość
+została użyta. Jeśli w komentarzu jej nie ma, wpisuje się ją ręcznie w panelu
+**Płytki rowkowe** — osobno dla rowków zewnętrznych i wewnętrznych; wpisana
+wartość jest używana tylko tam, gdzie komentarz nic nie mówi.
+
+Domyślnie przyjmowane jest, że płytka leży **w stronę −Z** od zaprogramowanego
+punktu (tak liczy większość CAM-ów i tak wychodzi z wcinków zgrubnych w
+programach z tego warsztatu). Gdyby w Twoim postprocesorze było odwrotnie,
+przestaw to jednym rozwijakiem na `+Z` albo `symetrycznie`.
+
+Sprawdzenie na realnych programach — szerokość rowka wyliczona z konturu
+wykańczającego zgadza się z rozstawem wcinków zgrubnych co do 0,2 mm:
+
+| Rowek | tor narzędzia | z płytką | z wcinków zgrubnych |
+|---|---|---|---|
+| `ROWKOWANIE WEW. 4`, duży | 16,0 mm | **20,0 mm** | 20,0 mm |
+| `ROWKOWANIE WEW. 4`, pierwszy | 0,9 mm | **4,9 mm** | 5,3 mm |
+| `ROWKOWANIE ZEW 3` | 1,8 mm | **4,8 mm** | 5,5 mm |
+
 ## Gwinty
 
 Program rozpoznaje gwint z cyklu i dorysowuje go w 3D — na zewnątrz i w otworze.
@@ -98,8 +131,9 @@ To rysunek poglądowy — do sprawdzenia „czy i gdzie jest gwint”, nie do po
 - **Przejścia zgrubne cykli `G71`/`G72`/`G73` nie są rozwijane** — rysowany jest
   kontur wykańczający zapisany między blokami `P…Q…`. Dla obrazu detalu to
   wystarcza, ale to nie jest pełna symulacja czasu obróbki.
-- **Nie uwzględnia promienia płytki** (`G41`/`G42` są tylko sygnalizowane) —
-  rysunek idzie dokładnie po torze z programu.
+- **Nie uwzględnia promienia płytki tokarskiej** (`G41`/`G42` są tylko
+  sygnalizowane) — kontur toczony idzie dokładnie po torze z programu.
+  Uwzględniana jest natomiast **szerokość płytki rowkowej** (patrz niżej).
 - Frezowanie osią C i podprogramy są pokazane orientacyjnie; gwint ma zarys
   umowny (patrz wyżej).
 - Widok 3D to **symulacja poglądowa**, nie model CAD. Sprawdza się do
@@ -124,6 +158,8 @@ Panel po prawej ma wszystko, czego zwykle trzeba:
     geometrię — przy programach bez opisów warto to sprawdzić.
 - **Odwróć kierunek łuków G02/G03** — jeśli łuki wychodzą „w drugą stronę”
   (różne konwencje przy imaku przednim/tylnym).
+- **Płytki rowkowe** — szerokość płytki dla rowków zewnętrznych i wewnętrznych
+  oraz to, w którą stronę płytka leży względem toru.
 
 ## Uwagi techniczne
 
