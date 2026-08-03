@@ -20,12 +20,51 @@ Otwórz `wizualizator_nc.html` dwuklikiem w dowolnej przeglądarce, potem:
 | **Widok 3D** | Bryła detalu powstała z symulacji (obrót profilu) razem z gwintami. Obracasz myszką, kółko = zoom, przycisk **Przekrój** rozcina detal, żeby zobaczyć otwory, rowki i gwinty wewnętrzne. Powierzchnia cięcia jest pełna (na żółto) — nie widać przez nią środka detalu. |
 | **Kod NC** | Treść programu z numeracją; kliknięcie w linię przeskakuje do tego ruchu, a odtwarzanie podświetla aktualną linię. |
 
+Oba widoki pokazują detal w stanie na bieżący krok programu — patrz
+„Symulacja obróbki” niżej.
+
 Jeśli detal jest robiony na kilka mocowań, nad rysunkiem dochodzi drugi rząd
 kart — osobny model dla każdego mocowania plus złożenie (patrz niżej).
 
+## Symulacja obróbki
+
 Suwak na dole przewija program ruch po ruchu (`◀` `▶`, spacja = odtwarzanie,
-strzałki = krok). Opcja *„rysuj tylko do bieżącego kroku”* pokazuje ścieżkę
-narastająco. **Zapisz obraz PNG** zapisuje aktualny widok do pliku.
+strzałki = krok), a obok jest tempo od 0,25× do 8×. Przy włączonej opcji
+**„symulacja krok po kroku”** (domyślnie) materiał **ubywa na bieżąco** — w 2D
+i w 3D widać detal dokładnie w takim stanie, w jakim jest w danym momencie
+programu, a nie gotowy od początku. Suwak na końcu = detal gotowy; przycisk
+odtwarzania po dojściu do końca zaczyna od nowa.
+
+W widoku 2D rysowane jest też **narzędzie** w bieżącym położeniu: płytka
+o właściwym kącie naroża i promieniu, nóż rowkowy o zadanej szerokości,
+wiertło o swojej średnicy, płytka gwintowa — razem z oprawką albo wytaczakiem
+wchodzącym w otwór. Biała kropka to teoretyczny wierzchołek, czyli punkt,
+który prowadzi program.
+
+**Zapisz obraz PNG** zapisuje aktualny widok do pliku.
+
+## Narzędzia
+
+Rodzaj i wielkość narzędzia są czytane z komentarza przy `T`:
+
+| W komentarzu | Rozpoznane |
+|---|---|
+| `DCMT`, `WNMG`, `CNMG`, `TNMG`, `VBMT`… | kąt naroża płytki wg ISO (D=55°, C=80°, W=80°, T=60°, V=35°, S=90°) |
+| `TRYGONALNY`, `ROMB 55` | trygon 80°, romb 55° |
+| `R0.4`, `R0.8`, `… 0.4` | promień naroża |
+| `ROWKOWANIE WEW. 4`, `PRZECINAK 3` | nóż rowkowy i szerokość płytki |
+| `WIERTLO 30`, `WIERTLO FI 45` | wiertło i jego średnica |
+| `GWINTOWANIE` | płytka gwintowa |
+
+Przy każdej operacji w liście po prawej jest rozwijak z rodzajem narzędzia
+i pole z wymiarem (promień naroża / szerokość płytki / średnica wiertła) —
+można je poprawić ręcznie, gdy w komentarzu nic nie ma albo coś się nie zgadza.
+Panel **Narzędzia** trzyma wartości domyślne dla całego programu.
+
+**Promień naroża jest uwzględniany w symulacji**: wklęsłe naroża detalu dostają
+zaokrąglenie równe promieniowi płytki (tak jak w rzeczywistości), wypukłe
+zostają ostre. Domyślnie 0,4 mm — wpisz 0, jeśli chcesz kontur dokładnie po
+torze programu.
 
 ## Co jest rozumiane z programu
 
@@ -96,8 +135,8 @@ T1212 (--- ROWKOWANIE ZEW 3)          ->  płytka 3 mm
 ```
 
 Przy każdej operacji rowkowania w liście po prawej widać, jaka szerokość
-została użyta. Jeśli w komentarzu jej nie ma, wpisuje się ją ręcznie w panelu
-**Płytki rowkowe** — osobno dla rowków zewnętrznych i wewnętrznych; wpisana
+została użyta. Jeśli w komentarzu jej nie ma, wpisuje się ją przy operacji albo
+w panelu **Narzędzia** — osobno dla rowków zewnętrznych i wewnętrznych; wpisana
 wartość jest używana tylko tam, gdzie komentarz nic nie mówi.
 
 Domyślnie przyjmowane jest, że płytka leży **w stronę −Z** od zaprogramowanego
@@ -156,9 +195,9 @@ odpowiada zaprogramowanemu skokowi linii śrubowej (`F`), a nie podziałce zwoju
 - **Przejścia zgrubne cykli `G71`/`G72`/`G73` nie są rozwijane** — rysowany jest
   kontur wykańczający zapisany między blokami `P…Q…`. Dla obrazu detalu to
   wystarcza, ale to nie jest pełna symulacja czasu obróbki.
-- **Nie uwzględnia promienia płytki tokarskiej** (`G41`/`G42` są tylko
-  sygnalizowane) — kontur toczony idzie dokładnie po torze z programu.
-  Uwzględniana jest natomiast **szerokość płytki rowkowej** (patrz niżej).
+- **Korekcja `G41`/`G42` jest tylko sygnalizowana** — kontur idzie po torze
+  z programu. Uwzględniane są natomiast **promień naroża płytki** (zaokrągla
+  wklęsłe naroża) i **szerokość płytki rowkowej** (patrz niżej).
 - Frezowanie osią C i podprogramy są pokazane orientacyjnie; gwint ma zarys
   umowny (patrz wyżej).
 - Widok 3D to **symulacja poglądowa**, nie model CAD. Sprawdza się do
@@ -183,8 +222,9 @@ Panel po prawej ma wszystko, czego zwykle trzeba:
     geometrię — przy programach bez opisów warto to sprawdzić.
 - **Odwróć kierunek łuków G02/G03** — jeśli łuki wychodzą „w drugą stronę”
   (różne konwencje przy imaku przednim/tylnym).
-- **Płytki rowkowe** — szerokość płytki dla rowków zewnętrznych i wewnętrznych
-  oraz to, w którą stronę płytka leży względem toru.
+- **Narzędzia** — rodzaj i wymiar narzędzia przy każdej operacji, domyślny
+  promień naroża, szerokość płytek rowkowych i to, w którą stronę płytka
+  leży względem toru.
 
 ## Uwagi techniczne
 

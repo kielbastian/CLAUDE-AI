@@ -109,6 +109,9 @@
 
   .playbar{display:flex;align-items:center;gap:10px;padding:12px 16px;border-top:1px solid var(--line);flex-wrap:wrap}
   .playbar input[type=range]{flex:1;min-width:140px;accent-color:var(--brass);height:4px}
+  .playbar select{background:#0b0f13;border:1px solid var(--line);color:var(--muted);
+    font-family:inherit;font-size:11px;padding:6px 6px;border-radius:5px;outline:none}
+  .playbar select:focus{border-color:var(--cyan);color:var(--ink)}
   .playbar .pos{font-size:11px;color:var(--muted);min-width:150px}
   .playbar .pos b{color:var(--cyan);font-weight:500}
 
@@ -235,6 +238,11 @@
         <button id="btnPrev" disabled>◀</button>
         <button id="btnNext" disabled>▶</button>
         <input type="range" id="scrub" min="0" max="0" value="0" disabled>
+        <select id="speed" title="Tempo odtwarzania">
+          <option value="0.25">0,25×</option><option value="0.5">0,5×</option>
+          <option value="1" selected>1×</option><option value="2">2×</option>
+          <option value="4">4×</option><option value="8">8×</option>
+        </select>
         <div class="pos" id="posTxt">—</div>
       </div>
     </div>
@@ -260,19 +268,19 @@
           <label class="chk"><input type="checkbox" id="optRapid" checked><span>pokaż szybkie posuwy G00</span></label>
           <label class="chk"><input type="checkbox" id="optProfile" checked><span>pokaż przekrój materiału</span></label>
           <label class="chk" id="rowOnly" style="display:none"><input type="checkbox" id="optOnly"><span>tylko obróbka z tego mocowania (bez wcześniejszych)</span></label>
-          <label class="chk"><input type="checkbox" id="optTrim"><span>rysuj tylko do bieżącego kroku</span></label>
+          <label class="chk"><input type="checkbox" id="optTrim" checked><span>symulacja krok po kroku (ścieżka i materiał)</span></label>
           <label class="chk"><input type="checkbox" id="optArc"><span>odwróć kierunek łuków G02/G03</span></label>
         </div>
       </div>
 
       <div class="panel">
-        <h2>Płytki rowkowe</h2>
+        <h2>Narzędzia</h2>
         <div class="body">
           <p style="font-size:11px;color:var(--muted);line-height:1.6;margin-bottom:12px">
-            Program prowadzi jeden narożnik płytki, więc rowek jest szerszy od toru
-            o jej szerokość. Szerokość czytana jest z komentarza narzędzia
-            (np. <b style="color:var(--brass-soft)">ROWKOWANIE WEW. 4</b>); poniższe pola
-            są używane, gdy w komentarzu jej nie ma.
+            Rodzaj narzędzia i wymiary są czytane z komentarzy przy <b style="color:var(--brass-soft)">T</b>
+            (DCMT, WNMG, ROWKOWANIE 4, WIERTLO 30, GWINTOWANIE…) i można je poprawić przy
+            każdej operacji niżej. Poniższe pola służą jako wartości domyślne, gdy
+            w komentarzu nic nie ma.
           </p>
           <div class="two">
             <div class="field">
@@ -283,6 +291,10 @@
               <label>rowki wewn. <b>mm</b></label>
               <input type="number" id="grvIn" step="0.1" min="0" value="0">
             </div>
+          </div>
+          <div class="field">
+            <label>promień naroża noży <b>mm</b></label>
+            <input type="number" id="noseR" step="0.1" min="0" value="0.4">
           </div>
           <div class="field" style="margin-bottom:0">
             <label>płytka względem toru</label>
@@ -336,6 +348,12 @@ const RE_ID   = /WEW|WYTACZ|WIERT|ROZWIER|GWINTOWNIK|BOR(E|ING)|INTERN|\bID\b|DR
 const RE_OD   = /ZEW|EXTERN|\bOD\b|PRZECINAK|ODCIN|FACE|CZOŁ|CZOL/i;
 /* narzędzia rowkowe — dla nich liczy się szerokość płytki, nie sam punkt toru */
 const RE_GROOVE = /ROWKOW|KANALEK|KANAŁEK|PRZECIN|ODCINA|GROOV|PARTING|\bSLOT\b/i;
+const RE_THREADT= /GWINT|THREAD/i;
+const RE_DRILLT = /WIERT|DRILL|NAWIERT|ROZWIER/i;
+/* kąt naroża płytki wg pierwszej litery oznaczenia ISO (DCMT, WNMG, CNMG…) */
+const INSERT_ANG = { C:80, D:55, V:35, W:80, T:60, S:90, R:180, K:55, L:90, M:86, E:75 };
+const TOOL_NAMES = { turn:'nóż zewnętrzny', bore:'wytaczak', groove:'rowkowy / przecinak',
+                     thread:'gwintownik', drill:'wiertło' };
 /* znacznik obrócenia detalu = początek kolejnego mocowania */
 const RE_SIDE2= /DRUG\w*\s+STRON|TRZEC\w*\s+STRON|CZWART\w*\s+STRON|STRONA\s*[2-4]|SIDE\s*[2-4]|2\s*GA\s*STRONA|REVERS/i;
 
@@ -388,7 +406,32 @@ function interpret(blocks, opt){
            s0:segs.length, s1:segs.length,
            toolDia:diaFromText(label),
            isGroove:RE_GROOVE.test(label||''), grooveW:grooveWFromText(label) };
+    op.tl = toolFromText(label, op);            // rozpoznane narzędzie
     ops.push(op);
+  }
+  /* Rodzaj i wielkość narzędzia z komentarza:
+     „DCMT WEW. 32 R0.8”, „TOCZENIE ZEW. TRYGONALNY 0.4”, „ROWKOWANIE WEW. 4”… */
+  function toolFromText(t, o){
+    const s = t || '';
+    let kind = 'turn';
+    if(o.isGroove) kind = 'groove';
+    else if(RE_THREADT.test(s)) kind = 'thread';
+    else if(RE_DRILLT.test(s)) kind = 'drill';
+    else if(RE_ID.test(s) && !RE_OD.test(s)) kind = 'bore';
+    // oznaczenie płytki ISO — pierwsza litera daje kąt naroża
+    let shape = null;
+    const m = s.match(/\b([CDVWTSRKLME])[CNPRSTGBFMX][A-Z]{2}\b/i);
+    if(m) shape = m[1].toUpperCase();
+    else if(/TRYGON/i.test(s)) shape = 'W';
+    else if(/ROMB\s*55|\b55\s*\*/.test(s)) shape = 'D';
+    else if(/ROMB\s*80/.test(s)) shape = 'C';
+    // promień naroża: „R0.4” albo samo „0.4” na końcu opisu
+    let nose = null;
+    const r1 = s.match(/\bR\s*([0-9]+(?:[.,][0-9]+)?)/i);
+    if(r1) nose = parseFloat(r1[1].replace(',','.'));
+    else { const r2 = s.match(/(?:^|[\s.])([0-2][.,][0-9]+)(?![0-9])/); if(r2) nose = parseFloat(r2[1].replace(',','.')); }
+    if(nose !== null && !(nose > 0 && nose <= 3)) nose = null;
+    return { kind, shape, nose, auto:true };
   }
   /* szerokość płytki rowkowej z komentarza, np. „(---ROWKOWANIE WEW. 4 FI32)” */
   function grooveWFromText(t){
@@ -423,7 +466,7 @@ function interpret(blocks, opt){
       else if(RE_OD.test(thr.name) && !RE_ID.test(thr.name)) hint = 'od';
       // najgłębsze przejście: wewnętrzny -> największe X, zewnętrzny -> najmniejsze
       const rFinal = (hint === 'id') ? Math.max(...thr.passes) : Math.min(...thr.passes);
-      threads.push({ op:thr.op, line:thr.line, kind:thr.kind, zA:Math.min(thr.zA,thr.zB),
+      threads.push({ op:thr.op, line:thr.line, kind:thr.kind, seg:thr.seg, zA:Math.min(thr.zA,thr.zB),
                      zB:Math.max(thr.zA,thr.zB), rFinal, pitch:thr.pitch, height:null, hint });
       addWarn('thr','Wykryto gwintowanie ('+thr.kind+') — gwint jest dorysowany w widoku 3D; '+
                     'zarys jest umowny (ISO 60°), nie służy do pomiarów.');
@@ -494,7 +537,7 @@ function interpret(blocks, opt){
         const zTop = (cycleR !== null && cycleR !== undefined) ? cycleR : z;
         const dia  = (op && op.toolDia) || null;
         if(!dia) addWarn('drl','Nie udało się odczytać średnicy wiertła z komentarza (np. „WIERTLO FI 12”) — otwór pokazany orientacyjnie.');
-        holes.push({ z0:zTop, z1:zEnd, rPos, dia:dia||4, guessed:!dia,
+        holes.push({ z0:zTop, z1:zEnd, rPos, dia:dia||4, guessed:!dia, seg:segs.length+1,
                      angle:cAngle, op:op?op.idx:0, line:b.i, axial:(plane===18 || Math.abs(rPos)<1e-6) });
         push('rapid', [[z,r],[zTop,rPos]], b.i);
         push('drill', [[zTop,rPos],[zEnd,rPos]], b.i);
@@ -525,7 +568,7 @@ function interpret(blocks, opt){
       // wysokość zarysu: Fanuc — P w mikronach, Haas — K w mm
       const h = (W.P !== undefined && W.P >= 10) ? u(W.P)/1000
               : (W.K !== undefined && W.K > 0.05 && W.K < 20) ? u(W.K) : null;
-      threads.push({ op:op ? op.idx : 0, line:b.i, kind:'G76',
+      threads.push({ op:op ? op.idx : 0, line:b.i, kind:'G76', seg:segs.length,
                      zA:Math.min(z,tz), zB:Math.max(z,tz), rFinal:tr,
                      pitch:(W.F !== undefined ? u(W.F) : null), height:h,
                      hint:(RE_ID.test(op ? op.name||op.label : '') ? 'id' : null) });
@@ -544,6 +587,7 @@ function interpret(blocks, opt){
       thr.pitch = (W.F !== undefined) ? u(W.F) : (thr.pitch || (curF ? u(curF) : null));
       if(W.Z !== undefined || W.W !== undefined) thr.zB = tz;
       thr.passes.push(tr);
+      thr.seg = segs.length;
       push('thread', [[thr.zA,tr],[thr.zB,tr]], b.i);
       continue;                                    // narzędzie wraca do punktu startu cyklu
     }
@@ -555,6 +599,7 @@ function interpret(blocks, opt){
       thr.pitch = (W.F !== undefined) ? u(W.F) : (thr.pitch || (curF ? u(curF) : null));
       thr.zA = Math.min(thr.zA, z, tz); thr.zB = Math.max(thr.zB, z, tz);
       thr.passes.push(tr);
+      thr.seg = segs.length;
       push('thread', [[z,r],[tz,tr]], b.i);
       z = tz; r = tr;
       continue;
@@ -697,13 +742,15 @@ function classifyPass(pass, op){
 
 function simulate(model, opt){
   const L = opt.stockL, R0 = opt.stockD/2;
-  const nz = clamp(Math.round(L/0.05), 400, 4000);
+  const until = (opt.untilSeg === undefined || opt.untilSeg === null) ? Infinity : opt.untilSeg;
+  const nz = clamp(Math.round(L/(opt.coarse ? 0.15 : 0.05)), 400, 4000);
   const dz = L/(nz-1);
   const outer = new Float64Array(nz).fill(R0);
   const inner = new Float64Array(nz).fill(0);
   const idx = z => (z + L)/dz;
   const kinds = {};                                   // op.idx -> 'od'|'id'
   const widths = {};                                  // op.idx -> użyta szerokość płytki
+  const noses  = {};                                  // op.idx -> użyty promień naroża
 
   const setOD = (i,v) => { if(i>=0 && i<nz && v < outer[i]) outer[i] = Math.max(0,v); };
   const setID = (i,v) => { if(i>=0 && i<nz && v > inner[i]) inner[i] = Math.max(0,v); };
@@ -730,10 +777,47 @@ function simulate(model, opt){
   /* Przejście narzędzia rowkowego: program prowadzi jeden narożnik płytki,
      a materiał schodzi na całej jej szerokości. Liczymy więc profil samego
      przejścia i rozsuwamy go o szerokość płytki wzdłuż osi Z.              */
+  /* Zaokrąglenie naroży promieniem płytki: domknięcie morfologiczne kółkiem
+     o promieniu rn — wklęsłe naroża dostają promień, wypukłe zostają ostre. */
+  function noseClose(tmp, rn, mode){
+    const k = clamp(Math.round(rn/dz), 1, 300);
+    const out1 = new Float64Array(nz).fill(NaN);
+    const pass1 = (src, dst, znak) => {
+      for(let i=0;i<nz;i++){
+        let best = NaN;
+        for(let j=Math.max(0,i-k); j<=Math.min(nz-1,i+k); j++){
+          const v = src[j]; if(v !== v) continue;
+          const d = (j-i)*dz, h = Math.sqrt(Math.max(0, rn*rn - d*d));
+          const c = v + znak*h;
+          if(best !== best) best = c;
+          else if(znak > 0 ? c > best : c < best) best = c;
+        }
+        dst[i] = best;
+      }
+    };
+    const z1 = (mode === 'od') ? 1 : -1;
+    pass1(tmp, out1, z1);                       // rozszerzenie materiału o kółko
+    const out2 = new Float64Array(nz).fill(NaN);
+    pass1(out1, out2, -z1);                     // i zdjęcie go z powrotem
+    // Poza zasięgiem przejścia narzędzie nic nie zdejmuje, a na samych jego
+    // krańcach „wklęsłość” to koniec materiału (np. czoło), a nie naroże —
+    // tam zostawiamy tor bez zmian.
+    let i = 0;
+    while(i < nz){
+      while(i < nz && tmp[i] !== tmp[i]){ out2[i] = NaN; i++; }
+      if(i >= nz) break;
+      const a = i;
+      while(i < nz && tmp[i] === tmp[i]) i++;
+      const b = i-1;
+      for(let j=a; j<=Math.min(b, a+k); j++) out2[j] = tmp[j];
+      for(let j=Math.max(a, b-k); j<=b; j++) out2[j] = tmp[j];
+    }
+    return out2;
+  }
   function applyPass(pass, mode){
     const set = (mode === 'od') ? setOD : setID;
-    const w = pass.grooveW;
-    if(!(w > 0)){
+    const w = pass.grooveW, rn = pass.nose;
+    if(!(w > 0) && !(rn > 0)){
       for(const g of pass.lines) applyLine(g[0],g[1],g[2],g[3],mode,set);
       return;
     }
@@ -742,22 +826,30 @@ function simulate(model, opt){
       ? (i,v) => { if(i>=0 && i<nz && !(tmp[i] <= v)) tmp[i] = Math.max(0,v); }
       : (i,v) => { if(i>=0 && i<nz && !(tmp[i] >= v)) tmp[i] = Math.max(0,v); };
     for(const g of pass.lines) applyLine(g[0],g[1],g[2],g[3],mode,put);
-    const k = clamp(Math.round(w/dz), 0, nz-1);
-    const side = opt.grvSide || 'minus';            // w którą stronę leży płytka
-    const from = side === 'plus' ? -k : (side === 'sym' ? -(k>>1) : 0);
-    const to   = side === 'plus' ?  0 : (side === 'sym' ?  k - (k>>1) : k);
-    for(let i=0;i<nz;i++){
-      let best = NaN;
-      for(let j=i+from; j<=i+to; j++){
-        if(j < 0 || j >= nz) continue;
-        const v = tmp[j];
-        if(v !== v) continue;                       // NaN = płytka tu nie dotarła
-        if(best !== best) best = v;
-        else if(mode === 'od') { if(v < best) best = v; }
-        else if(v > best) best = v;
+    let prof = tmp;
+    if(w > 0){                                      // płytka rowkowa — szerokość
+      const k = clamp(Math.round(w/dz), 0, nz-1);
+      const side = opt.grvSide || 'minus';          // w którą stronę leży płytka
+      const from = side === 'plus' ? -k : (side === 'sym' ? -(k>>1) : 0);
+      const to   = side === 'plus' ?  0 : (side === 'sym' ?  k - (k>>1) : k);
+      const out = new Float64Array(nz).fill(NaN);
+      for(let i=0;i<nz;i++){
+        let best = NaN;
+        for(let j=i+from; j<=i+to; j++){
+          if(j < 0 || j >= nz) continue;
+          const v = tmp[j];
+          if(v !== v) continue;                     // NaN = płytka tu nie dotarła
+          if(best !== best) best = v;
+          else if(mode === 'od') { if(v < best) best = v; }
+          else if(v > best) best = v;
+        }
+        out[i] = best;
       }
-      if(best === best) set(i, best);
+      prof = out;
+    } else if(rn > 0){                              // nóż tokarski — promień naroża
+      prof = noseClose(tmp, rn, mode);
     }
+    for(let i=0;i<nz;i++) if(prof[i] === prof[i]) set(i, prof[i]);
   }
   function zAtI(i){ return -L + i*dz; }
   /* ile procent długości przejścia ma już wykonany otwór (warunek wejścia
@@ -774,6 +866,7 @@ function simulate(model, opt){
   for(const h of model.holes){
     const op = model.ops[h.op] || { act:true, side:0 };
     if(!op.act) continue;
+    if(h.seg > until) continue;                        // jeszcze nie wywiercony
     kinds[h.op] = 'id';
     if(!h.axial || h.rPos > 0.2) continue;             // otwory na okręgu -> tylko wizualnie
     const f = sideXf(op, L);
@@ -781,6 +874,15 @@ function simulate(model, opt){
     const rr = h.dia/2;
     const zA = Math.min(a[0],b[0]), zB = Math.max(a[0],b[0]);
     for(let i=clamp(Math.ceil(idx(zA)),0,nz-1); i<=clamp(Math.floor(idx(zB)),0,nz-1); i++) setID(i, rr);
+  }
+
+  /* wymiary narzędzi — niezależnie od tego, dokąd doszła symulacja kroku */
+  for(const op of model.ops){
+    if(!op.act) continue;
+    const m = (op.kind === 'id') ? 'id' : (op.kind === 'od' ? 'od' : (opIsInternal(op) ? 'id' : 'od'));
+    widths[op.idx] = op.isGroove ? (op.grooveW || (m === 'id' ? opt.grvIn : opt.grvOut) || 0) : 0;
+    noses[op.idx]  = (!op.isGroove && op.tl && op.tl.kind !== 'drill' && op.tl.kind !== 'thread')
+                     ? (op.tl.nose || opt.nose || 0) : 0;
   }
 
   /* --- grupowanie ruchów roboczych w przejścia ----------------------- */
@@ -797,10 +899,15 @@ function simulate(model, opt){
       pass.grooveW = op.isGroove
         ? (op.grooveW || (mode === 'id' ? opt.grvIn : opt.grvOut) || 0) : 0;
       widths[op.idx] = pass.grooveW;
+      // promień naroża noża tokarskiego (rowkowe mają własną obsługę)
+      pass.nose = (!op.isGroove && op.tl && op.tl.kind !== 'drill' && op.tl.kind !== 'thread')
+        ? (op.tl.nose || opt.nose || 0) : 0;
+      noses[op.idx] = pass.nose;
       applyPass(pass, mode);
       pass = null;
     };
     for(let si=op.s0; si<op.s1; si++){
+      if(si > until){ flush(); break; }
       const s = model.segs[si];
       if(s.type === 'home') continue;
       // wiercenie i gwintowanie mają własną obsługę — nie zgaduj tu materiału
@@ -824,7 +931,7 @@ function simulate(model, opt){
   const threads = [];
   for(const t of (model.threads || [])){
     const op = model.ops[t.op] || { act:true, side:0, kind:'auto' };
-    if(!op.act) continue;
+    if(!op.act || t.seg > until) continue;
     const f = sideXf(op, L);
     let zA = f([t.zA,0])[0], zB = f([t.zB,0])[0];
     if(zA > zB){ const q = zA; zA = zB; zB = q; }
@@ -868,7 +975,7 @@ function simulate(model, opt){
   }
 
   for(let i=0;i<nz;i++){ if(inner[i] > outer[i]) inner[i] = outer[i]; }
-  return { nz, dz, L, R0, outer, inner, zAt:i => -L + i*dz, kinds, widths, threads };
+  return { nz, dz, L, R0, outer, inner, zAt:i => -L + i*dz, kinds, widths, noses, threads };
 }
 
 /* --------------------------------------------- profil (do 2D i do siatki) */
@@ -914,8 +1021,8 @@ function rdp(pts, tol){
 const S = {
   text:'', fname:'', blocks:[], model:null, sim:null, polys:null,
   opt:{ dia:true, arcFlip:false, showRapid:true, mirror:true, showProfile:true,
-        trim:false, auto:true, stockD:100, stockL:100, onlyThis:false,
-        grvOut:0, grvIn:0, grvSide:'minus' },
+        trim:true, auto:true, stockD:100, stockL:100, onlyThis:false,
+        grvOut:0, grvIn:0, grvSide:'minus', nose:0.4, speed:1 },
   view:'2d',
   setup:'all',            // 'all' = złożenie, albo numer mocowania
   v2:{ ox:0, oy:0, sc:3, ready:false },
@@ -989,15 +1096,13 @@ function rebuild(autoFit){
   $('#lblAutoD').textContent = 'auto ' + autoD;
   $('#lblAutoL').textContent = 'auto ' + autoL;
 
-  S.sim = simulate(S.model, { stockD:o.stockD, stockL:o.stockL,
-                              grvOut:o.grvOut, grvIn:o.grvIn, grvSide:o.grvSide });
-  S.polys = profilePolys(S.sim);
-
-  // lista odcinków do odtwarzania
+  // lista odcinków do odtwarzania (potrzebna symulacji „do bieżącego kroku”)
   S.drawable = [];
   S.model.segs.forEach((s,i) => { if(s.type !== 'home') S.drawable.push(i); });
   $('#scrub').max = Math.max(0, S.drawable.length-1);
   if(S.step > S.drawable.length-1) S.step = S.drawable.length-1;
+
+  simUpTo(false);
 
   buildStats();
   buildWarns();
@@ -1196,17 +1301,13 @@ function draw2D(){
   };
   for(const i of S.drawable){ if(i > upTo) break; drawSeg(S.model.segs[i]); }
 
-  /* znacznik bieżącego kroku */
+  /* narzędzie w bieżącym położeniu */
   if(S.step >= 0 && S.step < S.drawable.length){
     const s = S.model.segs[S.drawable[S.step]];
+    const op = S.model.ops[s.op];
     const pts = worldPts(s, S.model.ops, L);
     const p = pts[pts.length-1];
-    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.4*dpr;
-    ctx.beginPath(); ctx.arc(X(p[0]), Y(p[1]), 5.5*dpr, 0, 6.2832); ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(X(p[0])-11*dpr, Y(p[1])); ctx.lineTo(X(p[0])+11*dpr, Y(p[1]));
-    ctx.moveTo(X(p[0]), Y(p[1])-11*dpr); ctx.lineTo(X(p[0]), Y(p[1])+11*dpr);
-    ctx.globalAlpha=.6; ctx.stroke(); ctx.globalAlpha=1;
+    drawTool(ctx, X, Y, v.sc, dpr, op, p, s, mir);
   }
 
   /* opisy osi */
@@ -1216,6 +1317,76 @@ function draw2D(){
     ctx.fillText('Z'+fmt(z, gs<1?1:0), X(z)+3*dpr, H-6*dpr);
   }
   for(let r = gs; r <= rB; r += gs) ctx.fillText('Ø'+fmt(r*2,0), 5*dpr, Y(r)-3*dpr);
+}
+
+/* ---------------------------------------------------------- rysunek noża
+   Narzędzie rysowane jest w skali detalu: płytka o właściwym kącie naroża
+   i promieniu, rowkowa o zadanej szerokości, wiertło o swojej średnicy.   */
+function drawTool(ctx, X, Y, sc, dpr, op, p, seg){
+  const tl = op.tl || { kind:'turn' };
+  const wewn = (tl.kind === 'bore') || (S.sim && S.sim.kinds[op.idx] === 'id' && tl.kind !== 'turn');
+  const zn = wewn ? -1 : 1;              // w którą stronę od toru leży korpus narzędzia
+  const z = p[0], r = p[1];
+  const skala = clamp(S.opt.stockD*0.09, 1.5, 9);      // rozmiar płytki w skali detalu
+  const dlOpr = clamp(S.opt.stockD*0.55, 15, 90);      // długość oprawki
+  const rys = (poly, wyp, kol) => {
+    ctx.beginPath();
+    poly.forEach((q,i) => i ? ctx.lineTo(X(q[0]), Y(q[1])) : ctx.moveTo(X(q[0]), Y(q[1])));
+    ctx.closePath();
+    ctx.fillStyle = wyp || 'rgba(224,165,72,.32)'; ctx.fill();
+    ctx.strokeStyle = kol || '#f2c878'; ctx.lineWidth = 1.3*dpr; ctx.stroke();
+  };
+  const oprawka = (rOd, dl) => {         // korpus/wytaczak — zawsze wzdłuż osi, w stronę +Z
+    const t = skala*0.9;
+    rys([[z, rOd], [z+dl, rOd], [z+dl, rOd+zn*t], [z, rOd+zn*t]], 'rgba(126,144,159,.22)', 'rgba(154,183,205,.55)');
+  };
+
+  if(tl.kind === 'groove'){
+    const w = (S.sim && S.sim.widths[op.idx]) || op.grooveW || 2;
+    const h = skala;
+    const s0 = S.opt.grvSide === 'plus' ? 0 : (S.opt.grvSide === 'sym' ? -w/2 : -w);
+    rys([[z+s0, r], [z+s0+w, r], [z+s0+w, r+zn*h], [z+s0, r+zn*h]]);
+    oprawka(r + zn*h, dlOpr);
+  } else if(tl.kind === 'drill'){
+    const d = (op.toolDia || 6)/2, wys = d/Math.tan(59*Math.PI/180);
+    rys([[z, r], [z+wys, r+d], [z+wys+dlOpr, r+d], [z+wys+dlOpr, r-d], [z+wys, r-d]]);
+  } else if(tl.kind === 'thread'){
+    const h = skala*0.8, pol = Math.tan(30*Math.PI/180)*h;
+    rys([[z, r], [z-pol, r+zn*h], [z+pol, r+zn*h]]);
+    oprawka(r + zn*h, dlOpr);
+  } else {
+    // Płytka tokarska: kąt naroża z oznaczenia ISO, promień naroża z opisu.
+    // Krawędzie wychodzą z wierzchołka pod ±kąt/2 od dwusiecznej, naroże jest
+    // łukiem stycznym do obu krawędzi.
+    const kat = (INSERT_ANG[tl.shape] || 80) * Math.PI/180;
+    const rn = (S.sim && S.sim.noses[op.idx]) || tl.nose || 0;
+    const bok = skala;
+    const fi = Math.atan2(zn, 0.35);               // dwusieczna: od wierzchołka w korpus
+    const obr = (a,d) => [ Math.cos(a+d), Math.sin(a+d) ];
+    const d1 = obr(fi, kat/2), d2 = obr(fi, -kat/2);
+    const poly = [];
+    if(rn > 1e-6){
+      const lt = rn/Math.tan(kat/2);               // odległość punktu styczności od wierzchołka
+      const c = [ z + Math.cos(fi)*(rn/Math.sin(kat/2)), r + Math.sin(fi)*(rn/Math.sin(kat/2)) ];
+      const t1 = [ z + d1[0]*lt, r + d1[1]*lt ], t2 = [ z + d2[0]*lt, r + d2[1]*lt ];
+      let a1 = Math.atan2(t1[1]-c[1], t1[0]-c[0]), a2 = Math.atan2(t2[1]-c[1], t2[0]-c[0]);
+      let d = a2 - a1;                             // łuk krótszą stroną, przez wierzchołek
+      while(d >  Math.PI) d -= 2*Math.PI;
+      while(d < -Math.PI) d += 2*Math.PI;
+      for(let i=0;i<=12;i++){
+        const a = a1 + d*i/12;
+        poly.push([ c[0] + Math.cos(a)*rn, c[1] + Math.sin(a)*rn ]);
+      }
+    } else poly.push([z, r]);
+    const k1 = poly[0], k2 = poly[poly.length-1];
+    rys([ ...poly,
+          [ k2[0] + d2[0]*bok, k2[1] + d2[1]*bok ],
+          [ z + Math.cos(fi)*bok*1.7, r + Math.sin(fi)*bok*1.7 ],
+          [ k1[0] + d1[0]*bok, k1[1] + d1[1]*bok ] ]);
+    oprawka(r + zn*bok*1.6, dlOpr);
+  }
+  ctx.beginPath(); ctx.arc(X(z), Y(r), 2.4*dpr, 0, 6.2832);   // teoretyczny wierzchołek
+  ctx.fillStyle = '#fff'; ctx.fill();
 }
 
 /* -------------------------------------------------------- interakcja 2D */
@@ -1677,7 +1848,16 @@ function buildOps(){
         <span class="nm">${esc(o.name)} <i>${o.tool!=null?('T'+o.tool):''}${
           (all && multi) ? ' · moc. '+(o.setup+1) : ''}</i></span>
       </div>
-      ${o.isGroove ? '<div class="wgr"></div>' : ''}
+      <div class="wgr"></div>
+      <div class="sel">
+        <select data-k="tk" title="Rodzaj narzędzia — używany w symulacji i do rysunku noża">
+          ${Object.entries(TOOL_NAMES).map(([k,n]) =>
+            `<option value="${k}"${o.tl.kind===k?' selected':''}>${n}</option>`).join('')}
+        </select>
+        <input type="number" data-k="tw" step="0.1" min="0" title="${
+          o.tl.kind==='groove' ? 'szerokość płytki [mm]' : (o.tl.kind==='drill' ? 'średnica [mm]' : 'promień naroża [mm]')}"
+          value="${o.tl.kind==='groove' ? (o.grooveW||'') : (o.tl.kind==='drill' ? (o.toolDia||'') : (o.tl.nose||''))}">
+      </div>
       <div class="sel">
         ${(all && multi) ? `<select data-k="side" title="Z której strony detal był trzymany w tym mocowaniu">
           <option value="0"${o.side===0?' selected':''}>ustawienie A</option>
@@ -1705,6 +1885,21 @@ function buildOps(){
       buildOps(); updateOpsBadges();
     });
     el.querySelector('[data-k=kind]').addEventListener('change', e => { o.kind = e.target.value; recompute(); });
+    // rodzaj narzędzia i jego wymiar
+    el.querySelector('[data-k=tk]').addEventListener('change', e => {
+      o.tl.kind = e.target.value; o.tl.auto = false;
+      o.isGroove = (o.tl.kind === 'groove');
+      buildOps(); recompute(); updateOpsBadges();
+    });
+    el.querySelector('[data-k=tw]').addEventListener('input', e => {
+      const v = parseFloat(e.target.value);
+      const ok = (v > 0 && v < 200) ? v : null;
+      if(o.tl.kind === 'groove') o.grooveW = ok;
+      else if(o.tl.kind === 'drill'){ o.toolDia = ok; for(const h of S.model.holes) if(h.op === o.idx && ok) h.dia = ok; }
+      else o.tl.nose = ok;
+      o.tl.auto = false;
+      recompute(); updateOpsBadges();
+    });
   });
 }
 function updateOpsBadges(){
@@ -1716,22 +1911,32 @@ function updateOpsBadges(){
     const sel = el.querySelector('[data-k=kind]');
     if(sel && sel.options[0]) sel.options[0].textContent = k ? ('auto → ' + (k==='id'?'wewn.':'zewn.')) : 'auto';
     const w = el.querySelector('.wgr');
-    if(w){
-      const val = S.sim.widths[o.idx];
-      w.textContent = val ? ('płytka ' + fmt(val,val%1?1:0) + ' mm' + (o.grooveW ? '' : ' (z ustawień)'))
-                          : 'brak szer. płytki';
-      w.style.color = val ? 'var(--cyan)' : 'var(--red)';
+    if(w && o.tool === null){ w.textContent = ''; }
+    else if(w){
+      const gw = S.sim.widths[o.idx], rn = S.sim.noses[o.idx];
+      let txt = '', col = 'var(--cyan)';
+      if(o.tl.kind === 'groove'){
+        txt = gw ? ('płytka ' + fmt(gw, gw%1?1:0) + ' mm' + (o.grooveW ? '' : ' (z ustawień)'))
+                 : 'brak szerokości płytki';
+        if(!gw) col = 'var(--red)';
+      } else if(o.tl.kind === 'drill'){
+        txt = o.toolDia ? ('wiertło Ø' + fmt(o.toolDia, o.toolDia%1?1:0)) : 'brak średnicy wiertła';
+        if(!o.toolDia) col = 'var(--red)';
+      } else if(o.tl.kind === 'thread'){
+        txt = 'płytka gwintowa';
+      } else {
+        txt = (rn ? ('R' + fmt(rn,1) + (o.tl.nose ? '' : ' (z ustawień)')) : 'bez promienia naroża') +
+              (o.tl.shape ? (' · płytka ' + o.tl.shape + ' ' + (INSERT_ANG[o.tl.shape]||'?') + '°') : '');
+      }
+      w.textContent = txt;
+      w.style.color = col;
     }
   });
 }
 /* przelicz bez ponownego parsowania (zachowuje ustawienia operacji) */
 function recompute(){
-  const o = S.opt;
   applySetupFilter();
-  S.sim = simulate(S.model, { stockD:o.stockD, stockL:o.stockL,
-                              grvOut:o.grvOut, grvIn:o.grvIn, grvSide:o.grvSide });
-  S.polys = profilePolys(S.sim);
-  S.mesh = null;
+  simUpTo(false);
   buildStats(); buildWarns(); updateOpsBadges();
   draw2D();
   if(S.view === '3d') draw3D();
@@ -1805,31 +2010,61 @@ function buildWarns(){
 /* ==========================================================================
    10. ODTWARZANIE
    ========================================================================== */
-function setStep(k){
+/* materiał w stanie „po bieżącym kroku” — to jest właściwa symulacja obróbki */
+function simUpTo(coarse){
+  const o = S.opt;
+  const until = (o.trim && S.step >= 0) ? S.drawable[S.step] : undefined;
+  S.sim = simulate(S.model, { stockD:o.stockD, stockL:o.stockL, untilSeg:until, coarse:!!coarse,
+                              grvOut:o.grvOut, grvIn:o.grvIn, grvSide:o.grvSide, nose:o.nose });
+  S.polys = profilePolys(S.sim);
+  S.mesh = null;
+}
+function setStep(k, szybko){
   S.step = clamp(k, -1, S.drawable.length-1);
   $('#scrub').value = Math.max(0,S.step);
   const s = (S.step >= 0) ? S.model.segs[S.drawable[S.step]] : null;
   if(s){
     const op = S.model.ops[s.op];
     const p = s.pts[s.pts.length-1];
-    const typ = s.type === 'rapid' ? 'G00' : (s.type === 'drill' ? 'wiercenie' : 'posuw');
+    const typ = s.type === 'rapid' ? 'G00' : (s.type === 'drill' ? 'wiercenie'
+              : (s.type === 'thread' ? 'gwint' : 'posuw'));
     $('#posTxt').innerHTML = 'linia <b>'+(s.line+1)+'</b> · '+typ+' · Z <b>'+fmt(p[0],2)+'</b> Ø <b>'+fmt(Math.abs(p[1])*2,2)+'</b> · '+esc(op.name.slice(0,22));
     markLine(s.line);
   } else $('#posTxt').textContent = '—';
+
+  if(S.opt.trim) simUpTo(szybko);          // zdejmowanie materiału krok po kroku
   draw2D();
+  if(S.view === '3d'){
+    // siatka 3D jest droga — w trakcie odtwarzania przebudowujemy ją rzadziej
+    const teraz = performance.now();
+    if(!szybko || teraz - (S.last3d||0) > (S.cost3d||0)*2 + 60){ S.last3d = teraz; draw3D(); S.cost3d = performance.now()-teraz; }
+  }
 }
 function play(){
   if(S.playing){ stop(); return; }
+  if(S.step >= S.drawable.length-1) setStep(-1);      // od końca — zacznij od nowa
   S.playing = true; $('#btnPlay').textContent = '❚❚ Pauza';
+  const dlugosc = i => {                              // droga ruchu w mm
+    const s = S.model.segs[S.drawable[i]]; let d = 0;
+    for(let k=0;k<s.pts.length-1;k++) d += Math.hypot(s.pts[k+1][0]-s.pts[k][0], s.pts[k+1][1]-s.pts[k][1]);
+    return d;
+  };
   const tick = () => {
     if(!S.playing) return;
     if(S.step >= S.drawable.length-1){ stop(); return; }
-    setStep(S.step+1);
-    S.timer = setTimeout(tick, 26);
+    setStep(S.step+1, true);
+    const s = S.model.segs[S.drawable[S.step]];
+    // czas proporcjonalny do drogi — szybki posuw idzie prędzej niż skrawanie
+    const v = (s.type === 'rapid') ? 900 : 120;       // mm/s w skali podglądu
+    const ms = clamp(dlugosc(S.step)/v*1000/S.opt.speed, 8, 400/S.opt.speed);
+    S.timer = setTimeout(tick, ms);
   };
   tick();
 }
-function stop(){ S.playing = false; clearTimeout(S.timer); $('#btnPlay').textContent = '▶ Odtwarzaj'; }
+function stop(){
+  S.playing = false; clearTimeout(S.timer); $('#btnPlay').textContent = '▶ Odtwarzaj';
+  if(S.model && S.opt.trim){ simUpTo(false); draw2D(); if(S.view === '3d') draw3D(); }   // pełna rozdzielczość
+}
 
 /* ==========================================================================
    11. UI
@@ -1901,7 +2136,8 @@ function boot(){
     $('#'+id).addEventListener('change', e => {
       S.opt[key] = e.target.checked;
       if(!S.model) return;
-      if(key === 'onlyThis'){ S.opt.auto = true; $('#optAuto').checked = true; rebuild(true); buildOps(); updateOpsBadges(); if(S.view === '3d') draw3D(); }
+      if(key === 'trim'){ recompute(); draw2D(); if(S.view === '3d') draw3D(); }
+      else if(key === 'onlyThis'){ S.opt.auto = true; $('#optAuto').checked = true; rebuild(true); buildOps(); updateOpsBadges(); if(S.view === '3d') draw3D(); }
       else if(key === 'dia' || key === 'arcFlip') rebuild(false);
       else if(key === 'auto') rebuild(false);
       else { S.mesh = null; draw2D(); if(S.view === '3d') draw3D(); }
@@ -1912,6 +2148,12 @@ function boot(){
     S.opt[id] = (v >= 0 && v < 30) ? v : 0;
     if(S.model){ recompute(); updateOpsBadges(); }
   }));
+  $('#noseR').addEventListener('input', e => {
+    const v = parseFloat(e.target.value);
+    S.opt.nose = (v >= 0 && v <= 3) ? v : 0;
+    if(S.model){ recompute(); updateOpsBadges(); }
+  });
+  $('#speed').addEventListener('change', e => { S.opt.speed = parseFloat(e.target.value) || 1; });
   $('#grvSide').addEventListener('change', e => {
     S.opt.grvSide = e.target.value;
     if(S.model){ recompute(); updateOpsBadges(); }
@@ -1925,7 +2167,9 @@ function boot(){
     if(S.model){ S.camInit = false; recompute(); }
   }));
 
-  $('#scrub').addEventListener('input', e => { stop(); setStep(+e.target.value); });
+  // w trakcie przeciągania liczymy zgrubnie, po puszczeniu — dokładnie
+  $('#scrub').addEventListener('input', e => { stop(); setStep(+e.target.value, true); });
+  $('#scrub').addEventListener('change', e => setStep(+e.target.value));
   $('#btnPlay').addEventListener('click', play);
   $('#btnPrev').addEventListener('click', () => { stop(); setStep(S.step-1); });
   $('#btnNext').addEventListener('click', () => { stop(); setStep(S.step+1); });
