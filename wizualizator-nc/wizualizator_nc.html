@@ -918,7 +918,6 @@ const S = {
         grvOut:0, grvIn:0, grvSide:'minus' },
   view:'2d',
   setup:'all',            // 'all' = złożenie, albo numer mocowania
-  stocks:{},              // zapamiętany materiał dla każdej karty
   v2:{ ox:0, oy:0, sc:3, ready:false },
   step:-1, drawable:[], playing:false, timer:null,
   gl:null, sec:false, showPath3:false, cam:{ th:-0.9, ph:0.5, dist:300, cx:0, cy:0, cz:0 }
@@ -931,7 +930,7 @@ function loadText(text, name){
   S.text = text; S.fname = name || 'program.nc';
   S.blocks = parseProgram(text);
   $('#opsList').innerHTML = '';                 // lista z poprzedniego programu
-  S.camInit = false; S.setup = 'all'; S.stocks = {}; S.opt.auto = true;
+  S.camInit = false; S.setup = 'all'; S.opt.auto = true;
   $('#optAuto').checked = true;
   rebuild(true);
   $('#empty').style.display = 'none';
@@ -957,6 +956,11 @@ function applySetupFilter(){
     o.flip = (o.side !== ref);
   }
 }
+/* Wszystkie operacje w układzie złożenia — materiał (pręt) jest jeden dla
+   całego programu, więc auto-dobór liczymy zawsze z całości, nie z karty.  */
+function applyFullFilter(){
+  for(const o of S.model.ops){ o.act = o.on; o.flip = (o.side !== 0); }
+}
 
 function rebuild(autoFit){
   const o = S.opt;
@@ -967,15 +971,17 @@ function rebuild(autoFit){
     S.model.ops.forEach((x,i) => { x.on = prev[i].on; x.kind = prev[i].kind; x.side = prev[i].side; });
   }
   if(S.setup !== 'all' && S.setup >= S.model.nSetups) S.setup = 'all';
-  applySetupFilter();
 
-  // automatyczny dobór materiału (z ruchów roboczych — G00 to tylko dojazdy)
+  // Auto-dobór materiału liczymy z CAŁEGO programu — na każdej karcie widać
+  // ten sam pręt, tylko z inną ilością obróbki.
+  applyFullFilter();
   const bCut = bounds(S.model, 0, false);
   const gl = guessLength(setupLengths(S.model));
   S.styk = gl.styk;
   // średnicę bierzemy z toczenia wzdłużnego — planowanie często zaczyna się w powietrzu
   const autoD = Math.max(1, Math.ceil(axialCutR(S.model)*2) || Math.ceil(bCut.r1*2));
   const autoL = Math.max(1, Math.ceil(gl.L));
+  applySetupFilter();
   if(o.auto){
     o.stockD = autoD; o.stockL = autoL;
     $('#stockD').value = o.stockD; $('#stockL').value = o.stockL;
@@ -1650,13 +1656,8 @@ function buildSetupTabs(){
 }
 function switchSetup(v){
   if(v === S.setup) return;
-  // materiał zapamiętujemy osobno dla każdej karty
-  S.stocks[S.setup] = { d:S.opt.stockD, l:S.opt.stockL, auto:S.opt.auto };
+  // materiał jest wspólny dla wszystkich kart — ręcznie wpisany zostaje
   S.setup = v;
-  const st = S.stocks[v];
-  if(st){ S.opt.stockD = st.d; S.opt.stockL = st.l; S.opt.auto = st.auto; }
-  else S.opt.auto = true;
-  $('#optAuto').checked = S.opt.auto;
   S.camInit = false; S.step = -1;
   document.querySelectorAll('#setupTabs .schip').forEach(el =>
     el.classList.toggle('on', (el.dataset.s === 'all' ? 'all' : +el.dataset.s) === v));

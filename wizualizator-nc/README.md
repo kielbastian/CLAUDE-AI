@@ -76,6 +76,11 @@ Jest jeszcze przełącznik **„tylko obróbka z tego mocowania”**: pokazuje, 
 robi samo to mocowanie, na surowym materiale — przydatne, gdy chcesz zobaczyć
 wyłącznie jedną operację, bez tego, co było wcześniej.
 
+**Materiał jest wspólny dla wszystkich kart** — to jeden pręt, z którego
+powstaje detal, więc na każdej karcie widać go tak samo, tylko z coraz większą
+ilością obróbki. Auto-dobór liczy się z całego programu, a wpisana ręcznie
+średnica i długość obowiązuje na wszystkich kartach.
+
 ## Rowki i szerokość płytki
 
 Program prowadzi **jeden narożnik płytki rowkowej**, a materiał schodzi na całej
