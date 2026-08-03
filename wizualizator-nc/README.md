@@ -133,9 +133,23 @@ Jak to jest liczone:
 - **zewnętrzny czy wewnętrzny** — z kierunku kolejnych przejść i z komentarza
   narzędzia; można wymusić ręcznie przełącznikiem przy operacji.
 
-Uproszczenia: zarys jest symetryczny ISO 60° (bez wybiegu, luzu wierzchołka
-i fazy najazdu), gwint przyjmowany jest jako **prawozwojny jednokrotny**.
-To rysunek poglądowy — do sprawdzenia „czy i gdzie jest gwint”, nie do pomiarów.
+**Skok jest odwzorowany co do setnej.** Gwint to prawdziwa powierzchnia
+śrubowa, nie rząd pierścieni: odległość między wierzchołkami wzdłuż osi równa
+się skokowi z programu, a jeden obrót to dokładnie jeden skok. Zmierzone na
+gotowej siatce 3D:
+
+| Gwint | skok z `F` | zmierzony odstęp wierzchołków | przesunięcie 0°/180° |
+|---|---|---|---|
+| M42×2 zewn. | 2 mm | 2,0000 mm (min 2,0000, max 2,0000) | 1,00 mm = ½ skoku |
+| M48×3 wewn. | 3 mm | 3,0000 mm (min 3,0000, max 3,0001) | 1,50 mm = ½ skoku |
+| M58×1,5 zewn. | 1,5 mm | 1,5000 mm (min 1,4999, max 1,5000) | 0,75 mm = ½ skoku |
+| M85×2 zewn. | 2 mm | 2,0000 mm (min 1,9999, max 2,0000) | 1,00 mm = ½ skoku |
+
+Uproszczenia dotyczą **kształtu zęba, nie podziałki**: zarys jest symetryczny
+ISO 60° (płaski wierzchołek P/8, dno P/4), bez wybiegu i fazy najazdu, kąt
+zarysu nie jest czytany z `A` przy `G76`. Gwint przyjmowany jest jako
+**prawozwojny jednokrotny** — przy gwincie wielokrotnym rysowana podziałka
+odpowiada zaprogramowanemu skokowi linii śrubowej (`F`), a nie podziałce zwoju.
 
 ## Czego program **nie** robi (i dobrze o tym wiedzieć)
 
