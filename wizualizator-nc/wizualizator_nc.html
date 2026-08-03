@@ -458,6 +458,7 @@ function interpret(blocks, opt){
       else if(gi===20) inch = true;
       else if(gi===21) inch = false;
       else if(gi===53) machine = true;
+      else if(gi===28||gi===30) machine = true;   // powrót do punktu referencyjnego
       else if(gi===80){ cycle = null; hasG80 = true; }
       else if(gi>=81 && gi<=89){ cycle = gi; }
       else if(gi===70||gi===71||gi===72||gi===73||gi===74||gi===75){
@@ -513,7 +514,8 @@ function interpret(blocks, opt){
     if(W.X !== undefined) tr = abs ? xr(u(W.X)) : r + xr(u(W.X));
     if(W.U !== undefined) tr = r + xr(u(W.U));
 
-    if(machine){                                   // G53 — dojazd do bazy maszyny
+    if(machine){                    // G53 / G28 / G30 — zjazd do bazy maszyny
+      closeThread();                // taki blok kończy też cykl gwintowania
       push('home', [[z,r],[tz,tr]], b.i);
       continue;                                    // pozycji roboczej nie zmieniamy
     }
@@ -969,10 +971,11 @@ function rebuild(autoFit){
 
   // automatyczny dobór materiału (z ruchów roboczych — G00 to tylko dojazdy)
   const bCut = bounds(S.model, 0, false);
-  const len = setupLengths(S.model);
+  const gl = guessLength(setupLengths(S.model));
+  S.styk = gl.styk;
   // średnicę bierzemy z toczenia wzdłużnego — planowanie często zaczyna się w powietrzu
   const autoD = Math.max(1, Math.ceil(axialCutR(S.model)*2) || Math.ceil(bCut.r1*2));
-  const autoL = Math.max(1, Math.ceil(Math.max(len[0], len[1])));
+  const autoL = Math.max(1, Math.ceil(gl.L));
   if(o.auto){
     o.stockD = autoD; o.stockL = autoL;
     $('#stockD').value = o.stockD; $('#stockL').value = o.stockL;
@@ -1011,18 +1014,48 @@ function axialCutR(model){
   }
   return r;
 }
-/* najgłębsze Z osiągnięte z każdej strony detalu (w mm, jako długość) */
+/* czy operacja zbiera materiał od środka (do oceny długości detalu) */
+function opIsInternal(o){
+  if(o.kind === 'id') return true;
+  if(o.kind === 'od') return false;
+  const t = o.name || '';
+  return RE_ID.test(t) && !RE_OD.test(t);
+}
+/* najgłębsze Z osiągnięte z każdej strony detalu (w mm, jako głębokość),
+   osobno dla obróbki zewnętrznej i wewnętrznej                            */
 function setupLengths(model){
-  let a = 0, b = 0;
+  const g = { a:0, b:0, odA:0, odB:0, idA:0, idB:0 };
   for(const s of model.segs){
     if(s.type === 'home') continue;
     const o = model.ops[s.op];
     if(!o.act) continue;
+    const id = opIsInternal(o);
     for(const p of s.pts){
-      if(o.flip){ if(p[0] < b) b = p[0]; } else if(p[0] < a) a = p[0];
+      const d = -p[0];                       // głębokość liczona od czoła mocowania
+      if(d <= 0) continue;
+      if(o.flip){
+        if(d > g.b) g.b = d;
+        if(id){ if(d > g.idB) g.idB = d; } else if(d > g.odB) g.odB = d;
+      } else {
+        if(d > g.a) g.a = d;
+        if(id){ if(d > g.idA) g.idA = d; } else if(d > g.odA) g.odA = d;
+      }
     }
   }
-  return [-a, -b];
+  return g;
+}
+/* Długość detalu z programu. Domyślnie wystarczy zasięg głębszego mocowania,
+   ale gdy oba mocowania toczą z zewnątrz tak głęboko, że musiałyby wejść
+   sobie w drogę, to znaczy, że detal jest dłuższy — stykają się w środku.  */
+function guessLength(g){
+  let L = Math.max(g.a, g.b), styk = false;
+  if(g.odA > 0 && g.odB > 0){
+    const suma = g.odA + g.odB;
+    // otwór wiercony/wytaczany z obu stron to ten sam otwór — on ogranicza długość
+    const limit = (g.idA > 0 && g.idB > 0) ? (g.idA + g.idB) : Infinity;
+    if(suma - L > 0.5*L && suma <= limit){ L = suma; styk = true; }
+  }
+  return { L:Math.max(1, L), styk };
 }
 
 /* ==========================================================================
@@ -1744,6 +1777,11 @@ function buildWarns(){
            noW.map(o => o.name.slice(0,26)).join(', ') +
            '. Rowek jest rysowany po samym torze narzędzia, czyli za wąsko — wpisz szerokość ' +
            'płytki w panelu „Płytki rowkowe”.');
+  }
+  if(S.styk && S.opt.auto){
+    w.push('Obróbka z obu mocowań nie zmieściłaby się na jednym końcu, więc przyjęto, że ' +
+           'mocowania stykają się w środku detalu — długość ' + fmt(S.opt.stockL,0) + ' mm. ' +
+           'Jeśli detal ma inną długość, wpisz ją ręcznie.');
   }
   if(S.model.nSetups > 1){
     w.push(S.setup === 'all'

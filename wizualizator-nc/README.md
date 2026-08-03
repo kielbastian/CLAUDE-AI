@@ -32,7 +32,8 @@ narastająco. **Zapisz obraz PNG** zapisuje aktualny widok do pliku.
 - ruchy `G00`, `G01`, łuki `G02`/`G03` (promień `R` oraz `I`/`K`),
 - płaszczyzny `G17`/`G18`, `G90`/`G91`, `G20`/`G21` (cal/mm), `U`/`W` przyrostowo,
 - `X` jako **średnica** (można przełączyć na promień),
-- `G53` — dojazdy do bazy maszyny są pomijane w rysunku,
+- `G53`, `G28`, `G30` — zjazdy do bazy maszyny są pomijane w rysunku
+  (i kończą cykl gwintowania, żeby `G28 U0` nie wpadło jako kolejne przejście),
 - cykle wiercenia `G81`–`G89` + `G80`; średnica wiertła czytana z komentarza
   narzędzia (np. `T707 (--- WIERTLO FI45)`), również otwory na okręgu
   (oś C, `M19 R…`) — pokazywane jako otwory w bryle 3D,
@@ -57,9 +58,14 @@ mocowania, a nad rysunkiem pojawia się dodatkowy rząd kart:
 
 Dwie rzeczy do sprawdzenia przy kilku mocowaniach:
 
-- **Długość materiału.** Z samego programu nie da się wyliczyć, jak głęboko
-  mocowania na siebie zachodzą — wpisz długość detalu ręcznie, jeśli auto
-  nie trafiło.
+- **Długość materiału.** Z samego programu nie da się jej wyliczyć na pewno.
+  Domyślnie wystarczy zasięg głębszego mocowania — tak jest, gdy detal ma
+  otwór na wylot albo gdy jedno mocowanie robi tylko czoło. Jeśli natomiast
+  **oba mocowania toczą z zewnątrz tak głęboko, że musiałyby wejść sobie
+  w drogę**, aplikacja przyjmuje, że stykają się w środku detalu (długość =
+  suma zasięgów) i pisze o tym w Uwagach. Bez tego np. tłoczysko gwintowane
+  z dwóch stron wychodziło jako jeden cienki pręt. Jeśli detal ma inną
+  długość — wpisz ją ręcznie.
 - **Ustawienie A / B** przy operacji (widoczne na karcie „złożenie”).
   Domyślnie przyjmowane jest, że każde `(DRUGA STRONA)` to obrót detalu,
   więc mocowania idą na przemian A, B, A… Jeśli któreś mocowanie w
